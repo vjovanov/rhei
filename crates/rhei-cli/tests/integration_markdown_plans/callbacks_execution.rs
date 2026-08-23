@@ -193,7 +193,8 @@ transitions:
 fn callback_rejection_surfaces_spec_error_message() {
     // A callback returns `{"success": false, "error": "..."}` per the spec;
     // the CLI should surface the message verbatim and leave the plan unchanged.
-    let machine_yaml = r#"name: spec-rejection
+    let machine_yaml = format!(
+        r#"name: spec-rejection
 version: 1
 states:
   pending:
@@ -207,10 +208,14 @@ states:
 transitions:
   - from: pending
     to: in-progress
-    on_leave: 'cli:printf ''{"success": false, "error": "dep not met"}'''
+    on_leave: {callback}
   - from: in-progress
     to: completed
-"#;
+"#,
+        callback = python_callback_yaml(
+            "import json,sys;sys.stdout.write(json.dumps({'success': False, 'error': 'dep not met'}))"
+        )
+    );
     let dir = unique_temp_dir("callback-spec-rejection");
     let plan = r#"# Rhei: Spec Rejection Test
 
@@ -220,7 +225,7 @@ transitions:
 **State:** pending
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
     let result =
         run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);

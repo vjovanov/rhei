@@ -984,7 +984,6 @@ transitions: []
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn optional_tooling_availability_preserves_prompt_env_and_log_visibility() {
         let machine = machine_with_states(
@@ -1097,13 +1096,10 @@ states:
             Some("false")
         );
 
-        let script = write_quiet_fake_agent(runtime_dir.path());
+        let command = write_quiet_fake_agent(runtime_dir.path());
         let log_path = runtime_dir.path().join("agent.log");
         let log_resolved = ResolvedAgent {
-            profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
-                ..Default::default()
-            },
+            profile: CustomAgentProfile { command, ..Default::default() },
             ..resolved
         };
         spawn_and_wait_agent(
@@ -1140,15 +1136,16 @@ states:
         let settings_dir = dir.path().join(".agents/rhei");
         fs::create_dir_all(&settings_dir).expect("mkdir");
         let spawned = dir.path().join("spawned");
-        let script = dir.path().join("fake-agent.sh");
-        fs::write(&script, format!("#!/bin/sh\ntouch '{}'\n", spawned.display())).expect("script");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&script).expect("metadata").permissions();
-            perms.set_mode(0o755);
-            fs::set_permissions(&script, perms).expect("chmod");
-        }
+        // The path is JSON-encoded, which is also a Python string literal, so a
+        // backslash in a Windows path cannot escape into the fixture.
+        let command = python_fixture_command(
+            dir.path(),
+            "fake-agent",
+            &format!(
+                "import pathlib\n\npathlib.Path({}).touch()\n",
+                serde_json::to_string(spawned.to_string_lossy().as_ref()).expect("json")
+            ),
+        );
         fs::write(
             &plan,
             r#"# Rhei: Missing Skill
@@ -1186,7 +1183,7 @@ transitions:
                 r#"{{
                   "agents": {{
                     "fake": {{
-                      "command": [{}],
+                      "command": {},
                       "prompt_flag": "--prompt"
                     }}
                   }},
@@ -1194,7 +1191,7 @@ transitions:
                     "missing": {{ "path": {} }}
                   }}
                 }}"#,
-                serde_json::to_string(script.to_string_lossy().as_ref()).expect("json"),
+                serde_json::to_string(&command).expect("json"),
                 serde_json::to_string(
                     dir.path().join("does-not-exist").to_string_lossy().as_ref()
                 )

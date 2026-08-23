@@ -7,6 +7,9 @@
 
 // §FS-rhei-run.2.6 §FS-rhei-run.3.2
 
+// Unix-only: what is under test is the wait order of a contended `flock` and
+// whether the run's own signal handler can reach it — a POSIX advisory lock and
+// a POSIX signal, neither of which Windows has.
 #![cfg(unix)]
 
 use std::fs;

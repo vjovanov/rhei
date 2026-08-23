@@ -228,9 +228,9 @@ fn run_workspace_parallel_to_completion() {
 }
 
 #[test]
-fn run_bash_agent_team_fixture_to_completion() {
+fn run_script_agent_team_fixture_to_completion() {
     let (_dir, workspace_path, machine_path) =
-        copy_workspace_fixture("run-bash-agent-team", "bash-agent-team");
+        copy_workspace_fixture("run-script-agent-team", "script-agent-team");
 
     assert!(
         workspace_path.starts_with(repo_root().join("scratchpad")),
@@ -262,7 +262,7 @@ fn run_bash_agent_team_fixture_to_completion() {
 
     // Callbacks receive the project-qualified id, so ticket-keyed artifact
     // paths carry it — the same key space a narrowed reset matches on.
-    for task_id in &["bash-agent-team.1", "bash-agent-team.2", "bash-agent-team.3"] {
+    for task_id in &["script-agent-team.1", "script-agent-team.2", "script-agent-team.3"] {
         let artifact_dir = workspace_path.join(format!("runtime/artifacts/task-{task_id}"));
         assert!(
             artifact_dir.join("40-complete.txt").exists(),
@@ -339,32 +339,35 @@ fn run_living_review_loop_fixture_to_completion() {
 #[test]
 fn run_applies_task_model_and_target_overrides_to_agent_processes() {
     let dir = unique_temp_dir("run-task-execution-overrides");
-    let agent_script = write_fixture_file(
+    let agent_script = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        r#"#!/bin/sh
-set -eu
-workspace="$(dirname "$RHEI_PLAN_PATH")"
-mkdir -p "$workspace/runtime/logs"
-printf 'task=%s model=%s target=%s mode=%s agent=%s provider=%s name=%s\n' \
-  "${RHEI_TASK_ID:-}" "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" "${RHEI_AGENT_MODE:-}" \
-  "${RHEI_AGENT:-}" "${RHEI_MODEL_PROVIDER:-}" "${RHEI_MODEL_NAME:-}" \
-  >> "$workspace/runtime/logs/override-agent.log"
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
+        "mock-agent.py",
+        r#"workspace = pathlib.Path(env('RHEI_PLAN_PATH')).parent
+append(
+    workspace / 'runtime' / 'logs' / 'override-agent.log',
+    'task={} model={} target={} mode={} agent={} provider={} name={}\n'.format(
+        env('RHEI_TASK_ID'),
+        env('RHEI_MODEL'),
+        env('RHEI_TARGET'),
+        env('RHEI_AGENT_MODE'),
+        env('RHEI_AGENT'),
+        env('RHEI_MODEL_PROVIDER'),
+        env('RHEI_MODEL_NAME'),
+    ),
+)
+result('## Result\n\nMock agent finished.\n')
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    let command = fixture_command(&agent_script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{
     "mock": {{
-      "command": ["sh", {script_json}],
+      "command": {command},
       "timeout": "5s",
       "modes": {{
         "yolo": [],
@@ -474,28 +477,25 @@ states:
 #[test]
 fn run_uses_task_override_for_transition_output_artifact_checks() {
     let dir = unique_temp_dir("run-task-override-output-checks");
-    let agent_script = write_fixture_file(
+    let agent_script = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        r#"#!/bin/sh
-set -eu
-workspace="$(dirname "$RHEI_PLAN_PATH")"
-mkdir -p "$workspace/runtime/outputs" "$(dirname "$RHEI_RESULT_PATH")"
-printf 'model=%s\n' "${RHEI_MODEL:-}" > "$workspace/runtime/outputs/${RHEI_MODEL}.txt"
-printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
+        "mock-agent.py",
+        r#"workspace = pathlib.Path(env('RHEI_PLAN_PATH')).parent
+model = env('RHEI_MODEL')
+write(workspace / 'runtime' / 'outputs' / (model + '.txt'), 'model={}\n'.format(model))
+result('## Result\n\nMock agent finished.\n')
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    let command = fixture_command(&agent_script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{
     "mock": {{
-      "command": ["sh", {script_json}],
+      "command": {command},
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}
@@ -546,27 +546,23 @@ transitions:
 #[test]
 fn run_does_not_create_agent_work_from_task_override_in_callback_state() {
     let dir = unique_temp_dir("run-task-override-callback-only");
-    let agent_script = write_fixture_file(
+    let agent_script = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        r#"#!/bin/sh
-set -eu
-workspace="$(dirname "$RHEI_PLAN_PATH")"
-mkdir -p "$workspace/runtime/logs"
-printf 'unexpected agent spawn\n' >> "$workspace/runtime/logs/agent.log"
+        "mock-agent.py",
+        r#"workspace = pathlib.Path(env('RHEI_PLAN_PATH')).parent
+append(workspace / 'runtime' / 'logs' / 'agent.log', 'unexpected agent spawn\n')
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    let command = fixture_command(&agent_script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{
     "mock": {{
-      "command": ["sh", {script_json}],
+      "command": {command},
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}
@@ -609,30 +605,27 @@ transitions:
 #[test]
 fn run_cli_model_override_supersedes_task_target_model() {
     let dir = unique_temp_dir("run-cli-model-over-task-target");
-    let agent_script = write_fixture_file(
+    let agent_script = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        r#"#!/bin/sh
-set -eu
-workspace="$(dirname "$RHEI_PLAN_PATH")"
-mkdir -p "$workspace/runtime/logs"
-printf 'model=%s target=%s\n' "${RHEI_MODEL:-}" "${RHEI_TARGET:-}" \
-  >> "$workspace/runtime/logs/agent.log"
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
+        "mock-agent.py",
+        r#"workspace = pathlib.Path(env('RHEI_PLAN_PATH')).parent
+append(
+    workspace / 'runtime' / 'logs' / 'agent.log',
+    'model={} target={}\n'.format(env('RHEI_MODEL'), env('RHEI_TARGET')),
+)
+result('## Result\n\nMock agent finished.\n')
 "#,
     );
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    let command = fixture_command(&agent_script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "agents": {{
     "mock": {{
-      "command": ["sh", {script_json}],
+      "command": {command},
       "timeout": "5s",
       "modes": {{
         "yolo": [],
@@ -698,15 +691,22 @@ fn run_executes_program_states_and_routes_on_exit_code() {
 ### Task 1: Build artifact
 **State:** build
 "#;
-    let machine = r#"name: program-demo
+    let dir = unique_temp_dir("run-program-state");
+    let program = write_python_agent(
+        &dir,
+        "build.py",
+        r#"write(pathlib.Path(env('RHEI_ROOT')) / 'runtime' / 'program-1.txt', 'ok\n')
+result('## Result\n\nBuilt the artifact.\n')
+"#,
+    );
+    let machine = format!(
+        r#"name: program-demo
 version: 1
 states:
   build:
     description: Build the artifact
-    program: >-
-      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
-      && echo ok > runtime/program-1.txt
-      && printf '## Result\n\nBuilt the artifact.\n' > "$RHEI_RESULT_PATH"
+    program:
+      command: {command}
   completed:
     description: Done
     final: true
@@ -720,11 +720,12 @@ transitions:
   - from: build
     to: failed
     exit_code: nonzero
-"#;
+"#,
+        command = fixture_command(&program)
+    );
 
-    let dir = unique_temp_dir("run-program-state");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -755,27 +756,30 @@ fn run_counted_self_loop_terminates_at_visit_budget() {
 ### Task 1: Tick
 **State:** tick
 "#;
-    let machine = r#"name: counted-self-loop
+    let dir = unique_temp_dir("run-counted-self-loop");
+    let program = write_python_agent(&dir, "tick.py", "result('## Result\\n\\nTicked.\\n')\n");
+    let machine = format!(
+        r#"name: counted-self-loop
 version: 1
 states:
   tick:
     initial: true
     description: Counted program self-loop
-    program: >-
-      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-      && printf '## Result\n\nTicked.\n' > "$RHEI_RESULT_PATH"
+    program:
+      command: {command}
     visits: 3
   done:
     description: Done
     final: true
 transitions:
-  - { from: tick, to: tick, condition: visitCount < visits }
-  - { from: tick, to: done, condition: visitCount >= visits }
-"#;
+  - {{ from: tick, to: tick, condition: visitCount < visits }}
+  - {{ from: tick, to: done, condition: visitCount >= visits }}
+"#,
+        command = fixture_command(&program)
+    );
 
-    let dir = unique_temp_dir("run-counted-self-loop");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -999,10 +1003,10 @@ transitions:
 }
 
 #[test]
-fn reset_bash_agent_team_fixture_restores_initial_state() {
+fn reset_script_agent_team_fixture_restores_initial_state() {
     let (_dir, workspace_path, machine_path) =
-        copy_workspace_fixture("reset-bash-agent-team", "bash-agent-team");
-    let source_fixture = fixture_path("bash-agent-team");
+        copy_workspace_fixture("reset-script-agent-team", "script-agent-team");
+    let source_fixture = fixture_path("script-agent-team");
 
     let run_result = run_cli("run", &workspace_path, &machine_path, &[]);
     assert_success(&run_result);
@@ -1422,34 +1426,29 @@ fn a_stalled_ticket_does_not_starve_its_siblings_or_respawn_without_bound() {
         .expect("write task file");
     }
 
-    let agent_script = write_fixture_file(
+    let agent_script = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        r#"#!/bin/sh
-set -eu
-root="${RHEI_ROOT:?}"
-mkdir -p "$root/runtime/logs" "$root/runtime/out"
-printf '%s\n' "${RHEI_TASK_ID:-}" >> "$root/runtime/logs/spawns.log"
+        "mock-agent.py",
+        r#"root = pathlib.Path(env('RHEI_ROOT'))
+task = env('RHEI_TASK_ID')
+append(root / 'runtime' / 'logs' / 'spawns.log', task + '\n')
 # Tickets 1 and 2 exit 0 having written nothing: they fail the completion
 # condition and stay put. Everyone else finishes.
-case "${RHEI_TASK_ID:-}" in
-  workspace.1|workspace.2) exit 0 ;;
-esac
-printf 'done\n' > "$root/runtime/out/${RHEI_TASK_ID}.md"
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nFinished.\n' > "$RHEI_RESULT_PATH"
+if task in ('workspace.1', 'workspace.2'):
+    sys.exit(0)
+write(root / 'runtime' / 'out' / (task + '.md'), 'done\n')
+result('## Result\n\nFinished.\n')
 "#,
     );
     let settings_dir = workspace.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
+    let command = fixture_command(&agent_script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "10s" }} }}
+  "agents": {{ "mock": {{ "command": {command}, "timeout": "10s" }} }}
 }}"#
         ),
     )

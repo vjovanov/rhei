@@ -1,6 +1,13 @@
-// §AR-source-file-size.3: signal, timeout, and lost-output shutdown cases for
-// `rhei run`, with the process-supervision harness they alone use. Every case
-// here is unix-only, so its imports are gated the same way.
+// §AR-source-file-size.3
+
+// Signal, timeout, and lost-output shutdown cases for `rhei run`, with the
+// process-supervision harness they alone use.
+//
+// Unix-only, and the whole file with it: every case delivers a POSIX signal
+// (`SIGTERM`, `SIGINT`, `SIGKILL`) to a process group, or hangs up a pty, and
+// asserts on what the group does about it. Windows has neither, and the harness
+// that spawns, signals, and reaps those groups is shared by all of them — so
+// the imports are gated the same way.
 
 #[cfg(unix)]
 use std::fs;

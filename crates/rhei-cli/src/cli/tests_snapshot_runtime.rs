@@ -1076,14 +1076,15 @@ transitions:
         );
     }
 
-    // The redactor under test is a `#!/bin/sh` script spawned as a
-    // program, which only Unix can execute. #91
-    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_replaces_transcript_before_hashing() {
         let dir = snapshot_workspace();
         write_snapshot_emit_machine(dir.path());
-        let redactor = write_executable_redactor(dir.path(), "redact.sh", "sed 's/secret/redacted/g'\n");
+        let redactor = write_executable_redactor(
+            dir.path(),
+            "redact",
+            "import sys\nsys.stdout.write(sys.stdin.read().replace('secret', 'redacted'))\n",
+        );
         let mut settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
         settings.snapshots = Some(SnapshotSettings {
             redactor: Some(redactor),
@@ -1138,17 +1139,14 @@ transitions:
         assert!(record.manifest.get("redactor").is_none());
     }
 
-    // The redactor under test is a `#!/bin/sh` script spawned as a
-    // program, which only Unix can execute. #91
-    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_failure_aborts_without_generation() {
         let dir = snapshot_workspace();
         write_snapshot_emit_machine(dir.path());
         let redactor = write_executable_redactor(
             dir.path(),
-            "fail-redact.sh",
-            "printf 'redactor failed\\n' >&2\nexit 7\n",
+            "fail-redact",
+            "import sys\nsys.stderr.write('redactor failed\\n')\nsys.exit(7)\n",
         );
         let mut settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
         settings.snapshots = Some(SnapshotSettings {
@@ -1189,9 +1187,6 @@ transitions:
         assert!(records.is_empty());
     }
 
-    // The redactor under test is a `#!/bin/sh` script spawned as a
-    // program, which only Unix can execute. #91
-    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_receives_minimal_default_env_and_logs_diagnostics() {
         let _home = TempHome::new();
@@ -1202,18 +1197,24 @@ transitions:
         std::env::set_var("RHEI_REDACTOR_BLOCKED", "blocked-value");
         let redactor = write_executable_redactor(
             dir.path(),
-            "env-redact.sh",
+            "env-redact",
             &format!(
-                "capture='{}'\n\
-printf 'RHEI_EXECUTABLE_PATH=%s\\n' \"$RHEI_EXECUTABLE_PATH\" > \"$capture\"\n\
-printf 'RHEI_WORKSPACE_ROOT=%s\\n' \"$RHEI_WORKSPACE_ROOT\" >> \"$capture\"\n\
-printf 'RHEI_PROJECT_SETTINGS_PATH=%s\\n' \"$RHEI_PROJECT_SETTINGS_PATH\" >> \"$capture\"\n\
-printf 'RHEI_GLOBAL_SETTINGS_PATH=%s\\n' \"$RHEI_GLOBAL_SETTINGS_PATH\" >> \"$capture\"\n\
-printf 'RHEI_REDACTOR_ALLOWED=%s\\n' \"$RHEI_REDACTOR_ALLOWED\" >> \"$capture\"\n\
-printf 'RHEI_REDACTOR_BLOCKED=%s\\n' \"${{RHEI_REDACTOR_BLOCKED-unset}}\" >> \"$capture\"\n\
-printf 'redactor diagnostic\\n' >&2\n\
-while IFS= read -r line; do printf '%s\\n' \"$line\"; done\n",
-                env_capture.display()
+                "import os, sys\n\
+capture = {capture}\n\
+names = [\n\
+    'RHEI_EXECUTABLE_PATH',\n\
+    'RHEI_WORKSPACE_ROOT',\n\
+    'RHEI_PROJECT_SETTINGS_PATH',\n\
+    'RHEI_GLOBAL_SETTINGS_PATH',\n\
+    'RHEI_REDACTOR_ALLOWED',\n\
+]\n\
+lines = ['{{}}={{}}'.format(name, os.environ.get(name, '')) for name in names]\n\
+lines.append('RHEI_REDACTOR_BLOCKED=' + os.environ.get('RHEI_REDACTOR_BLOCKED', 'unset'))\n\
+open(capture, 'w', encoding='utf-8').write('\\n'.join(lines) + '\\n')\n\
+sys.stderr.write('redactor diagnostic\\n')\n\
+sys.stdout.write(sys.stdin.read())\n",
+                capture = serde_json::to_string(&env_capture.display().to_string())
+                    .expect("capture path json")
             ),
         );
         let mut settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
@@ -1718,14 +1719,31 @@ transitions:
     }
 
     #[cfg(unix)]
+    /// A redactor is named by path and spawned as a program, so it has to be
+    /// something the platform can execute on its own: a shebang script where
+    /// there are shebangs, and a `.cmd` shim beside the program where there are
+    /// not. `body` is the same Python either way.
+    // §FS-rhei-snapshots.10
     fn write_executable_redactor(dir: &Path, name: &str, body: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-        let path = dir.join(name);
-        fs::write(&path, format!("#!/bin/sh\n{body}")).expect("write redactor");
-        let mut permissions = fs::metadata(&path).expect("redactor metadata").permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&path, permissions).expect("chmod redactor");
-        path
+        let script = dir.join(format!("{name}.py"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::write(&script, format!("#!/usr/bin/env python3\n{body}"))
+                .expect("write redactor");
+            let mut permissions = fs::metadata(&script).expect("redactor metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&script, permissions).expect("chmod redactor");
+            script
+        }
+        #[cfg(not(unix))]
+        {
+            fs::write(&script, body).expect("write redactor");
+            let shim = dir.join(format!("{name}.cmd"));
+            fs::write(&shim, format!("@echo off\r\npython \"%~dp0{name}.py\" %*\r\n"))
+                .expect("write redactor shim");
+            shim
+        }
     }
 
     /// Workspace fixture for snapshot tests. Implicit Panta derives the rhei

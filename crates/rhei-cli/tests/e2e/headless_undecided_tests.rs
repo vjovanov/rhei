@@ -8,6 +8,9 @@
 
 // §FS-rhei-run-headless.3 §FS-rhei-run-headless.5.3 §FS-rhei-run-headless.7
 
+// Unix-only: the outage every case here builds is a Unix file mode — `chmod 000`
+// on the lock file — and there is no Windows equivalent that blinds a reader
+// without also disturbing the run.
 #![cfg(unix)]
 
 use std::fs;

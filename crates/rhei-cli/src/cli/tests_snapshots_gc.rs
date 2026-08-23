@@ -1,23 +1,29 @@
-    #[cfg(unix)]
-    fn write_counting_success_agent(dir: &Path, count_file: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
+    /// An agent that succeeds having only counted itself, in a file that
+    /// survives between invocations: the count is how the reschedule tests see
+    /// how many times the agent was spawned.
+    ///
+    /// A missing or empty count file reads as zero, the way the file does on
+    /// the very first invocation. The path is JSON-encoded, which is also a
+    /// Python string literal, so a backslash in it cannot escape the fixture.
+    fn write_counting_success_agent(dir: &Path, count_file: &Path) -> Vec<String> {
+        python_fixture_command(
+            dir,
+            "counting-agent",
+            &format!(
+                r#"import pathlib
 
-        let script = dir.join("counting-agent.sh");
-        fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\ncount_file='{}'\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count + 1))\necho \"$count\" > \"$count_file\"\nexit 0\n",
-                count_file.display()
+count_file = pathlib.Path({path})
+try:
+    count = int(count_file.read_text().strip())
+except (OSError, ValueError):
+    count = 0
+count_file.write_text(str(count + 1) + '\n')
+"#,
+                path = serde_json::to_string(count_file.to_string_lossy().as_ref()).expect("json")
             ),
         )
-        .expect("write counting agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
     }
 
-    #[cfg(unix)]
     fn missing_outputs_reschedule_workspace(all_targets: bool) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
@@ -25,7 +31,7 @@
         let settings_dir = dir.path().join(".agents/rhei");
         fs::create_dir_all(&settings_dir).expect("mkdir");
         let count_file = dir.path().join("spawn-count");
-        let script = write_counting_success_agent(dir.path(), &count_file);
+        let command = write_counting_success_agent(dir.path(), &count_file);
         fs::write(
             &plan,
             r#"# Rhei: Missing Outputs
@@ -56,12 +62,12 @@
                 r#"{{
                   "agents": {{
                     "fake": {{
-                      "command": [{}],
+                      "command": {},
                       "prompt_flag": "--prompt"
                     }}
                   }}
                 }}"#,
-                serde_json::to_string(script.to_string_lossy().as_ref()).expect("json")
+                serde_json::to_string(&command).expect("json")
             ),
         )
         .expect("settings");
@@ -78,7 +84,6 @@
         (dir, count_file)
     }
 
-    #[cfg(unix)]
     #[test]
     fn missing_outputs_reschedule_single_invocation_spawns_once_and_keeps_state() {
         let (dir, count_file) = missing_outputs_reschedule_workspace(false);
@@ -88,7 +93,6 @@
         assert!(plan.contains("**State:** pending"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn missing_outputs_reschedule_fanout_spawns_each_target_once_and_keeps_state() {
         let (dir, count_file) = missing_outputs_reschedule_workspace(true);
@@ -137,19 +141,15 @@
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn agent_spawn_outcome_carries_resolved_timeout() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_sleeping_fake_agent(dir.path());
+        let command = write_sleeping_fake_agent(dir.path());
         let log_path = dir.path().join("agent.log");
         let recorder = Arc::new(RecordingSink::default());
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),
-            profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
-                ..CustomAgentProfile::default()
-            },
+            profile: CustomAgentProfile { command, ..CustomAgentProfile::default() },
             mode: None,
             target: None,
             model: None,

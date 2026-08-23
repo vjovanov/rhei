@@ -11,9 +11,10 @@ use rhei_cli::rhei_output::{to_github_markdown, to_json_value, ProgressReportOut
 use rhei_cli::rhei_validator::{validate_with_machine, StateMachine};
 use serde_yaml::Value as YamlValue;
 
-// The same guard the e2e harness uses; `include!` rather than `mod`, because
-// this harness is one flat module assembled by `include!`.
+// The same guard and fixture helpers the e2e harness uses; `include!` rather
+// than `mod`, because this harness is one flat module assembled by `include!`.
 include!("../support/test_dir.rs");
+include!("../support/python_fixture.rs");
 
 #[allow(dead_code)]
 #[path = "../../../rhei-core/tests/fixtures.rs"]
@@ -33,8 +34,12 @@ fn rhei_command() -> Command {
     static HARNESS_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let home = HARNESS_HOME.get_or_init(|| {
         // Deliberately not a `TestDir`: it lives for the whole harness, and a
-        // guard in a `OnceLock` is never dropped anyway.
-        let home = std::env::temp_dir().join(format!("rhei-integration-home-{}", std::process::id()));
+        // guard in a `OnceLock` is never dropped. One fixed name, emptied on the
+        // way in, so a run leaves exactly one directory behind rather than one
+        // more every time. Cargo runs one process per test target, so nothing
+        // else is inside it while this runs.
+        let home = std::env::temp_dir().join("rhei-harness-home");
+        let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join("state")).expect("isolated state directory");
         home
     });
@@ -56,6 +61,19 @@ fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, contents).expect("fixture file should be written");
     path
+}
+
+/// A `cli:` callback that runs one line of Python, spelled as a YAML scalar.
+///
+/// A callback is a command line for the platform's own shell, and the two
+/// shells share almost no vocabulary — `printf` and `cat` are `sh`, not `cmd`.
+/// The code goes inside one pair of double quotes and quotes its own strings
+/// with `'…'`, which both shells hand through unchanged, and `serde_json`
+/// spells the result as a YAML double-quoted scalar.
+// §FS-rhei-programs.1.1
+fn python_callback_yaml(code: &str) -> String {
+    serde_json::to_string(&format!("cli:{} -c \"{code}\"", python_command()))
+        .expect("callback should serialize")
 }
 
 fn yaml_key(name: &str) -> YamlValue {
@@ -357,8 +375,6 @@ transitions:
     to: done
 "#;
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 /// A project machine whose initial state carries autonomous agent work, so
 /// `rhei run` takes the orchestrated (agent-mode) scheduling path.
 const AGENT_WORK_STATE_MACHINE: &str = r#"name: workspace-test-machine

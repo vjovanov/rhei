@@ -1,4 +1,3 @@
-    #[cfg(unix)]
     fn run_fake_agent_profile(
         profile: CustomAgentProfile,
         agent_id: &str,
@@ -47,75 +46,56 @@
         (log, events)
     }
 
-    #[cfg(unix)]
-    fn write_sleeping_fake_agent(dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
+    /// An agent that speaks once and then outlives its timeout: the flush is
+    /// what lets the timeout test assert the line was kept.
+    fn write_sleeping_fake_agent(dir: &Path) -> Vec<String> {
+        python_fixture_command(
+            dir,
+            "sleeping-agent",
+            r#"import time
 
-        let script = dir.join("sleeping-agent");
-        fs::write(
-            &script,
-            r#"#!/usr/bin/env bash
-set -euo pipefail
-printf 'stdout:before-timeout\n'
-sleep 2
+print('stdout:before-timeout', flush=True)
+time.sleep(2)
 "#,
         )
-        .expect("write sleeping fake agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
     }
 
-    #[cfg(unix)]
-    fn write_inherited_pipe_fake_agent(dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
+    /// An agent that exits at once but leaves a detached grandchild holding the
+    /// stdout pipe it inherited — the spawn must not wait for that pipe's EOF.
+    fn write_inherited_pipe_fake_agent(dir: &Path) -> Vec<String> {
+        python_fixture_command(
+            dir,
+            "inherited-pipe-agent",
+            r#"import subprocess
+import sys
 
-        let script = dir.join("inherited-pipe-agent");
-        fs::write(
-            &script,
-            r#"#!/usr/bin/env bash
-set -euo pipefail
-printf 'stdout:before-background\n'
-(sleep 2) &
+print('stdout:before-background', flush=True)
+subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(2)'])
 "#,
         )
-        .expect("write inherited pipe fake agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
     }
 
-    #[cfg(unix)]
-    fn write_stream_json_fake_agent(dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
+    /// An agent that reports its argv and echoes every stdin line back, so the
+    /// stream-json transport can be read off the log.
+    fn write_stream_json_fake_agent(dir: &Path) -> Vec<String> {
+        python_fixture_command(
+            dir,
+            "stream-json-agent",
+            r#"import sys
 
-        let script = dir.join("stream-json-agent");
-        fs::write(
-            &script,
-            r#"#!/usr/bin/env bash
-set -euo pipefail
-printf 'args:%s\n' "$*"
-while IFS= read -r line || [ -n "$line" ]; do
-  printf 'stdin:%s\n' "$line"
-done
+print('args:' + ' '.join(sys.argv[1:]), flush=True)
+for line in sys.stdin:
+    print('stdin:' + line.rstrip('\n'), flush=True)
 "#,
         )
-        .expect("write stream json fake agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
     }
 
-    #[cfg(unix)]
     #[test]
     fn fake_claude_profile_streams_prompt_flag_output() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_fake_agent(dir.path());
+        let command = write_fake_agent(dir.path());
         let profile = CustomAgentProfile {
-            command: vec![script.display().to_string()],
+            command,
             prompt_flag: Some("-p".to_string()),
             stdin_prompt: false,
             ..CustomAgentProfile::default()
@@ -135,13 +115,12 @@ done
         )));
     }
 
-    #[cfg(unix)]
     #[test]
     fn fake_codex_profile_streams_stdin_prompt_output() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_fake_agent(dir.path());
+        let command = write_fake_agent(dir.path());
         let profile = CustomAgentProfile {
-            command: vec![script.display().to_string()],
+            command,
             stdin_prompt: true,
             ..CustomAgentProfile::default()
         };
@@ -159,13 +138,12 @@ done
         )));
     }
 
-    #[cfg(unix)]
     #[test]
     fn claude_code_intervention_profile_writes_initial_stream_json_prompt() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_stream_json_fake_agent(dir.path());
+        let command = write_stream_json_fake_agent(dir.path());
         let profile = CustomAgentProfile {
-            command: vec![script.display().to_string()],
+            command,
             prompt_flag: Some("-p".to_string()),
             model_flag: Some("--model".to_string()),
             stdin_prompt: false,
@@ -188,17 +166,16 @@ done
         assert_eq!(json["message"]["content"][0]["text"], "hello claude");
     }
 
-    #[cfg(unix)]
     #[test]
     fn stdin_prompt_dashboard_mode_closes_stdin_for_eof_driven_agents() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_fake_agent(dir.path());
+        let command = write_fake_agent(dir.path());
         let log_path = dir.path().join("agent.log");
         let recorder = Arc::new(RecordingSink::default());
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),
             profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
+                command,
                 stdin_prompt: true,
                 ..CustomAgentProfile::default()
             },
@@ -242,13 +219,12 @@ done
         assert!(log.contains("stdin:hello codex"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn fake_pi_profile_streams_prompt_flag_output() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_fake_agent(dir.path());
+        let command = write_fake_agent(dir.path());
         let profile = CustomAgentProfile {
-            command: vec![script.display().to_string()],
+            command,
             prompt_flag: Some("-p".to_string()),
             stdin_prompt: false,
             ..CustomAgentProfile::default()
@@ -267,19 +243,15 @@ done
         )));
     }
 
-    #[cfg(unix)]
     #[test]
     fn fake_agent_timeout_keeps_output_and_writes_footer() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_sleeping_fake_agent(dir.path());
+        let command = write_sleeping_fake_agent(dir.path());
         let log_path = dir.path().join("agent.log");
         let recorder = Arc::new(RecordingSink::default());
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),
-            profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
-                ..CustomAgentProfile::default()
-            },
+            profile: CustomAgentProfile { command, ..CustomAgentProfile::default() },
             mode: None,
             target: None,
             model: None,
@@ -332,19 +304,15 @@ done
         )));
     }
 
-    #[cfg(unix)]
     #[test]
     fn inherited_output_pipe_does_not_block_agent_completion() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_inherited_pipe_fake_agent(dir.path());
+        let command = write_inherited_pipe_fake_agent(dir.path());
         let log_path = dir.path().join("agent.log");
         let recorder = Arc::new(RecordingSink::default());
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("codex"),
-            profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
-                ..CustomAgentProfile::default()
-            },
+            profile: CustomAgentProfile { command, ..CustomAgentProfile::default() },
             mode: None,
             target: None,
             model: None,

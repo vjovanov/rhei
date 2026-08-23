@@ -2,7 +2,8 @@
 fn callback_redirect_via_next_state_retargets_declared_transition() {
     // `on_leave` returns a `nextState` that targets a different declared
     // transition from the same `from`; the CLI should follow the redirect.
-    let machine_yaml = r#"name: spec-redirect
+    let machine_yaml = format!(
+        r#"name: spec-redirect
 version: 1
 states:
   pending:
@@ -16,10 +17,14 @@ states:
 transitions:
   - from: pending
     to: in-progress
-    on_leave: 'cli:printf ''{"success": true, "nextState": "rejected"}'''
+    on_leave: {callback}
   - from: pending
     to: rejected
-"#;
+"#,
+        callback = python_callback_yaml(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'rejected'}))"
+        )
+    );
     let dir = unique_temp_dir("callback-spec-redirect");
     let plan = r#"# Rhei: Spec Redirect Test
 
@@ -29,7 +34,7 @@ transitions:
 **State:** pending
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
     // The redirect lands in `rejected`, which is `final: true`: the same result
     // rule applies to the effective target as to the requested one.
@@ -70,7 +75,8 @@ transitions:
 
 #[test]
 fn callback_redirect_to_undeclared_transition_is_rejected() {
-    let machine_yaml = r#"name: spec-redirect-undeclared
+    let machine_yaml = format!(
+        r#"name: spec-redirect-undeclared
 version: 1
 states:
   pending:
@@ -84,8 +90,12 @@ states:
 transitions:
   - from: pending
     to: in-progress
-    on_leave: 'cli:printf ''{"success": true, "nextState": "elsewhere"}'''
-"#;
+    on_leave: {callback}
+"#,
+        callback = python_callback_yaml(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'elsewhere'}))"
+        )
+    );
     let dir = unique_temp_dir("callback-spec-redirect-bad");
     let plan = r#"# Rhei: Spec Redirect Bad Test
 
@@ -95,7 +105,7 @@ transitions:
 **State:** pending
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
     let result =
         run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
@@ -118,7 +128,8 @@ transitions:
 
 #[test]
 fn states_profile_allowed_rejects_callback_redirect_destination() {
-    let machine_yaml = r#"name: profile-redirect-guard
+    let machine_yaml = format!(
+        r#"name: profile-redirect-guard
 version: 3
 states:
   pending:
@@ -139,10 +150,14 @@ node_policy:
 transitions:
   - from: pending
     to: in-progress
-    on_leave: 'cli:printf ''{"success": true, "nextState": "rejected"}'''
+    on_leave: {callback}
   - from: pending
     to: rejected
-"#;
+"#,
+        callback = python_callback_yaml(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'rejected'}))"
+        )
+    );
     let dir = unique_temp_dir("states-profile-redirect-transition");
     let plan = r#"# Rhei: Profile Redirect Guard
 
@@ -152,7 +167,7 @@ transitions:
 **State:** pending
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
     let result =
         run_transition_with_flags(&plan_path, &machine_path, "1", "pending", "in-progress", &[]);
@@ -179,13 +194,15 @@ fn callback_receives_transition_context_on_stdin() {
     // actually delivered on stdin.
     let dir = unique_temp_dir("callback-spec-stdin");
     let capture_path = dir.join("captured.json");
-    // The callback is a shell command, so it gets the path spelled with `/`,
-    // which every `sh` reads and Windows accepts; and the whole command is
-    // embedded through a JSON string, so a drive-lettered path's backslashes
-    // cannot be read as YAML escapes in the double-quoted scalar.
+    // `cat` is `sh`, not `cmd`, and the redirect is the shell's rather than the
+    // callback's: Python reads its own stdin and names its own destination. The
+    // path is spelled with `/`, which every `sh` reads and Windows accepts, and
+    // the whole command is embedded through a JSON string, so a drive-lettered
+    // path's backslashes cannot be read as YAML escapes in the scalar.
     let capture_display = capture_path.display().to_string().replace('\\', "/");
-    let callback = serde_json::to_string(&format!("cli:cat > '{capture_display}'"))
-        .expect("callback command json");
+    let callback = python_callback_yaml(&format!(
+        "import sys;open('{capture_display}', 'w').write(sys.stdin.read())"
+    ));
 
     let machine_yaml = format!(
         r#"name: spec-stdin

@@ -126,6 +126,8 @@ fn a_shared_prefix_resolves_to_the_live_run_not_an_ended_one() {
 
 /// A run nothing could record an exit code for did not succeed, and `--wait`
 /// must not say it did. §FS-rhei-run-headless.5.3
+// Unix-only: the state under test is reached by `kill(pid, SIGKILL)` — a signal
+// the run cannot catch, so it dies with nothing written.
 #[cfg(unix)]
 #[test]
 fn attach_wait_fails_for_a_run_that_recorded_no_exit_status() {
@@ -170,6 +172,7 @@ fn a_deleted_workspace_prunes_the_entry() {
 
 /// A `chmod 000` is a transient accident. Listing must neither hide the run nor
 /// destroy its entry. §FS-rhei-run-headless.3
+// Unix-only: a Unix file mode is what makes the directory unreadable here.
 #[cfg(unix)]
 #[test]
 fn an_unreadable_workspace_keeps_its_entry_and_says_so() {
@@ -298,7 +301,6 @@ fn a_json_dry_run_puts_records_on_stdout_and_writes_no_event_log() {
 /// A one-ticket workspace driven by a fake agent that prints, so there is real
 /// `agent_output` traffic to inline. The program-driven fixture next door never
 /// produces any: only an agent's stdout becomes `agent_output` records.
-#[cfg(unix)]
 fn chatty_agent_workspace(
     prefix: &str,
 ) -> (super::TestDir, std::path::PathBuf, std::path::PathBuf) {
@@ -345,7 +347,6 @@ result('## Result\n\nDone.\n')
 /// Inlined agent output must not renumber the structural records, or `--since`
 /// on the durable log skips records the stdout stream already numbered past.
 // §FS-rhei-run-json.2 §FS-rhei-run-json.2.3
-#[cfg(unix)]
 #[test]
 fn inlined_agent_output_leaves_the_structural_sequence_alone() {
     let (_dir, workspace, machine) = chatty_agent_workspace("headless-agent-output");
