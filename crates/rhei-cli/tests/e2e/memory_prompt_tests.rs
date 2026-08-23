@@ -96,8 +96,9 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
     assert!(!first.contains("## Previous Visits"), "got:\n{first}");
     // §FS-rhei-memory.3.4: the map, after the transition list. The fixture is
     // not a git checkout, so the agent's cwd is elsewhere and every path is
-    // absolute — the rule `{output.<name>.path}` follows.
-    let root = dir.display().to_string();
+    // absolute — the rule `{output.<name>.path}` follows — and spelled the way
+    // `RHEI_ROOT` is: canonically, one spelling per prompt (§FS-rhei-memory.1.2).
+    let root = dir.canonicalize().expect("the fixture exists").display().to_string();
     let dash = "\u{2014}";
     assert!(
         first.contains(&format!(

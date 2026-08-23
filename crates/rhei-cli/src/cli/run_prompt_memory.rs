@@ -171,44 +171,29 @@ fn task_state_is_terminal(
 fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
     // One spelling per prompt: a rhei root the plan was given as `/var/…` and
     // a runtime directory the run resolved to `/private/var/…` are one place,
-    // and the map must not spell them as two. §FS-rhei-memory.1.2
-    let path = anchor_spelling(path, render_context.workspace_root);
+    // and the map must not spell them as two. The canonical spelling is the
+    // one `RHEI_ROOT` already carries (FS-rhei-memory.1.2).
+    let path = canonical_spelling(path).unwrap_or_else(|| path.to_path_buf());
     if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
         return absolute_memory_path(&path);
     }
     if render_context.checkout_root != render_context.workspace_root {
-        return path.display().to_string();
+        return spelled_path(&path);
     }
-    match path.strip_prefix(render_context.workspace_root) {
+    let root = canonical_spelling(render_context.workspace_root)
+        .unwrap_or_else(|| render_context.workspace_root.to_path_buf());
+    match path.strip_prefix(&root) {
         Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
-        Ok(relative) => relative.display().to_string(),
-        Err(_) => path.display().to_string(),
-    }
-}
-
-/// `path` re-expressed under `root`'s own spelling when the two name places
-/// under one directory the filesystem spells two ways — `/var/…` against
-/// `/private/var/…` on macOS, or a path given relative to the cwd against the
-/// canonical root the run resolved. A path that is not under `root`, or that
-/// cannot be resolved, is returned as given.
-// §FS-rhei-memory.1.2
-fn anchor_spelling(path: &Path, root: &Path) -> PathBuf {
-    if path.starts_with(root) {
-        return path.to_path_buf();
-    }
-    let (Ok(canonical_root), Some(canonical_path)) = (root.canonicalize(), canonical_spelling(path))
-    else {
-        return path.to_path_buf();
-    };
-    match canonical_path.strip_prefix(&canonical_root) {
-        Ok(relative) => root.join(relative),
-        Err(_) => path.to_path_buf(),
+        Ok(relative) => spelled_path(relative),
+        Err(_) => spelled_path(&path),
     }
 }
 
 /// The canonical spelling of a path that need not exist yet: its longest
 /// existing prefix resolved, the rest appended as written. A run's transcripts
-/// directory is named in a prompt before the first log is written to it.
+/// directory is named in a prompt before the first log is written to it; a
+/// path with no existing prefix at all has no canonical spelling.
+// §FS-rhei-memory.1.2
 fn canonical_spelling(path: &Path) -> Option<PathBuf> {
     let mut existing = path.to_path_buf();
     let mut rest: Vec<std::ffi::OsString> = Vec::new();
@@ -223,10 +208,23 @@ fn canonical_spelling(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// A path as an agent reads it: on Windows, canonicalization adds the `\\?\`
+/// verbatim prefix, which no shell or editor wants pasted back.
+fn spelled_path(path: &Path) -> String {
+    let rendered = path.display().to_string();
+    #[cfg(windows)]
+    if let Some(plain) = rendered.strip_prefix(r"\\?\") {
+        if !plain.starts_with("UNC") {
+            return plain.to_string();
+        }
+    }
+    rendered
+}
+
 /// The absolute form of a path the caller may have given relative to its own
 /// cwd, which is not the reader's. §FS-rhei-memory.3.4
 fn absolute_memory_path(path: &Path) -> String {
-    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).display().to_string()
+    spelled_path(&std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
 /// Keep the first `cap` lines of `body`; report whether anything was dropped.
