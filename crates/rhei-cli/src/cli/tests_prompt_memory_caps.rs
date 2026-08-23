@@ -52,10 +52,14 @@
             memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "review");
 
         let visits = render_previous_visits(&context).expect("visits");
+        // The prompt spells a path the way the platform does, so the
+        // expectation is joined rather than written with `/`. §FS-rhei-memory.3.4
+        let result_file = Path::new("runtime").join("results").join("plan.1.3.md");
         assert!(
-            visits.contains(
-                "\u{2026} earlier entries omitted; read runtime/results/plan.1.3.md\n"
-            ),
+            visits.contains(&format!(
+                "\u{2026} earlier entries omitted; read {}\n",
+                result_file.display()
+            )),
             "got:\n{visits}"
         );
         assert!(visits.contains("entry 150\n"), "got:\n{visits}");

@@ -55,8 +55,11 @@
             visits.contains("agent timed out in state 'review' after 30m"),
             "the engine's own entry is why a retry knows what stalled; got:\n{visits}"
         );
+        // Joined, not written with `/`: the prompt spells a path the way the
+        // platform does. §FS-rhei-memory.3.4
+        let previous_log = Path::new("runtime").join("logs").join("task-plan.1.3-review.log");
         assert!(
-            visits.contains("Previous log: `runtime/logs/task-plan.1.3-review.log`\n"),
+            visits.contains(&format!("Previous log: `{}`\n", previous_log.display())),
             "got:\n{visits}"
         );
     }

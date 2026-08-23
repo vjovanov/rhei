@@ -179,7 +179,14 @@
     fn watch_targets_match_created_relative_missing_plan() {
         fs::create_dir_all("target").expect("target dir");
         let current_thread = std::thread::current();
-        let thread_name = current_thread.name().unwrap_or("unnamed");
+        // A test thread is named after its module path, and `:` is not a legal
+        // character in a Windows filename. §91
+        let thread_name: String = current_thread
+            .name()
+            .unwrap_or("unnamed")
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+            .collect();
         let rel_path = PathBuf::from(format!(
             "target/rhei-watch-missing-{}-{}.rhei.md",
             std::process::id(),
