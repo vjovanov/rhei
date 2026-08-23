@@ -311,8 +311,15 @@ fn missing_subcommand_under_a_group_is_a_usage_error() {
         String::from_utf8_lossy(&output.stdout)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
+    // The usage line names the process as it was invoked, which on Windows is
+    // `rhei.exe`. Ask for the platform's own spelling rather than Unix's.
+    let invoked = Path::new(env!("CARGO_BIN_EXE_rhei"))
+        .file_name()
+        .expect("binary file name")
+        .to_string_lossy()
+        .into_owned();
     assert!(
-        stderr.contains("Usage: rhei snapshot"),
+        stderr.contains(&format!("Usage: {invoked} snapshot")),
         "error should show the subcommand's own usage, got:\n{stderr}"
     );
 }

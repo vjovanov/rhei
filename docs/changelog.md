@@ -47,6 +47,13 @@
   whose stack it sizes itself, so the size travels with the binary instead of
   depending on how it was linked. §FS-rhei-distribution.1 (PR #94)
 
+  And a sixth, one line further on: `rhei init` compared the directory it had
+  written the agent-discovery note into against the host directory by spelling.
+  Windows answers a canonicalized path in the `\\?\` verbatim form, so the two
+  never matched, and init left `AGENTS.md` out of the files it says it changed
+  while announcing it as a write to the repository root. Both comparisons ask
+  whether it is the same directory now. §FS-rhei-init.5 (PR #94)
+
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
   attribution, changelog). The Ubuntu job used to carry every repository gate

@@ -185,7 +185,13 @@ fn callback_receives_transition_context_on_stdin() {
     // actually delivered on stdin.
     let dir = unique_temp_dir("callback-spec-stdin");
     let capture_path = dir.join("captured.json");
-    let capture_display = capture_path.display().to_string();
+    // The callback is a shell command, so it gets the path spelled with `/`,
+    // which every `sh` reads and Windows accepts; and the whole command is
+    // embedded through a JSON string, so a drive-lettered path's backslashes
+    // cannot be read as YAML escapes in the double-quoted scalar.
+    let capture_display = capture_path.display().to_string().replace('\\', "/");
+    let callback = serde_json::to_string(&format!("cli:cat > '{capture_display}'"))
+        .expect("callback command json");
 
     let machine_yaml = format!(
         r#"name: spec-stdin
@@ -200,9 +206,9 @@ states:
 transitions:
   - from: pending
     to: in-progress
-    on_leave: "cli:cat > '{capture}'"
+    on_leave: {callback}
 "#,
-        capture = capture_display
+        callback = callback
     );
 
     let plan = r#"# Rhei: Spec Stdin Test
