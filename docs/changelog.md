@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Rhei is a **cross-platform tool by requirement**, not by accident: Linux,
+  macOS, and Windows are supported as one tool, every behaviour works and is
+  tested on all three, a platform difference is declared in the spec at the
+  point it occurs or it is a defect, and test fixtures are written in a form
+  every platform runs. This was true of the binaries and, since Windows CI
+  started running the suite, increasingly of the tests; it is now written
+  down as a goal and a requirement that new work is held to from the start.
+  §GOAL-rhei-outcomes §FS-rhei-distribution.7
+
 - Windows CI now runs the test suite it can: every crate's unit tests,
   `rhei-core`'s integration tests, and the CLI's integration target, which
   spawns the built `rhei` and reads what it wrote. Together they cover the

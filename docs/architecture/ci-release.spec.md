@@ -7,6 +7,10 @@ pre-release and release workflows. §FS-rhei-distribution
 
 ## 1. Development CI
 
+The matrix is the cross-platform requirement made executable: Rhei supports
+Linux, macOS, and Windows as one tool (§FS-rhei-distribution.7), so the
+suite that proves a behaviour runs on all three.
+
 The `CI` workflow runs on pushes and pull requests as two jobs that run in
 parallel, so pull-request feedback takes as long as the slowest test platform
 and no longer.
