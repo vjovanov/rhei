@@ -420,6 +420,10 @@ The central design principle: **the plan file is the single source of truth**. A
 - **Resumability.** A new agent session can pick up any plan mid-execution. No context beyond the file is needed.
 - **Auditability.** The plan's git history shows every state transition, every progress log entry, and who (or what) made each change.
 - **Human legibility.** The plan is standard markdown. Humans read it directly — no dashboards, no query languages, no special tooling required.
+- **Reconstitution.** Under `rhei run` every invocation starts cold, so the
+  prompt rebuilds this memory from the plan and `runtime/` by a fixed
+  algorithm — position, history, the task's own past, and a map of the rest
+  (§FS-rhei-memory).
 - **Composability.** Different agents (writer, worker, reviewer) interact with the same file through well-defined, non-overlapping edits. The state machine prevents conflicts by making illegal transitions impossible.
 
 ## Related Specifications

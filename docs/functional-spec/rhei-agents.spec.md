@@ -532,6 +532,10 @@ When `rhei run` spawns an agent for a task, it composes a prompt from the state 
 
 {resolved personality from the state definition or selected prompt template, if present}
 
+## Position
+
+{where this task sits: Panta › rhei › ancestors; siblings; the parent's body; rhei and project content sections — §FS-rhei-memory.3.1}
+
 ## Instructions
 
 {resolved instructions from the state definition or selected prompt template}
@@ -586,6 +590,14 @@ These are notes from previous `{source-state}` state of this same task. They are
 
 {briefs written by the supervising task, when present}
 
+## Plan History
+
+{one line per finished task of this rhei and per transitive prior, with In Flight and Dependents — §FS-rhei-memory.3.2}
+
+## Previous Visits
+
+{this task's transition trail, result entries so far, and previous log — on a revisit only, §FS-rhei-memory.3.3}
+
 ## Rhei Commands
 
 You are working in a rhei-managed plan at `{plan_path}`.
@@ -594,6 +606,14 @@ Do not run `rhei transition` or `rhei complete` from this spawned agent process 
 
 Available transitions from `{state}`:
 {list of declared transitions from current state, with descriptions}
+
+### Reading the rhei
+
+{every rhei's execution root, the runtime layout, and the read-only commands — §FS-rhei-memory.3.4}
+
+### Leaving a trail
+
+{what the result file and the task body are read for, and which edits are permitted — §FS-rhei-memory.3.4}
 ```
 
 The prompt carries domain instructions only. It does not contain completion
@@ -657,6 +677,13 @@ for this task or this state; unlike handoffs, a brief is direction the agent
 follows within the state's instructions and artifact contract. On a
 supervising state, `## Rhei Commands` additionally permits `rhei transition`
 against held descendants. See §FS-rhei-supervision.5.
+
+`## Position`, `## Plan History`, `## Previous Visits`, and the two
+sub-sections of `## Rhei Commands` reconstitute the project's mid-term
+memory for a cold invocation: where the task sits, what finished before it
+anywhere in the Panta, what already happened to it, and how to read the
+rest. They are composed by the fixed algorithm of §FS-rhei-memory.4 and are
+graph-level context, not configured in `states.yaml`. See §FS-rhei-memory.
 
 Reusable prompt templates are expanded from each state's
 `prompt_template.values` before runtime template variables. Inline state
