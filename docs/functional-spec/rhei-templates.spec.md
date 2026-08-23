@@ -223,6 +223,30 @@ Supported constructs in v1:
 - `{% if cond %}` ... `{% else %}` ... `{% endif %}` for conditionals
 - `{% raw %}` ... `{% endraw %}` for literal template syntax
 - `|slug` filter for filesystem-safe slugs
+- `range(stop)` and `range(start, stop)` for a numeric sequence, half-open at
+  the top like Python's
+- arithmetic (`+`, `-`, `*`, `/`, `//`, `%`) and comparison (`<`, `<=`, `==`,
+  `!=`, `>=`, `>`) inside any expression
+- `~` for string concatenation
+
+`range()` with arithmetic is what unrolls a *counted* structure at
+instantiation time — one task per round of a loop the plan has to name
+individually, because `**Prior:**`, `**Provides:**`, and `**Consumes:**` are
+per-task metadata and cannot be written once for a loop the engine repeats:
+
+```jinja
+{% for k in range(1, review_rounds + 1) %}
+#### Task deliver.review-{{k}}: Code review round {{k}}
+**State:** review
+**Prior:** Task deliver.{% if k == 1 %}implement{% else %}fix-{{ k - 1 }}{% endif %}
+{% endfor %}
+```
+
+The same arithmetic sizes a state's own budget from the inputs that shaped the
+plan — `visits: {{ 3 * review_rounds + docs_rounds + 3 }}`. Contrast this with
+a counted loop (`visits:` plus a `visitCount`-conditioned transition), which
+repeats *one* task's state and is the right shape when the rounds need no
+per-round identity. Unrolling is for when they do.
 
 The renderer is **strict**:
 

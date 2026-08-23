@@ -3,7 +3,7 @@ use std::process::Command;
 
 use super::*;
 
-fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
+pub fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
     let output = rhei_command(cwd.join(".home"))
         .current_dir(cwd)
         .args(args)
@@ -753,88 +753,6 @@ inputs:
         parsed["mcp_servers"]["linear"]["env"]["LINEAR_WORKSPACE"], "acme-engineering",
         "instantiation variable should be substituted in settings.json"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
-}
-
-#[test]
-fn instantiate_renders_structured_inputs_with_minijinja_loops() {
-    let dir = unique_temp_dir("templates-structured");
-    let template_dir = dir.join("structured-template");
-    fs::create_dir_all(&template_dir).expect("create template dir");
-    write_fixture_file(
-        &template_dir,
-        "template.yaml",
-        r#"name: structured-template
-version: 1.0.0
-description: Template with structured inputs
-inputs:
-  - name: targets
-    description: Target list
-    type: array
-    items:
-      type: object
-      properties:
-        id:
-          type: string
-        selector:
-          type: string
-"#,
-    );
-    write_fixture_file(
-        &template_dir,
-        "plan.rhei.md",
-        r#"# Rhei: Structured
-
-## Tasks
-
-### Task analysis: Review targets
-**State:** pending
-
-{% for target in targets %}
-- {{ target.id }} => {{ target.selector|slug }}
-{% endfor %}
-"#,
-    );
-    write_fixture_file(
-        &dir,
-        "values.yaml",
-        r#"targets:
-  - id: claude
-    selector: claude-code[yolo]:anthropic:claude-opus-4-7
-  - id: gemini
-    selector: gemini[yolo]:google:gemini-3.1-pro-preview
-"#,
-    );
-
-    let output_dir = dir.join("output");
-    let result = run_raw(
-        &[
-            "instantiate",
-            template_dir.to_str().expect("template path"),
-            "--values",
-            dir.join("values.yaml").to_str().expect("values path"),
-            "--output",
-            output_dir.to_str().expect("output path"),
-        ],
-        &dir,
-    );
-    assert_success(&result);
-    // §FS-rhei-templates.6.1.3: the repro command renders the output path
-    // relative to the working directory it is pasted from.
-    assert!(
-        result.stdout.contains(&format!(
-            "rhei instantiate {} --values {} --output output",
-            template_dir.display(),
-            dir.join("values.yaml").display(),
-        )),
-        "expected values-file instantiate command in output; got:\n{}",
-        result.stdout
-    );
-
-    let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
-    assert!(rendered.contains("- claude => claude-code-yolo-anthropic-claude-opus-4-7"));
-    assert!(rendered.contains("- gemini => gemini-yolo-google-gemini-3.1-pro-preview"));
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

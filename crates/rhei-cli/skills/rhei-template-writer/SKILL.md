@@ -125,7 +125,9 @@ The instantiator uses a restricted MiniJinja environment. **Instantiation templa
 | `{% ... %}` | `rhei instantiate` | `{% for t in targets %}...{% endfor %}` | At instantiation time |
 | `{name}` | `rhei next` / `rhei run` | `{task_id}`, `{visit_count}`, `{output.review-notes.path}` | At runtime |
 
-Supported MiniJinja constructs in v1: `{{ expr }}` interpolation; `{% for item in items %}`; `{% if cond %}` / `{% else %}` / `{% endif %}`; `{% raw %}` / `{% endraw %}` (to emit literal `{{` / `{%`); and the `|slug` filter for filesystem-safe slugs.
+Supported MiniJinja constructs in v1: `{{ expr }}` interpolation; `{% for item in items %}`; `{% if cond %}` / `{% else %}` / `{% endif %}`; `{% raw %}` / `{% endraw %}` (to emit literal `{{` / `{%`); the `|slug` filter for filesystem-safe slugs; `range(stop)` / `range(start, stop)`; arithmetic and comparison inside expressions; and `~` for string concatenation.
+
+`{% for k in range(1, rounds + 1) %}` is how a *counted* structure is unrolled into one task per round. Reach for it when each round needs its own identity — its own `**Prior:**`, `**Provides:**`, `**Consumes:**`, or title — because those are per-task metadata and a `visits:` loop repeats one task. When the rounds need no identity, the counted loop is smaller and better. The same arithmetic sizes a budget from the inputs that shaped the plan (`visits: {{ 3 * review_rounds + 3 }}`). See the `supervised-delivery` template.
 
 The renderer is strict: referencing an undefined variable or missing object property is an error (typos fail immediately); external includes/imports are unavailable; unresolved `{{...}}` in the output is an error. Runtime `{name}` variables **pass through** untouched — they are not errors at instantiation time. To emit a literal `{{...}}`, prefer `{% raw %}{{task_id}}{% endraw %}` (the legacy `\{{` escape also works, consuming the backslash).
 

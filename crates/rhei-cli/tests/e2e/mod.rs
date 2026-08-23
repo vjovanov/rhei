@@ -17,6 +17,7 @@ mod supervision_next_tests;
 mod supervision_surfaces_tests;
 mod supervision_tests;
 mod template_example_sync_tests;
+mod templates_render_tests;
 mod templates_tests;
 mod terminal_result_tests;
 mod transition_tests;
