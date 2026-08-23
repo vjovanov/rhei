@@ -38,6 +38,16 @@ copy. Public language API packages use the package name `rhei-api` on npm and
 PyPI; native N-API support is an implementation detail and is not a crates.io
 release target.
 
+Both binaries are one line of hand-off, and the CLI does its work on a thread
+whose stack it sizes itself rather than on the one the platform hands `main`.
+The platforms disagree about that stack by a factor of eight — a Windows main
+thread reserves 1 MiB where Linux and macOS give 8 — and the smaller of the two
+is not enough for this CLI: on Windows every invocation overflowed it, `rhei`
+with no arguments included. A stack asked for in code travels with the binary,
+which a build-time linker setting does not: it is not read when someone
+installs the published crate, which is how the binary reaches the machine this
+concerns.
+
 ## 2. Version Source
 
 The workspace package version in `Cargo.toml` is the release version. Internal
