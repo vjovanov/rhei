@@ -482,6 +482,7 @@ fn next_command(
         to_state: task.state.as_str(),
         from_state_name: &current_state,
         to_state_name: &final_state,
+        machine,
         personality: personality.as_deref(),
         instructions: &instructions,
         checkpoints: &checkpoints,

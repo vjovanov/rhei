@@ -23,6 +23,9 @@ struct NextOutput<'a> {
     // §FS-rhei-next.4.1 §FS-rhei-memory.3.1
     from_state_name: &'a str,
     to_state_name: &'a str,
+    /// The machine this ticket runs under, so a child of the list below is
+    /// spelled the way the invocation's own state is. §FS-rhei-next.4.1
+    machine: &'a rhei_validator::StateMachine,
     personality: Option<&'a str>,
     instructions: &'a str,
     /// The supervisor's `## Checkpoints` section, or empty when this ticket is
@@ -153,12 +156,15 @@ fn print_next_output(output: NextOutput<'_>) {
         if !output.task.children.is_empty() {
             println!();
             for child in &output.task.children {
+                // The machine's name for the state, not the authored one: a
+                // `-<n>` beside a normalized own state reads as two machines.
+                // §FS-rhei-next.4.1 §FS-rhei-memory.4.5
                 println!(
                     "  - {} {}: {} [{}]",
                     title_case_kind(&child.kind),
                     child.id,
                     child.title,
-                    child.state
+                    memory_state_name(child, output.machine)
                 );
                 if !child.content.trim().is_empty() {
                     for line in child.content.trim().lines() {
@@ -172,17 +178,17 @@ fn print_next_output(output: NextOutput<'_>) {
             println!("--- Instructions ({}) ---", output.to_state_name);
             println!("{}", output.instructions);
         }
-        // The run prompt's own sections, in its order. Every one is empty for a
-        // plan the run prompt would carry none of, so such a plan prints what it
-        // always did. §FS-rhei-supervision.3.4 §FS-rhei-memory.5
+        // The run prompt's own sections, in its order: `supervising` says what
+        // `## Rhei Commands` does, so it precedes that section's map here too.
+        // §FS-rhei-supervision.3.4 §FS-rhei-memory.5
         for section in [
             output.position,
             output.checkpoints,
             output.supervisor_brief,
             output.plan_history,
             output.previous_visits,
-            output.navigation,
             output.supervising,
+            output.navigation,
         ] {
             if !section.is_empty() {
                 print!("{section}");
