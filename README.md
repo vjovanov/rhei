@@ -62,7 +62,7 @@ Rhei is the only agent runtime that combines all of:
   recurring workflow — code review loops, release checklists, onboarding,
   audits — once as a parameterized template (plan skeleton + state machine +
   typed inputs), then `rhei instantiate` it with concrete values to spin up a
-  ready-to-execute workspace. Ten templates ship inside the binary, so
+  ready-to-execute workspace. Eleven templates ship inside the binary, so
   `rhei templates` is populated the moment `rhei` is installed. See
   [`docs/functional-spec/rhei-templates.spec.md`](docs/functional-spec/rhei-templates.spec.md).
 

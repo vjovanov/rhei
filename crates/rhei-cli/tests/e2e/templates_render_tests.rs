@@ -1,7 +1,8 @@
-//! Instantiation *rendering*: the restricted MiniJinja environment of
-//! §FS-rhei-templates.5 — what a template author may write in a skeleton, and
-//! what comes out the other side. The rest of the `rhei instantiate` /
-//! `rhei templates` command surface lives in `templates_tests.rs`.
+//! Instantiation *rendering*: the restricted MiniJinja environment — what a
+//! template author may write in a skeleton, and what comes out the other side.
+//! The `rhei instantiate` / `rhei templates` surface is in `templates_tests.rs`.
+
+// §FS-rhei-templates.5
 
 use std::fs;
 

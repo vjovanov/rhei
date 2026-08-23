@@ -1,9 +1,8 @@
-//! The `supervised-delivery` built-in template, end to end.
-//!
-//! It is the template that showcases subtree supervision (§FS-rhei-supervision):
-//! a root task in a `supervising` state that briefs, routes, and cancels every
-//! step beneath it, with the brief as the release gate and plan exports
-//! (§FS-rhei-plan-language.3.12) as the structured channel between steps.
+//! The `supervised-delivery` built-in template, end to end: a root task in a
+//! `supervising` state that briefs, routes, and cancels every step beneath it,
+//! with the brief as the release gate and plan exports as the channel.
+
+// §FS-rhei-supervision §FS-rhei-plan-language.3.12
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -334,10 +333,10 @@ fn the_supervisor_sends_every_step_and_finishes_after_the_last_one() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// §FS-rhei-supervision.1.1: the `snapshot:` block that carries a supervisor's
-/// session between visits is legal only on a session-capable agent, so the
-/// template emits it only when asked and defaults to the shape `claude-code`
-/// accepts.
+/// The `snapshot:` block that carries a supervisor's session between visits is
+/// legal only on a session-capable agent, so the template emits it only when
+/// asked and otherwise defaults to the shape `claude-code` accepts.
+// §FS-rhei-supervision.1.1
 #[test]
 fn the_snapshot_block_appears_only_for_a_session_capable_supervisor() {
     let dir = unique_temp_dir("supervised-delivery-snapshot");

@@ -120,6 +120,30 @@
   `examples/subtree-supervision/` runs the whole chain with a committed mock
   agent and no credentials. §FS-rhei-supervision §DF-subtree-supervision
 
+- A new built-in template, **`supervised-delivery`**, is the workflow
+  `execute_on:` was for: one supervising task that reads a spec, sends the
+  implementer, sends a code review and a product review of the same round
+  together, sends the fixer, and then decides from the resolutions it just read
+  whether the next round happens or gets cancelled so coverage can start. Two
+  things make the supervisor the one that decides. The **brief is the release
+  gate** — every child state declares a required input at
+  `runtime/supervise/{task_id}.md`, so no step is dispatched until the
+  supervisor has written that step's brief. And the channel between steps is
+  **plan exports** (`**Provides:**` / `**Consumes:**`), each one file holding a
+  single fenced `json` block, declared as that state's `outputs:` so a step
+  cannot finish without publishing it; the schemas ship as `prompt_templates/`
+  fragments the reviewer states share. Run it with `--parallel 2` or more so the
+  two reviews of a round overlap. The rendered example is
+  `examples/supervised-delivery-example/`. §FS-rhei-supervision §FS-rhei-templates
+
+- `rhei instantiate`'s template environment documents `range()`, arithmetic, and
+  `~`, which it already supported. `{% for k in range(1, rounds + 1) %}` is how
+  a template unrolls a counted structure into one task per round — the shape to
+  reach for when each round needs its own `**Prior:**`, exports, or title, which
+  are per-task metadata a counted `visits:` loop has nowhere to put. The same
+  arithmetic sizes a state's budget from the inputs that shaped the plan.
+  §FS-rhei-templates.5
+
 - Separate a run from the surface that watches it. `rhei run` bound the two into
   one process: closing the terminal killed the run (`SIGHUP` is an interruption,
   correctly, so the workaround was `nohup` or `tmux` — which puts the run
