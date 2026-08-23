@@ -73,3 +73,35 @@
         );
         assert!(!history.contains("BLOCKED"), "the quotation became the verdict:\n{history}");
     }
+
+    /// §FS-rhei-plan-language.3.8: the block names an artifact of the owning
+    /// rhei and nothing else — a target that leaves the execution root would
+    /// point the prompt composer at any file on the machine.
+    #[test]
+    fn a_legacy_result_link_resolves_only_inside_the_owning_root() {
+        let dir = memory_dir(&[(
+            "plan.rhei.md",
+            "# Rhei: Legacy\n\n## Tasks\n\n\
+             ### Task 1: Absolute target\n**State:** completed\n\n\
+             > **Result:** [1](/etc/passwd)\n\n\
+             ### Task 2: Climbing target\n**State:** completed\n\n\
+             > **Result:** [2](../elsewhere/2.md)\n\n\
+             ### Task 3: Relative target\n**State:** completed\n\n\
+             > **Result:** [3](runtime/results/3.md)\n",
+        )]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let root = dir.path();
+        let path_for = |id: &str| {
+            let task = find_task_by_id_str(&loaded.rhei.tasks, id).expect("task");
+            legacy_result_path(root, task)
+        };
+
+        assert_eq!(path_for("plan.1"), None, "an absolute target is not this rhei's artifact");
+        assert_eq!(path_for("plan.2"), None, "a climbing target leaves the execution root");
+        assert_eq!(
+            path_for("plan.3"),
+            Some(root.join("runtime/results/3.md")),
+            "a relative target resolves against the owning rhei's root"
+        );
+    }
