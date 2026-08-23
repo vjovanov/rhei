@@ -217,6 +217,15 @@ run on the other platform into an *unknown* entry, which is the one verdict
 that makes `attach`, `stop`, and `runs` hedge about a run that is plainly
 there.
 
+**A released lock is not everywhere released at the same instant.** Where the
+lock is a `flock`, the kernel drops it with the descriptor, so a run that has
+exited already reads as ended by the time its exit is observable at all. Where
+it is a Windows byte range, the handles of a dead process are closed by the
+operating system asynchronously, and for an unspecified interval after exit its
+lock may still be refused — so a run that is gone can read as *live* for a
+moment there. Nothing downstream is corrupted by it: the entry is re-probed,
+and the next probe answers *ended*.
+
 **A probe has three answers, not two: live, ended, and *unknown*.** An entry
 this process could not read, a workspace descriptor it could not open, a lock it
 could not probe — none of those say anything about the run. A missing lock file

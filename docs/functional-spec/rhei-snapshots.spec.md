@@ -434,7 +434,8 @@ All snapshots live under the plan workspace cache:
             g<N>/                     # generation directory, immutable
               manifest.json
               transcript.<ext>
-            current -> g<N>           # symlink to the live generation
+            current                   # pointer to the live generation:
+                                      # a relative symlink, or a one-line file
 ```
 
 `<task-id>` follows the encoding in §FS-rhei-plan-language (single segment or
@@ -449,8 +450,28 @@ author names (which must match `^[a-z][a-z0-9-]*$`). `<emitting-state>` is
 the canonical unsuffixed state name. `<visit>` is the integer visit count,
 never `0`. `<N>` in `g<N>` starts at `1`.
 
-`current` is a relative symlink to the active generation directory and is
-updated atomically (write `current.tmp`, rename to `current`).
+`current` names the active generation directory, in one of two spellings.
+Which one a writer uses is the platform's decision and never the plan's:
+
+- a **relative symlink** to `g<N>`, wherever the platform lets an ordinary
+  process create one — every Unix, and Windows under developer mode or an
+  elevated process;
+- a **one-line regular file** whose entire content is that same directory name
+  (`g<N>`, with an optional trailing newline) everywhere else, which on Windows
+  is the ordinary case: creating a symlink there needs a privilege a normal
+  user account does not hold.
+
+Both spellings are written the same way — into `current.tmp-<nonce>` beside it,
+then renamed over `current` (§7.2) — so no reader ever sees a half-written
+pointer, and a failed write leaves the previous generation current rather than
+no generation at all.
+
+**A reader accepts both spellings, on every platform**, and not only the one
+its own writer would produce. A snapshot cache travels: it is committed to a
+repository, copied between machines, and mounted from a share, so the platform
+reading a pointer is not necessarily the one that wrote it. A reader that knows
+only the symlink form reports every generation in a file-spelled cache as not
+current, and `inherit:` then resolves nothing at all.
 
 The cache root is gitignored by default. Plans may opt to commit selected
 snapshots; this is a workspace-level decision outside the scope of `rhei run`.
