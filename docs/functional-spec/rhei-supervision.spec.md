@@ -498,8 +498,8 @@ that outranks the `### Task …` heading it is pasted under, so unfenced it woul
 turn everything after it into a new top-level section of the prompt. The fence
 is as long as it needs to be: a body that already contains a run of backticks
 gets a longer one. `## Child Task Results` fences its bodies for the same
-reason. (`## Prior Task Results` and the handoff sections predate this and do
-not fence yet; that is a follow-up, not a difference worth relying on.)
+reason, and so do `## Prior Task Results`, `## Consumed Exports`, and the
+handoff sections (§FS-rhei-memory.4.5).
 
 `## Child Tasks` is the map and is rendered on every visit. `## Checkpoints`
 renders the recorded `supervision.checkpoints` (§3.3) and is omitted on a

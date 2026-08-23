@@ -143,24 +143,26 @@ old notes are historical; this roadmap owns the remaining backlog.
   variables versus prose in state instructions, and decide whether rendered
   JSON should keep or flatten `metadata.metadata`. §FS-rhei-next §FS-rhei-validate §FS-rhei-states §FS-rhei-render
 
-## Planned: Mid-Term Memory in the Run Prompt
+## Planned: A Dry Run That Prints the Composed Prompt
 
-Status: planned, spec written. A `rhei run` agent today sees its own task,
-its children, its direct priors, and its exports — not its ancestors, not the
-rhei's content sections, not what finished elsewhere, and not what already
-happened to the task it is retrying. §FS-rhei-memory specifies four prompt
-sections that reconstitute that memory by a fixed algorithm, bounded in
-tokens, and a requirement that every terminal task in the Panta stays
-reachable from any invocation. §FS-rhei-memory §GOAL-rhei-outcomes
+Status: implemented on this branch, one item open. A `rhei run` agent used to
+see its own task, its children, its direct priors, and its exports — not its
+ancestors, not the rhei's content sections, not what finished elsewhere, and
+not what already happened to the task it is retrying. §FS-rhei-memory now
+specifies four prompt sections that reconstitute that memory by a fixed
+algorithm, bounded in tokens, and requires that every terminal task in the
+Panta stays reachable from any invocation. §FS-rhei-memory §GOAL-rhei-outcomes
 
-- Render `## Position`, `## Plan History`, `## Previous Visits`, and the
-  `Reading the rhei` / `Leaving a trail` sub-sections in `rhei run` and
-  `rhei next`, per §FS-rhei-memory.3 and §FS-rhei-memory.4.
-- Fence `## Prior Task Results`, `## Consumed Exports`, and the handoff
-  sections with the same rule as the new sections (§FS-rhei-memory.4.5),
-  closing the supervision follow-up below.
+Landed: `## Position`, `## Plan History`, `## Previous Visits`, and the
+`Reading the rhei` / `Leaving a trail` sub-sections render in `rhei run` and
+`rhei next` per §FS-rhei-memory.3 and §FS-rhei-memory.4, and
+`## Prior Task Results`, `## Consumed Exports`, and the handoff sections adopt
+the fencing rule of §FS-rhei-memory.4.5, closing the supervision follow-up.
+
 - Add a dry-run form that prints the full composed prompt without claiming
-  a ticket (§FS-rhei-memory.5).
+  a ticket. `rhei run --dry-run` keeps its `<prompt...>` placeholder, so
+  claim-mode `rhei next` is the only way to see a composed prompt today.
+  §FS-rhei-memory.5
 
 ## Planned: Relocatable Rhei Root and Cross-Worktree Coordination
 
