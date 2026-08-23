@@ -9,7 +9,7 @@
   every platform runs. This was true of the binaries and, since Windows CI
   started running the suite, increasingly of the tests; it is now written
   down as a goal and a requirement that new work is held to from the start.
-  §GOAL-rhei-outcomes §FS-rhei-distribution.7
+  §GOAL-rhei-outcomes §FS-rhei-distribution.7 (PR #96)
 
 - Windows CI now runs the test suite it can: every crate's unit tests,
   `rhei-core`'s integration tests, and the CLI's integration target, which
