@@ -50,10 +50,11 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     // §FS-rhei-new.4
     let scope_lock = lock_new_create(&target)?;
 
-    let (write, _destination_lock) =
+    let (write, destination_lock) =
         decide_under_destination_lock(&target, options, description.as_deref(), &scope_lock)?;
+    let locks = NewCreateLocks { scope: &scope_lock, destination: destination_lock.as_ref() };
 
-    apply_new_write(&target, &write, options)
+    apply_new_write(&target, &write, options, &locks)
 }
 
 /// Decide the write, take the destination's own lock, and confirm the file did
@@ -81,9 +82,15 @@ fn decide_under_destination_lock(
 
     for _ in 0..ATTEMPTS {
         let write = decide_new_write(target, options, description)?;
-        let witnessed = fs::read(&write.path).ok();
+        // Both reads go through whichever lock this create already holds on the
+        // file, so the comparison is between two readings of the plan and not
+        // between one reading and a refusal. §FS-rhei-new.4
+        let before = NewCreateLocks { scope: scope_lock, destination: None };
+        let witnessed = before.read(&write.path);
         let destination_lock = lock_new_destination(scope_lock, &write.path)?;
-        if fs::read(&write.path).ok() == witnessed {
+        let after =
+            NewCreateLocks { scope: scope_lock, destination: destination_lock.as_ref() };
+        if after.read(&write.path) == witnessed {
             return Ok((write, destination_lock));
         }
         // Release before re-reading, so the next attempt locks the file it
@@ -217,20 +224,24 @@ struct AppliedWrite {
 /// missing, and whether the new id reads back. Nothing is undone here — the
 /// caller decides that, because a dry run undoes a create that worked too.
 // §FS-rhei-new.5.1 §FS-rhei-new.5.2
-fn perform_new_write(target: &Path, write: &NewWrite) -> MietteResult<AppliedWrite> {
+fn perform_new_write(
+    target: &Path,
+    write: &NewWrite,
+    locks: &NewCreateLocks<'_>,
+) -> MietteResult<AppliedWrite> {
     // Both passes run before the write as well, so what follows can be read as
     // a difference rather than as a verdict on the whole project.
     // §FS-rhei-new.5.1 §FS-rhei-new.5.2
     let inherited = create_validation_errors(target);
     let before = create_plan_ids(target);
 
-    let previous = fs::read_to_string(&write.path).ok();
+    let previous = locks.read(&write.path);
     let created_dirs: Vec<PathBuf> =
         write.dirs.iter().filter(|dir| !dir.exists()).cloned().collect();
     for dir in &write.dirs {
         fs::create_dir_all(dir).map_err(|err| file_io_report(dir, "failed to create", err))?;
     }
-    write_plan_file_atomically(&write.path, &write.contents)?;
+    write_plan_file_atomically(&write.path, &write.contents, locks.covering(&write.path))?;
 
     let failure = new_write_failure(target, write, &inherited, before.as_ref());
     Ok(AppliedWrite { previous, created_dirs, inherited, failure })
@@ -239,8 +250,13 @@ fn perform_new_write(target: &Path, write: &NewWrite) -> MietteResult<AppliedWri
 /// Write the create and keep it, or undo it and say why. `--dry-run` undoes it
 /// either way and reports what the real create would have done.
 // §FS-rhei-new.5.1 §FS-rhei-new.5.2 §FS-rhei-new.5.4
-fn apply_new_write(target: &Path, write: &NewWrite, options: &NewOptions) -> MietteResult<()> {
-    let applied = perform_new_write(target, write)?;
+fn apply_new_write(
+    target: &Path,
+    write: &NewWrite,
+    options: &NewOptions,
+    locks: &NewCreateLocks<'_>,
+) -> MietteResult<()> {
+    let applied = perform_new_write(target, write, locks)?;
     if options.dry_run {
         return report_new_dry_run(write, applied, options.json);
     }
