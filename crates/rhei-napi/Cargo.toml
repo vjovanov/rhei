@@ -16,6 +16,10 @@ napi-build = "=2.2.3"
 [lib]
 name = "rhei_napi"
 crate-type = ["cdylib"]
+# The N-API shims resolve against the host Node process, which a test harness
+# is not: on Windows the empty harness aborts before it can report zero tests.
+# There are no unit tests here to lose. #91
+test = false
 
 [dependencies]
 rhei-core = { package = "rhei-plan", path = "../rhei-core", version = "=0.3.0" }

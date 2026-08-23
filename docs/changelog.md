@@ -11,6 +11,24 @@
   drives `sh` mock agents, is still Linux and macOS only. §AR-ci-release.1
   (PR #94)
 
+  Running them found four things that were broken on Windows and are now
+  fixed. **Run liveness**: a lock somebody holds is refused with a different
+  error per operating system, and rhei recognised only the Unix one, so every
+  live Windows run read as *undecided* — `rhei runs` hedged about it,
+  `rhei attach` and `rhei stop` hedged about reaching it, and a second
+  `rhei run` on the same workspace neither queued nor refused.
+  §FS-rhei-run-headless.3 **Rooted artifact paths**: a state declaring
+  `path: /etc/passwd`, and a ticket linking its result to one, were rejected
+  on Unix and accepted on Windows, where a path needs a drive letter to count
+  as absolute; both are rejected everywhere now. §FS-rhei-states.4
+  **Snapshot lineage**: where the platform has no unprivileged symlinks the
+  `current` pointer is written as a one-line file, but only the symlink form
+  was ever read back, so every cached snapshot looked stale and `inherit:`
+  resolved nothing. §FS-rhei-snapshots.7 **Plan rewrites**: a file lock is
+  advisory on Unix and mandatory on Windows, so `rhei complete`,
+  `rhei transition`, `rhei reset`, and a dashboard gate choice locked the plan
+  and were then refused their own read of it. (PR #94)
+
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
   attribution, changelog). The Ubuntu job used to carry every repository gate
