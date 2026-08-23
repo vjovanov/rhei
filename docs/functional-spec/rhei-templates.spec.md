@@ -569,6 +569,33 @@ emits the single template as one object in the list's entry shape.
 
 When discovery encounters an invalid template directory, `rhei templates` skips it and prints a warning instead of failing the entire listing.
 
+#### 6.3.1. The JSON entry carries the whole input schema
+
+`--json` is the surface another program reads a template through, so every
+input in the entry carries every key the manifest declared for it — not the
+subset the human table prints:
+
+| Key | Value |
+| --- | --- |
+| `name`, `type`, `required`, `description` | always present |
+| `default` | the declared default, or `null` |
+| `validate` | the declared pattern, or `null` |
+| `format` | the declared format (§3.1), or `null` |
+| `positional` | the declared 1-based slot, or `null` |
+| `items` | for `type: array`, the element schema; `null` otherwise |
+| `properties` | for `type: object`, a name → schema map; `null` otherwise |
+
+`items` and `properties` nest the same value schema — `type`, `required`,
+`default`, `validate`, `format`, and their own `items` and `properties` — so a
+caller can walk an array of execution targets or a record of typed fields
+without opening `template.yaml`, which a built-in template has nowhere on disk
+to open.
+
+This is what lets a caller build an input form rather than a text box:
+`format: execution-target` says a value is an agent selector and not free
+text, `items.format` says the same of every element of an array, and
+`positional` says which input the template treats as its principal one.
+
 ## Example
 
 ### Template: `code-review`

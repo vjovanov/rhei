@@ -271,15 +271,38 @@
             "path": template.path,
             "required_inputs": template.manifest.required_input_count(),
             "inputs": template.manifest.inputs.iter().map(|input| {
-                serde_json::json!({
-                    "name": input.name,
-                    "type": input.value_type().as_str(),
-                    "required": input.is_required(),
-                    "description": input.description,
-                    "default": input.schema.default.as_ref(),
-                    "validate": input.schema.validate.as_ref(),
-                })
+                let mut entry = template_schema_json(&input.schema);
+                entry["name"] = serde_json::Value::String(input.name.clone());
+                entry["description"] = serde_json::Value::String(input.description.clone());
+                entry["positional"] = match input.positional {
+                    Some(slot) => serde_json::Value::from(slot),
+                    None => serde_json::Value::Null,
+                };
+                entry
             }).collect::<Vec<_>>(),
+        })
+    }
+
+    /// One value schema as JSON, nested schemas and all: every key the
+    /// manifest declared, so a caller can build an input form from the
+    /// listing alone. §FS-rhei-templates.6.3.1
+    fn template_schema_json(schema: &TemplateValueSchema) -> serde_json::Value {
+        serde_json::json!({
+            "type": schema.value_type.as_str(),
+            "required": schema.is_required(),
+            "default": schema.default.as_ref(),
+            "validate": schema.validate.as_ref(),
+            "format": schema.format.map(TemplateInputFormat::as_str),
+            "items": schema.items.as_ref().map(|items| template_schema_json(items)),
+            "properties": match schema.properties.is_empty() {
+                true => serde_json::Value::Null,
+                false => schema
+                    .properties
+                    .iter()
+                    .map(|(name, property)| (name.clone(), template_schema_json(property)))
+                    .collect::<serde_json::Map<_, _>>()
+                    .into(),
+            },
         })
     }
 

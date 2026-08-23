@@ -61,6 +61,54 @@ fn standalone_instantiation_notes_untracked_workspace_in_git_repo() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// §FS-rhei-templates.6.3.1: the JSON entry carries every key an input
+/// declared, so a caller can build a form from it without opening
+/// `template.yaml` — which a built-in template has nowhere on disk to open.
+#[test]
+fn templates_json_carries_the_whole_input_schema() {
+    let dir = unique_temp_dir("templates-json-schema");
+
+    let result = run_raw(&["templates", "changeset-review", "--json"], &dir);
+    assert_success(&result);
+    let value: serde_json::Value =
+        serde_json::from_str(&result.stdout).expect("detail should be valid JSON");
+    let inputs = value["inputs"].as_array().expect("inputs array");
+    let input = |name: &str| -> &serde_json::Value {
+        inputs
+            .iter()
+            .find(|input| input["name"] == name)
+            .unwrap_or_else(|| panic!("input '{name}' in:\n{}", result.stdout))
+    };
+
+    // A scalar execution target says so, instead of looking like free text.
+    assert_eq!(input("smart_target")["format"], "execution-target", "got:\n{}", result.stdout);
+
+    // And an array of them says so about its elements.
+    let targets = input("review_targets");
+    assert_eq!(targets["type"], "array", "got:\n{}", result.stdout);
+    assert_eq!(targets["items"]["format"], "execution-target", "got:\n{}", result.stdout);
+    assert_eq!(targets["items"]["type"], "string", "got:\n{}", result.stdout);
+
+    // Every key is present even where the input declared none of it, so a
+    // reader tests values rather than testing for the absence of keys.
+    let plain = input("change_ref");
+    for key in ["default", "validate", "format", "items", "properties", "positional"] {
+        assert!(
+            plain[key].is_null(),
+            "'{key}' should be null on an input that declares none; got:\n{}",
+            result.stdout
+        );
+    }
+    assert_eq!(
+        input("fix_prepare")["validate"],
+        "^(none|branch|worktree|fork)$",
+        "got:\n{}",
+        result.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// §FS-rhei-templates.6.3: naming a template after reading the list answers
 /// with its detail — source, input schema, and an instantiation hint — instead
 /// of an argument error.

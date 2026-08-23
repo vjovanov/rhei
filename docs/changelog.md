@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `rhei templates --json` now carries the **whole** input schema for every
+  input, not the subset the human table prints: `format`, `positional`,
+  `items` (the element schema of an array), and `properties` (the field
+  schemas of a record) join `type`, `required`, `default` and `validate`, and
+  `items`/`properties` nest the same shape recursively
+  (§FS-rhei-templates.6.3.1). This is what another program needs to build an
+  **input form** for a template — `format: execution-target` says a value is an
+  agent selector rather than free text, and `items.format` says the same of
+  every element of an array such as `changeset-review`'s `review_targets`.
+  Until now the only way to learn either was to open `template.yaml` and read
+  the YAML, which a caller cannot do at all for a built-in template: those ship
+  inside the binary and have no directory on disk. Keys an input does not
+  declare are present and `null`, so a caller tests values rather than testing
+  for the absence of keys. (PR #90)
+
 - Add `rhei new`, so the first rhei and every ticket after it can be created
   without knowing the plan format. `rhei new "Authentication"` writes the rhei
   next to `index.panta.md`; `rhei new "Rotate keys" --under auth` writes a
