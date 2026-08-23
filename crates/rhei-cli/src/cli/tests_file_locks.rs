@@ -89,6 +89,39 @@ mod file_lock_tests {
         assert_eq!(locked.read_to_string("failed to read plan file").expect("read"), "once\n");
     }
 
+    /// A handle whose lock has been let go is never a source of content: after
+    /// `persist_locked`'s rename it names an orphan, so the caller keeps its
+    /// original refusal instead. §FS-rhei-new.4
+    #[test]
+    fn a_released_handle_serves_no_read() {
+        let handle: PlanLockHandle = Arc::new(Mutex::new(None));
+        assert!(
+            read_through_handle(&handle).is_none(),
+            "a released handle must not answer a read"
+        );
+    }
+
+    /// And it is gone from the registry too, so nothing else in the process
+    /// finds it either — including the loader's own path reader.
+    // §FS-rhei-new.4
+    #[test]
+    fn a_released_lock_is_deregistered() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = plan_file(&dir, "registered\n");
+        let locked = LockedPlanFile::open(&path).expect("lock the plan");
+        assert!(
+            read_through_held_lock(&path).is_some(),
+            "a held lock must be reachable by path"
+        );
+
+        locked.release();
+
+        assert!(
+            read_through_held_lock(&path).is_none(),
+            "a released lock must leave nothing behind to read through"
+        );
+    }
+
     #[test]
     fn a_rewrite_persists_over_the_file_it_locked() {
         let dir = tempfile::tempdir().expect("tmpdir");

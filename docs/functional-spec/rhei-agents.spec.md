@@ -205,6 +205,14 @@ Run with `rhei run <plan> --dashboard --agent my-interactive-agent`; the
 composer then appears on that agent's live node, and
 `rhei intervene --task <id> -m "…"` reaches the same channel.
 
+Delivering the prompt is the last step of a spawn, so a prompt Rhei cannot hand
+over — a stdin write that fails, or a generated file such as `mcp_config_flag`'s
+that cannot be written — is a warning naming the task and the path rather than a
+failed spawn, and the run continues with the prompt delivered as far as the
+transport allowed: the child is already running by then, and an agent handed
+nothing does whatever it does with nothing, which is otherwise a silence the run
+has no way to account for.
+
 `claude-code` is the built-in exception to the plain-line format. When its
 resolved profile has `intervene_stdin: true`, Rhei invokes Claude Code with
 `-p --input-format stream-json --output-format stream-json --verbose`, writes

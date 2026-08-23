@@ -375,6 +375,12 @@ caller back the race.
 Both are released on every exit path, and the OS releases them if the process
 dies, so neither can go stale.
 
+Where a file lock is mandatory and belongs to the handle that took it — Windows,
+and not Linux or macOS — this process's own second open of a plan it has locked
+is refused, so a read that the process's own lock refuses is served through that
+lock's handle, always after the read by path has been tried first, since a writer
+that took the lock before us has left a different file at that path.
+
 What the lock guarantees is that every create which exits 0 is in the file
 afterwards: sibling numbering, the write, and the verification all happen inside
 it, so `xargs -P8 rhei new` against one rhei allocates a distinct number per
