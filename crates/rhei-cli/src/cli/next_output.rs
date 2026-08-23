@@ -14,8 +14,15 @@ struct NextOutput<'a> {
     /// under `--peek` and when the ticket was already claimed.
     claimed_as: Option<&'a str>,
     task: &'a rhei_core::ast::Task,
+    /// The authored `**State:**` values, suffix and all — what JSON reports.
     from_state: &'a str,
     to_state: &'a str,
+    /// The machine's own names for the same two states: the text surface prints
+    /// these, so one screen spells a state one way and every name on it is a
+    /// name `rhei transition --from` accepts. The visit is in `## Position`.
+    // §FS-rhei-next.4.1 §FS-rhei-memory.3.1
+    from_state_name: &'a str,
+    to_state_name: &'a str,
     personality: Option<&'a str>,
     instructions: &'a str,
     /// The supervisor's `## Checkpoints` section, or empty when this ticket is
@@ -106,16 +113,16 @@ fn print_next_output(output: NextOutput<'_>) {
         }
         println!("{}", serde_json::to_string_pretty(&obj).expect("JSON serialization"));
     } else {
-        let transitioned = output.from_state != output.to_state;
+        let transitioned = output.from_state_name != output.to_state_name;
         if output.peek {
             println!(
                 "Task {} — current state: '{}' (read-only peek; not advanced)",
-                output.task.id, output.to_state
+                output.task.id, output.to_state_name
             );
         } else if transitioned {
             println!(
                 "Task {} claimed: '{}' -> '{}'",
-                output.task.id, output.from_state, output.to_state
+                output.task.id, output.from_state_name, output.to_state_name
             );
         } else if let Some(assignee) = output.claimed_as {
             // A claim that does not move the ticket is still a claim, and
@@ -123,10 +130,10 @@ fn print_next_output(output: NextOutput<'_>) {
             // §FS-rhei-next.4: claim mode reports the claim it took.
             println!(
                 "Task {} claimed by {} (stays in '{}')",
-                output.task.id, assignee, output.to_state
+                output.task.id, assignee, output.to_state_name
             );
         } else {
-            println!("Task {} (already in '{}')", output.task.id, output.to_state);
+            println!("Task {} (already in '{}')", output.task.id, output.to_state_name);
         }
         if output.agent_id.is_some() || output.model_id.is_some() {
             let agent_str = output.agent_id.unwrap_or("none");
@@ -162,7 +169,7 @@ fn print_next_output(output: NextOutput<'_>) {
         }
         if !output.instructions.is_empty() {
             println!();
-            println!("--- Instructions ({}) ---", output.to_state);
+            println!("--- Instructions ({}) ---", output.to_state_name);
             println!("{}", output.instructions);
         }
         // The run prompt's own sections, in its order. Every one is empty for a
