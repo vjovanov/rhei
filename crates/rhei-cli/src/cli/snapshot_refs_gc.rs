@@ -65,10 +65,13 @@ fn resolve_snapshot_path_ref(
     if !candidate.join("manifest.json").is_file() {
         return Ok(None);
     }
-    let cache_root = ctx.cache_root.canonicalize().map_err(|err| {
+    // Both sides of the containment test below have to be spelled the same
+    // way; a verbatim prefix on one of them alone puts every generation
+    // outside the cache on Windows. §REQ-cross-platform.5
+    let cache_root = rhei_core::platform::canonical_path(&ctx.cache_root).map_err(|err| {
         file_io_report(&ctx.cache_root, "failed to resolve snapshot cache path", err)
     })?;
-    let canonical = candidate.canonicalize().map_err(|err| {
+    let canonical = rhei_core::platform::canonical_path(&candidate).map_err(|err| {
         file_io_report(&candidate, "failed to resolve snapshot generation path", err)
     })?;
     if !canonical.starts_with(&cache_root) {

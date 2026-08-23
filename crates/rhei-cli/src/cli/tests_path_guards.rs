@@ -50,4 +50,34 @@ mod path_guard_tests {
     fn windows_still_reads_a_relative_path_as_relative() {
         assert!(!path_is_rooted(r"runtime\out.md"));
     }
+
+    /// Every canonicalization in the CLI goes through `canonical_path`, which
+    /// is `canonicalize` plus `plain_path`. What that buys is asserted on the
+    /// pure half, so the platform that runs the whole suite pins the spelling
+    /// the other one prints: `rhei diag` names a skill source directory, and it
+    /// must name it the way every other line of the report does.
+    // §REQ-cross-platform.5
+    #[test]
+    fn a_printed_skill_source_carries_no_verbatim_prefix() {
+        let verbatim = PathBuf::from(r"\\?\C:\rhei\skills\rhei-plan-writer");
+        let printed = rhei_core::platform::plain_path(verbatim).display().to_string();
+        let expected = if cfg!(windows) {
+            r"C:\rhei\skills\rhei-plan-writer"
+        } else {
+            // Nothing to strip: that is an ordinary relative name here.
+            r"\\?\C:\rhei\skills\rhei-plan-writer"
+        };
+        assert_eq!(printed, expected);
+
+        // And the whole helper on a directory that exists, which is the call
+        // `filesystem_skill_source` actually makes.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let canonical =
+            rhei_core::platform::canonical_path(dir.path()).expect("canonicalize the fixture");
+        assert!(
+            !canonical.display().to_string().starts_with(r"\\?\"),
+            "canonical_path must hand back the plain spelling: {}",
+            canonical.display()
+        );
+    }
 }

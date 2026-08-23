@@ -27,9 +27,12 @@ fn task_profile_allows_state(
 /// rather than pasting an absolute path into the middle of a suggested command.
 // §FS-rhei-errors.2
 fn plan_arg_for_help(plan_path: &Path) -> String {
+    // One spelling on both sides of the `strip_prefix`: the plan path is the
+    // plain form, so the working directory has to be canonicalized the same way
+    // or nothing ever matches on Windows. §REQ-cross-platform.5
     let shown = std::env::current_dir()
         .ok()
-        .and_then(|cwd| cwd.canonicalize().ok())
+        .and_then(|cwd| rhei_core::platform::canonical_path(&cwd).ok())
         .and_then(|cwd| plan_path.strip_prefix(cwd).ok())
         .map(|relative| {
             if relative.as_os_str().is_empty() {

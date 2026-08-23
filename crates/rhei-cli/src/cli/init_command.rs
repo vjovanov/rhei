@@ -177,7 +177,7 @@ help = init_conflict_help(),
 
 /// Nearest ancestor (strictly above `dir`) that is a Panta project root.
 fn enclosing_panta_project(dir: &Path) -> Option<PathBuf> {
-    let start = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let start = rhei_core::platform::canonical_path(dir).unwrap_or_else(|_| dir.to_path_buf());
     let mut current = start.parent();
     while let Some(dir) = current {
         if dir.join("index.panta.md").is_file() {
@@ -191,8 +191,7 @@ fn enclosing_panta_project(dir: &Path) -> Option<PathBuf> {
 /// Default title from the host directory name: `-`/`_` become spaces and
 /// each word is capitalized (`my-project` → `My Project`). §FS-rhei-init.1
 fn default_project_title(dir: &Path) -> String {
-    let name = dir
-        .canonicalize()
+    let name = rhei_core::platform::canonical_path(dir)
         .unwrap_or_else(|_| dir.to_path_buf())
         .file_name()
         .and_then(|name| name.to_str())
@@ -314,7 +313,7 @@ fn agents_note_target(anchor: &Path) -> PathBuf {
 
 /// The enclosing git repository root, if `dir` is inside one.
 fn repository_root(dir: &Path) -> Option<PathBuf> {
-    let start = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let start = rhei_core::platform::canonical_path(dir).unwrap_or_else(|_| dir.to_path_buf());
     let mut current: Option<&Path> = Some(start.as_path());
     while let Some(candidate) = current {
         if candidate.join(".git").exists() {
