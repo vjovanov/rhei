@@ -88,6 +88,10 @@ and `]`, and an unquoted `agent=codex[yolo]:openai:gpt-5.5` fails in zsh with
 `no matches found` before Rhei is ever executed. Printed selectors are
 therefore always quoted as `agent='codex[yolo]:openai:gpt-5.5'`.
 
+The quoting is the platform's own, because the shell the command is pasted into
+is: a value that needs quoting is wrapped in POSIX single quotes on Unix and in
+`cmd`'s double quotes, with any embedded `"` doubled, on Windows.
+
 In a `KEY=VALUE` argument only the value is quoted, so the key — which is what
 the suggestion is teaching — stays readable.
 

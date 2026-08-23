@@ -172,20 +172,15 @@ inputs:
         &dir,
     );
     assert_success(&result);
-    // The repro command renders the output path relative to the working
-    // directory it is pasted from. §FS-rhei-templates.6.1.3
-
-    // The two absolute paths are matched on their own, because the printed
-    // command is quoted for a shell and a Windows path's backslashes make it a
-    // quoted word.
+    // §FS-rhei-templates.6.1.3: the repro command renders the output path
+    // relative to the working directory it is pasted from, and quotes both
+    // absolute ones for the shell it will be pasted into.
     assert!(
-        result.stdout.contains(&template_dir.display().to_string())
-            && result.stdout.contains(&dir.join("values.yaml").display().to_string()),
-        "the repro command names the template and its values file; got:\n{}",
-        result.stdout
-    );
-    assert!(
-        result.stdout.contains("--output output"),
+        result.stdout.contains(&format!(
+            "rhei instantiate {} --values {} --output output",
+            shell_quote(&template_dir.display().to_string()),
+            shell_quote(&dir.join("values.yaml").display().to_string()),
+        )),
         "expected values-file instantiate command in output; got:\n{}",
         result.stdout
     );

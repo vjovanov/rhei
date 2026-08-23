@@ -10,40 +10,9 @@
 // whole for the terminal to soft-wrap. §FS-rhei-errors.2
 
 /// Quote a shell word so a printed command survives paste into an interactive
-/// shell. §FS-rhei-errors.2
+/// shell — whichever shell this platform gives the user. §FS-rhei-errors.2
 fn shell_quote(value: &str) -> String {
-    // zsh expands `[`/`]` before the command runs, so an unquoted
-    // `agent=codex[yolo]:openai:gpt-5.5` dies with `no matches found`.
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    // A word that *begins* with `=` is subject to zsh's EQUALS expansion
-    // (`=less` becomes the path to `less`), so it has to be quoted even though
-    // `=` is safe everywhere else in a word.
-    if value.starts_with('=') {
-        return format!("'{}'", value.replace('\'', "'\"'\"'"));
-    }
-    if value.bytes().all(|byte| {
-        matches!(
-            byte,
-            b'a'..=b'z'
-                | b'A'..=b'Z'
-                | b'0'..=b'9'
-                | b'_'
-                | b'-'
-                | b'.'
-                | b'/'
-                | b':'
-                | b'@'
-                | b'%'
-                | b'+'
-                | b'='
-                | b','
-        )
-    }) {
-        return value.to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
+    rhei_core::platform::shell_quote(value)
 }
 
 /// Render a `KEY=VALUE` CLI argument with the value quoted when it needs it.
