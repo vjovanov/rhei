@@ -31,12 +31,9 @@ fn legacy_result_path(root: &Path, task: &rhei_core::ast::Task) -> Option<PathBu
         }
         let target = trimmed.split_once("](").and_then(|(_, rest)| rest.strip_suffix(')'))?;
         // The block names an artifact of this rhei and nothing else: a rooted
-        // or climbing target is a malformed block, not a result. `has_root` as
-        // well as `is_absolute` because on Windows `/etc/passwd` is rooted
-        // without being absolute, and it is no more this rhei's artifact there.
+        // or climbing target is a malformed block, not a result.
         let relative = Path::new(target);
-        if relative.is_absolute()
-            || relative.has_root()
+        if path_is_rooted(relative)
             || relative.components().any(|part| part == std::path::Component::ParentDir)
         {
             return None;

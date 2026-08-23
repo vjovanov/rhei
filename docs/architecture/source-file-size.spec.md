@@ -77,6 +77,9 @@ named after the behavior they contain.
 `crates/rhei-cli/src/main.rs` is only the CLI shell. It includes focused parts
 under `crates/rhei-cli/src/cli/`:
 
+- `path_guards` contains the one platform-aware path question — does a
+  declared path start at a root — that the validator, the prompt renderer, and
+  the TUI inspector all ask.
 - `cli_declarations` and `cli_dispatch` contain clap command declarations and
   top-level dispatch.
 - `completion_candidates` and `completion_context` contain shell completion

@@ -13,6 +13,7 @@ pub mod rhei_viz;
 pub mod rhei_viz_model;
 
 // §AR-source-file-size: The CLI is split into bounded include parts.
+include!("cli/path_guards.rs");
 include!("cli/cli_declarations.rs");
 include!("cli/cli_dispatch.rs");
 include!("cli/completion_candidates.rs");
@@ -127,6 +128,7 @@ include!("cli/diagnostics.rs");
 
 #[cfg(test)]
 mod tests {
+    include!("cli/tests_path_guards.rs");
     include!("cli/tests_cli_render.rs");
     include!("cli/tests_error_guidance.rs");
     include!("cli/tests_prompt_templates.rs");
