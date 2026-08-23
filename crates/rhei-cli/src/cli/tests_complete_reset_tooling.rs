@@ -180,7 +180,7 @@
         fs::create_dir_all("target").expect("target dir");
         let current_thread = std::thread::current();
         // A test thread is named after its module path, and `:` is not a legal
-        // character in a Windows filename. §91
+        // character in a Windows filename. #91
         let thread_name: String = current_thread
             .name()
             .unwrap_or("unnamed")
