@@ -65,6 +65,7 @@ fn run_sequential_program_work_items(
             agent: None,
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
         let log = program_log_path(runtime_dir, task_id_str, current_state);
 

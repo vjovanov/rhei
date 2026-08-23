@@ -1,0 +1,309 @@
+// The shared floor under the mid-term memory sections: what the project graph
+// hands prompt composition beyond one invocation, the caps every section obeys,
+// and the four primitives the renderers next door are built from — a path, a
+// truncation, a one-line summary, and a ledger read.
+//
+// Its own part because Position, Plan History, Previous Visits, and the
+// navigation block each render a different slice of the same memory; the slice
+// is theirs, the reading of it is shared.
+
+// §AR-source-file-size.3 §FS-rhei-memory.4
+
+/// Everything the memory sections read that the invocation itself does not
+/// carry: the project, its rheis, and where each one's runtime lives.
+///
+/// Composition is a pure function of this plus the invocation, so the struct
+/// holds data and never a handle to anything that varies per run.
+// §FS-rhei-memory.1.2 §FS-rhei-memory.4.1
+struct PromptMemory {
+    /// Title of the Panta — the manifest's for a project, the rhei's own for a
+    /// bare rhei's implicit Panta.
+    panta_title: String,
+    /// True when an `index.panta.md` was actually authored. A bare rhei has no
+    /// `### Project Context`. §FS-rhei-memory.3.1
+    explicit_panta: bool,
+    /// The project manifest, when there is one.
+    panta_manifest: Option<PathBuf>,
+    /// Rhei ids in load order — the order `### Reading the rhei` lists them in.
+    rhei_ids: Vec<String>,
+    rhei_roots: HashMap<String, PathBuf>,
+    rhei_titles: HashMap<String, String>,
+    rhei_plans: HashMap<String, PathBuf>,
+    /// Content sections of the merged graph, in authored order.
+    content_sections: Vec<rhei_core::ast::ContentSection>,
+    /// File that defines each ticket, keyed by qualified id.
+    task_sources: HashMap<String, PathBuf>,
+    /// The `runtime/` directory `rhei run` names agent logs under.
+    // §FS-rhei-agents.8.1
+    runtime_dir: PathBuf,
+    /// Tickets the current `rhei run` pass has spawned and not yet reaped.
+    /// `rhei run` writes no `**Assignee:**` on claim, so this is the only
+    /// witness that another agent of this pass is working. §FS-rhei-memory.4.3
+    run_in_flight: BTreeSet<String>,
+    /// Whether this surface pastes the ticket's own input sections —
+    /// `## Prior Task Results` and `## Child Task Results`.
+    ///
+    /// `see above` is a claim about *this* prompt, and `rhei next` prints
+    /// neither section, so on that surface a deferred summary would point at
+    /// nothing. `## Checkpoints` is rendered by both and is not covered here.
+    // §FS-rhei-memory.4.3 §FS-rhei-supervision.3.4
+    pastes_task_inputs: bool,
+}
+
+/// Every cap §FS-rhei-memory.4 states, in one place, so a reader can check the
+/// implementation against the spec without reading four renderers.
+// §FS-rhei-memory.4.5
+mod memory_caps {
+    /// §FS-rhei-memory.4.2: siblings listed under `### Siblings`.
+    pub const SIBLINGS: usize = 30;
+    /// §FS-rhei-memory.4.2: lines of the parent's pasted body.
+    pub const PARENT_BODY_LINES: usize = 200;
+    /// §FS-rhei-memory.4.2: lines of each pasted content-section block.
+    pub const CONTEXT_LINES: usize = 1000;
+    /// §FS-rhei-memory.4.3: lines of `## Plan History`.
+    pub const PLAN_HISTORY: usize = 40;
+    /// §FS-rhei-memory.4.3: entries under `### In Flight`.
+    pub const IN_FLIGHT: usize = 20;
+    /// §FS-rhei-memory.4.3: entries under `### Dependents`.
+    pub const DEPENDENTS: usize = 30;
+    /// §FS-rhei-memory.4.4: trailing lines of the pasted result file.
+    pub const RESULT_LINES: usize = 100;
+    /// §FS-rhei-memory.4.3: columns a Plan History summary is cut to.
+    pub const SUMMARY_COLUMNS: usize = 120;
+}
+
+/// Build the memory a prompt composes from, off an already-loaded plan.
+// §FS-rhei-memory.4.1
+fn prompt_memory(
+    loaded: &LoadedPlan,
+    input: &Path,
+    runtime_dir: &Path,
+    run_in_flight: BTreeSet<String>,
+) -> PromptMemory {
+    let panta_manifest = rhei_core::workspace::panta_project_dir(input)
+        .map(|dir| dir.join(rhei_core::workspace::PANTA_INDEX_FILE));
+    PromptMemory {
+        panta_title: loaded.rhei.title.clone(),
+        explicit_panta: loaded.is_panta_project(),
+        panta_manifest,
+        rhei_ids: loaded.rhei_ids.clone(),
+        rhei_roots: loaded.rhei_roots.clone(),
+        rhei_titles: loaded.rhei_titles.clone(),
+        rhei_plans: loaded.rhei_plans.clone(),
+        content_sections: loaded.rhei.content_sections.clone(),
+        task_sources: loaded.task_sources.clone(),
+        runtime_dir: runtime_dir.to_path_buf(),
+        run_in_flight,
+        pastes_task_inputs: true,
+    }
+}
+
+/// The owning rhei's id, as the qualification prefix spells it.
+// §FS-rhei-memory.4.1
+fn owning_rhei_id(render_context: &RuntimeTemplateContext<'_>) -> Option<String> {
+    rhei_id_of(render_context.task)
+}
+
+/// The rhei a qualified id belongs to: its leading segment.
+// §FS-rhei-panta.6.3
+fn rhei_of_qualified_id(task_id: &str) -> &str {
+    task_id.split_once('.').map(|(rhei, _)| rhei).unwrap_or(task_id)
+}
+
+/// Every task of the merged graph, in plan order, parents before children.
+// §FS-rhei-plan-language.1.2
+fn flatten_task_slice(tasks: &[rhei_core::ast::Task]) -> Vec<&rhei_core::ast::Task> {
+    fn collect<'a>(task: &'a rhei_core::ast::Task, out: &mut Vec<&'a rhei_core::ast::Task>) {
+        out.push(task);
+        for child in &task.children {
+            collect(child, out);
+        }
+    }
+    let mut out = Vec::new();
+    for task in tasks {
+        collect(task, &mut out);
+    }
+    out
+}
+
+/// Whether a ticket's authored state is terminal under its machine.
+fn task_state_is_terminal(
+    task: &rhei_core::ast::Task,
+    machine: &rhei_validator::StateMachine,
+) -> bool {
+    is_terminal_state(&normalized_state_name(task.state.as_str(), machine), machine)
+}
+
+/// Render a filesystem path the way `{output.<name>.path}` renders one:
+/// relative to `RHEI_ROOT`, absolute once the agent's checkout is somewhere
+/// else. A path outside the root has no relative form and stays absolute.
+// §FS-rhei-memory.3.4 §FS-rhei-states.4
+fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
+    if render_context.checkout_root != render_context.workspace_root {
+        return path.display().to_string();
+    }
+    match path.strip_prefix(render_context.workspace_root) {
+        Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+        Ok(relative) => relative.display().to_string(),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+/// Keep the first `cap` lines of `body`; report whether anything was dropped.
+// §FS-rhei-memory.4.5: truncation is by whole lines, never mid-line.
+fn head_lines(body: &str, cap: usize) -> (String, bool) {
+    let lines: Vec<&str> = body.lines().collect();
+    if lines.len() <= cap {
+        return (body.to_string(), false);
+    }
+    (lines[..cap].join("\n"), true)
+}
+
+/// Keep the last `cap` lines of `body`; report whether anything was dropped.
+// §FS-rhei-memory.4.4: the newest entries are the ones worth the tokens.
+fn tail_lines(body: &str, cap: usize) -> (String, bool) {
+    let lines: Vec<&str> = body.lines().collect();
+    if lines.len() <= cap {
+        return (body.to_string(), false);
+    }
+    (lines[lines.len() - cap..].join("\n"), true)
+}
+
+/// Cut one line to `SUMMARY_COLUMNS` characters, marking the cut.
+// §FS-rhei-memory.4.3
+fn cut_to_summary_columns(line: &str) -> String {
+    if line.chars().count() <= memory_caps::SUMMARY_COLUMNS {
+        return line.to_string();
+    }
+    let kept: String = line.chars().take(memory_caps::SUMMARY_COLUMNS).collect();
+    format!("{kept}\u{2026}")
+}
+
+/// The first non-blank line of the **last** `## Result` entry of a result file.
+///
+/// A result file accumulates one `## Result` block per verdict, so the last
+/// block is the standing one. A file a worker wrote by hand may carry no
+/// heading at all; its first non-blank line is then the whole account's first
+/// line, which is what the rule is after either way.
+// §FS-rhei-memory.4.3
+fn result_summary_from_body(body: &str) -> Option<String> {
+    let lines: Vec<&str> = body.lines().collect();
+    let start = lines
+        .iter()
+        .rposition(|line| line.trim() == "## Result")
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    lines[start..]
+        .iter()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| cut_to_summary_columns(line.trim()))
+}
+
+/// The Plan History summary of one task: a fixed slice of its result file,
+/// `see above` when the prompt already pastes that file in full.
+// §FS-rhei-memory.4.3
+fn task_history_summary(
+    render_context: &RuntimeTemplateContext<'_>,
+    task_id: &TaskId,
+    pasted_in_full: &BTreeSet<String>,
+) -> MietteResult<String> {
+    if pasted_in_full.contains(&task_id.to_string()) {
+        return Ok("see above".to_string());
+    }
+    let Some(body) = read_task_result(render_context, task_id)? else {
+        return Ok("(no result)".to_string());
+    };
+    Ok(result_summary_from_body(&body).unwrap_or_else(|| "(no result)".to_string()))
+}
+
+/// One rhei's transition ledger, as `(task-id, from, to)` in recorded order.
+///
+/// Same file `transition.previous` resolves against, read whole here because
+/// the memory sections need the order, not one lookup.
+// §FS-rhei-complete.3.1 §FS-rhei-memory.4.1
+fn read_ledger(root: &Path) -> MietteResult<Vec<(String, String, String)>> {
+    let path = root.join("runtime").join("state-transitions.log");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(&path)
+        .map_err(|err| file_io_report(&path, "failed to read the transition ledger", err))?;
+    Ok(parse_ledger(&content))
+}
+
+/// Parse the timestamp-free `<task-id> <from>@<to>` ledger body.
+// §FS-rhei-complete.3.1
+fn parse_ledger(content: &str) -> Vec<(String, String, String)> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let (task, transition) = line.trim().split_once(' ')?;
+            let (from, to) = transition.split_once('@')?;
+            Some((task.to_string(), from.trim().to_string(), to.trim().to_string()))
+        })
+        .collect()
+}
+
+/// Result files this prompt already pastes in full, by qualified id.
+///
+/// `## Prior Task Results`, `## Child Task Results`, and `## Checkpoints` are
+/// composed before `## Plan History`, and detail is paid for once.
+// §FS-rhei-memory.1.3 §FS-rhei-memory.4.3
+fn results_pasted_in_full(
+    render_context: &RuntimeTemplateContext<'_>,
+) -> MietteResult<BTreeSet<String>> {
+    let mut pasted = BTreeSet::new();
+    let pastes_inputs =
+        render_context.memory.is_some_and(|memory| memory.pastes_task_inputs);
+    if pastes_inputs {
+        for prior in &render_context.task.prior {
+            if read_task_result(render_context, prior)?.is_some() {
+                pasted.insert(prior.to_string());
+            }
+        }
+    }
+    let supervising = task_is_supervising(render_context.task, render_context.machine);
+    if !supervising {
+        if !pastes_inputs {
+            return Ok(pasted);
+        }
+        for child in &render_context.task.children {
+            if !task_state_is_terminal(child, render_context.machine) {
+                continue;
+            }
+            if read_task_result(render_context, &child.id)?.is_some() {
+                pasted.insert(child.id.to_string());
+            }
+        }
+        return Ok(pasted);
+    }
+    for checkpoint in supervision_checkpoints(render_context.metadata, &render_context.task.id) {
+        let qualified = checkpoint_qualified_id(render_context.task, &checkpoint.task);
+        let Some(descendant) = checkpoint_descendant(render_context.task, &qualified) else {
+            continue;
+        };
+        let to_is_terminal = render_context
+            .machine
+            .states
+            .get(&checkpoint.to)
+            .map(|def| def.terminal)
+            .unwrap_or(false);
+        if to_is_terminal && read_task_result(render_context, &descendant.id)?.is_some() {
+            pasted.insert(descendant.id.to_string());
+        }
+    }
+    Ok(pasted)
+}
+
+/// Descendants of `task` whose results this prompt already pasted, which drop
+/// out of `own` rather than repeating as one-liners. §FS-rhei-memory.4.3
+fn pasted_descendant_ids(
+    render_context: &RuntimeTemplateContext<'_>,
+    pasted_in_full: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    flatten_task_slice(&render_context.task.children)
+        .into_iter()
+        .map(|task| task.id.to_string())
+        .filter(|id| pasted_in_full.contains(id))
+        .collect()
+}

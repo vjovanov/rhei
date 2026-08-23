@@ -53,6 +53,10 @@ fn schedule_agent_work_items(
         }
 
         let slot = take_parallel_slot(free_slots, next_extra_slot);
+        // Read fresh for each spawn: the set is what is running *now*, and the
+        // loop adds to it as it goes. §FS-rhei-memory.4.3
+        let run_in_flight: BTreeSet<String> =
+            active_invocation_counts.keys().cloned().collect();
         match spawn_parallel_agent_work_item(
             &item,
             slot,
@@ -66,6 +70,7 @@ fn schedule_agent_work_items(
             snapshot_override_selection,
             sink,
             intervene,
+            &run_in_flight,
         )? {
             ParallelAgentSpawnOutcome::Spawned(spawned_agent) => {
                 *active_invocation_counts.entry(spawned_agent.task_id_str.clone()).or_insert(0) += 1;

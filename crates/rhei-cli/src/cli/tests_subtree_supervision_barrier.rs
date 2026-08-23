@@ -141,6 +141,7 @@
             agent: Some("pi"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         }
     }
 

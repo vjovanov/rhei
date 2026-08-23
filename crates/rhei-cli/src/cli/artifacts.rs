@@ -30,6 +30,10 @@ struct RuntimeTemplateContext<'a> {
     /// Availability here reflects registry resolution only; Half B will
     /// overlay real handshake results.
     tooling: Option<&'a ResolvedTooling>,
+    /// The project's mid-term memory, when the caller loaded it. `None` on the
+    /// template-only contexts a program state builds, which render no prompt.
+    // §FS-rhei-memory.4.1
+    memory: Option<&'a PromptMemory>,
 }
 
 fn yaml_value_to_template_string(value: &YamlValue) -> Option<String> {

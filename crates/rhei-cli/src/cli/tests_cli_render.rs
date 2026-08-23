@@ -594,6 +594,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
@@ -656,6 +657,7 @@ states:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let rendered =
@@ -840,6 +842,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         }
     }
 
@@ -1000,6 +1003,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
@@ -1077,6 +1081,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
@@ -1152,6 +1157,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
@@ -1227,6 +1233,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");
@@ -1297,6 +1304,7 @@ transitions:
             agent: Some("codex"),
             agent_mode: None,
             tooling: None,
+            memory: None,
         };
 
         let prompt = compose_agent_prompt(&context).expect("prompt");

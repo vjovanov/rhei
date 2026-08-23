@@ -204,11 +204,13 @@ metadata:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// A plan with no supervising state prints exactly what it printed before
-/// supervision existed: no empty section, no blank line, no field.
-// §FS-rhei-supervision.3.4
+/// A plan with no supervising state carries no supervision section and no
+/// supervision field — not an empty one, not a blank line. What it does carry
+/// is the mid-term memory `rhei run` composes for the same ticket, which every
+/// plan gets.
+// §FS-rhei-supervision.3.4 §FS-rhei-memory.5
 #[test]
-fn rhei_next_output_is_unchanged_for_a_plan_without_supervision() {
+fn rhei_next_carries_no_supervision_sections_without_a_supervisor() {
     let machine = r#"name: plain
 version: 1
 states:
@@ -246,7 +248,7 @@ Body text.
 
     let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
     assert_success(&peek);
-    let expected = [
+    let head = [
         "Task plan.1.1 \u{2014} current state: 'fix' (read-only peek; not advanced)",
         "Agent: mock  |  Model: default",
         "",
@@ -257,7 +259,14 @@ Body text.
         "",
     ]
     .join("\n");
-    assert_eq!(peek.stdout, expected);
+    assert!(peek.stdout.starts_with(&head), "got:\n{}", peek.stdout);
+    for absent in ["## Checkpoints", "## Supervisor Brief", "## Supervising This Subtree"] {
+        assert!(!peek.stdout.contains(absent), "{absent} in:\n{}", peek.stdout);
+    }
+    // §FS-rhei-memory.5: the memory sections print after the instructions, in
+    // the run prompt's order.
+    assert!(peek.stdout.contains("\n## Position\n"), "got:\n{}", peek.stdout);
+    assert!(peek.stdout.contains("\n### Reading the rhei\n"), "got:\n{}", peek.stdout);
 
     let json = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek", "--json"]);
     assert_success(&json);
@@ -265,6 +274,18 @@ Body text.
         serde_json::from_str(&json.stdout).expect("next --json parses");
     assert!(payload.get("checkpoints").is_none(), "got: {payload}");
     assert!(payload.get("supervisor_brief").is_none(), "got: {payload}");
+    // §FS-rhei-memory.5: one string field per section, present exactly when the
+    // section is. This plan has nothing finished and nobody waiting.
+    assert!(
+        payload["position"].as_str().expect("position field").starts_with("## Position"),
+        "got: {payload}"
+    );
+    assert!(
+        payload["navigation"].as_str().expect("navigation field").contains("### Reading the rhei"),
+        "got: {payload}"
+    );
+    assert!(payload.get("plan_history").is_none(), "got: {payload}");
+    assert!(payload.get("previous_visits").is_none(), "got: {payload}");
 
     fs::remove_dir_all(dir).expect("cleanup");
 }

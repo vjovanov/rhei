@@ -31,6 +31,10 @@ fn spawn_parallel_agent_work_item(
     snapshot_override_selection: Option<&SnapshotOverrideRunSelection>,
     sink: &Arc<dyn rhei_tui::EventSink>,
     intervene: Option<&Arc<RunInterveneSink>>,
+    // Tickets this pass already spawned and has not reaped: what `### In
+    // Flight` names, since `rhei run` claims by spawning rather than by writing
+    // an `**Assignee:**`. §FS-rhei-memory.4.3
+    run_in_flight: &BTreeSet<String>,
 ) -> MietteResult<ParallelAgentSpawnOutcome> {
     // The work item was chosen before the interrupt arrived; starting it now
     // would be new work the shutdown promised not to schedule.
@@ -108,6 +112,7 @@ fn spawn_parallel_agent_work_item(
     }
     let tooling = gate.tooling;
     let checkout_root = resolve_agent_checkout_root(workspace_root, &item.task_id_str)?;
+    let memory = prompt_memory(&loaded, input, runtime_dir, run_in_flight.clone());
     let render_context = RuntimeTemplateContext {
         workspace_root,
         task_roots: Some(&loaded.task_roots),
@@ -128,6 +133,7 @@ fn spawn_parallel_agent_work_item(
         agent: Some(item.resolved.agent.id()),
         agent_mode: item.resolved.mode.as_deref(),
         tooling: Some(&tooling),
+        memory: Some(&memory),
     };
     // Failing the pass would take every healthy sibling down with it.
     // §FS-rhei-run.3: an uncomposable prompt fails its task, not the run.
@@ -424,6 +430,7 @@ fn spawn_parallel_program_work_item(
                 agent: None,
                 agent_mode: None,
                 tooling: None,
+                memory: None,
             };
             let result = spawn_and_wait_program(
                 &resolved_for_thread,
