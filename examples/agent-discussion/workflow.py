@@ -9,7 +9,8 @@ The discussion round is taken from the digests already on disk: the judge writes
 one at the end of every round, so every participant in a round sees the same
 count.
 
-Python rather than a shell script, so the example runs wherever the CLI runs.
+Python rather than a shell script, so the example runs wherever `python3` is
+on `PATH`.
 `discussion-states.yaml` names it as `cli:python3 ./workflow.py <command>`: a
 `cli:` callback goes to the platform's own shell (`sh -c`, `cmd /C`) with the
 state machine's directory as its cwd, so the relative path resolves on every

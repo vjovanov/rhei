@@ -8,9 +8,11 @@ The `implement` state writes a named `implementation` snapshot, and the
 can also be opened by an operator with `rhei snapshot continue` for analysis
 without changing task state or advancing the `current` pointer.
 
-The bundled `scripts/fake-analysis-agent.sh` implements the minimum native
-session contract needed to run the example locally. Replace that command and
-flags with a real agent profile when adapting the workflow to production.
+The bundled `scripts/fake-analysis-agent.py` implements the minimum native
+session contract needed to run the example locally; it is Python rather than a
+shell script, so the example runs wherever `python3` is on `PATH`. Replace that
+command and flags with a real agent profile when adapting the workflow to
+production.
 
 ## Commands
 

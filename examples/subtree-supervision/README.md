@@ -108,7 +108,8 @@ uses the mock agent and therefore declares no snapshot block.
 - `tasks/01-harden-the-parser.md` — the parent and its four children
 - `states.yaml` — the supervising state and its three edges
 - `workflow.py` — the mock agent standing in for a real one. It is Python, not
-  a shell script, so the example runs wherever the CLI runs. It resolves the
+  a shell script, so the example runs wherever `python3` is on `PATH`. It
+  resolves the
   workspace from `RHEI_PLAN_PATH` rather than its own cwd, because an agent's
   cwd is the repository checkout, not the plan directory; for the same reason
   the settings entry execs it by an absolute path built from `RHEI_ROOT`.

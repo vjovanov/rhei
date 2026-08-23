@@ -1,6 +1,7 @@
 """Callbacks for the counted review/fix loop in the review-fix-visits example.
 
-Python rather than a shell script, so the example runs wherever the CLI runs.
+Python rather than a shell script, so the example runs wherever `python3` is
+on `PATH`.
 `states.yaml` names it as `cli:python3 ./workflow.py <command>`: a `cli:`
 callback goes to the platform's own shell (`sh -c`, `cmd /C`) with the state
 machine's directory as its cwd, so the relative path resolves on every platform

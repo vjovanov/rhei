@@ -30,7 +30,7 @@ states:
       picks the transition: 0 = all checks green, 1 = at least one failed,
       75 = still running (retry after poll.interval).
     program:
-      command: ".rhei/gh-ci-status.sh"
+      command: ["python3", ".rhei/gh-ci-status.py"]
       env:
         BRANCH: "{meta.branch}"
         REPORT_PATH: "{output.ci-report.path}"
@@ -73,7 +73,7 @@ states:
     # §FS-rhei-states.4.2.
     visits: 5
     program:
-      command: ".rhei/commit-and-push.sh"
+      command: ["python3", ".rhei/commit-and-push.py"]
       env:
         BRANCH: "{meta.branch}"
         SUMMARY_PATH: "{input.fix-summary.path}"

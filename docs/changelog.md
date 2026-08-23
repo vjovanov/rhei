@@ -27,7 +27,10 @@
   and no shebang. The three carved-out Windows test steps are gone with them,
   and the tests that stay `#[cfg(unix)]` say at the gate which POSIX semantics
   they exercise. The committed examples and the bundled UI fixture are Python
-  too, so a Windows user can run them.
+  too — including `snapshot-continuation`'s mock agent and `ci-heal`'s two
+  `git`/`gh` helpers — so a Windows user can run them wherever `python3` is on
+  `PATH`. A committed settings file cannot probe for an interpreter the way the
+  test harness does, so it names `python3`, and each example's README says so.
   §REQ-cross-platform.3 §REQ-cross-platform.4 §AR-ci-release.1 (PR #97)
 
   Running the suite there found eight things that were broken on Windows and
