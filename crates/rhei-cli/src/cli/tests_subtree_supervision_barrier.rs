@@ -66,7 +66,7 @@
     #[test]
     fn a_held_outer_supervisor_holds_the_whole_subtree() {
         let plan = rhei_core::parse(
-            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervise\n\n#### Task 1.1: Middle\n**State:** supervise\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
+            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervising\n\n#### Task 1.1: Middle\n**State:** supervising\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
         )
         .expect("parse nested plan");
         let inner_released = record_supervision_release(None, &parse_task_id("1.1"));
@@ -84,7 +84,7 @@
     #[test]
     fn a_claimed_descendant_keeps_its_supervisor_out_of_the_ready_set() {
         let plan = rhei_core::parse(
-            "# Rhei: Claimed\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervise\n\n#### Task 1.1: Child\n**State:** review\n**Assignee:** pi\n",
+            "# Rhei: Claimed\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervising\n\n#### Task 1.1: Child\n**State:** review\n**Assignee:** pi\n",
         )
         .expect("parse claimed plan");
         assert!(ready_ids(&plan, &[]).is_empty());
@@ -100,7 +100,7 @@
         let child = &plan.tasks[0].children[0];
         let hold = held_by_supervisor(child, &plan, &machines).expect("the parent holds it");
         assert_eq!(hold.supervisor.to_string(), "1");
-        assert_eq!(hold.state, "supervise");
+        assert_eq!(hold.state, "supervising");
         assert!(!hold.awaiting_human, "a supervising state is not a human gate");
 
         let plan = with_metadata(plan, released);
@@ -165,7 +165,7 @@
         write_under(dir.path(), "runtime/results/1.1.md", "Found two parser bugs.\n");
 
         let context =
-            supervision_context(dir.path(), &plan, &machine, &plan.tasks[0], "supervise");
+            supervision_context(dir.path(), &plan, &machine, &plan.tasks[0], "supervising");
         let prompt = compose_agent_prompt(&context).expect("prompt composes");
         assert!(prompt.contains("## Checkpoints"), "got:\n{prompt}");
         assert!(
@@ -190,7 +190,7 @@
         let machine = supervision_machine();
         let plan = supervised_plan(&["review"]);
         let context =
-            supervision_context(dir.path(), &plan, &machine, &plan.tasks[0], "supervise");
+            supervision_context(dir.path(), &plan, &machine, &plan.tasks[0], "supervising");
         let prompt = compose_agent_prompt(&context).expect("prompt composes");
         assert!(!prompt.contains("## Checkpoints"), "got:\n{prompt}");
         assert!(prompt.contains("## Child Tasks"), "the map is rendered every visit; got:\n{prompt}");
@@ -263,8 +263,8 @@
     /// unconditional self-loop last.
     #[test]
     fn a_supervisor_selects_release_then_finish_then_escalation() {
-        let open = "# Rhei: Edges\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervise\n\n#### Task 1.1: Child\n**State:** review\n";
-        assert_eq!(supervisor_next_edge(open).as_deref(), Some("supervise"));
+        let open = "# Rhei: Edges\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervising\n\n#### Task 1.1: Child\n**State:** review\n";
+        assert_eq!(supervisor_next_edge(open).as_deref(), Some("supervising"));
 
         let closed = open.replace("**State:** review", "**State:** completed");
         assert_eq!(
@@ -277,7 +277,7 @@
         // is what is left. §FS-rhei-transitions.4.3
         let exhausted = open.replace(
             "structure:\n  maxLevels: 3\n",
-            "structure:\n  maxLevels: 3\nmetadata:\n  tasks:\n    1:\n      stateVisits:\n        supervise: 12\n",
+            "structure:\n  maxLevels: 3\nmetadata:\n  tasks:\n    1:\n      stateVisits:\n        supervising: 12\n",
         );
         assert_eq!(supervisor_next_edge(&exhausted).as_deref(), Some("human-review"));
     }
@@ -290,9 +290,9 @@
     #[test]
     fn only_a_supervising_self_loop_ends_the_claim_it_was_taken_under() {
         let machine = supervision_machine();
-        assert!(transition_ends_supervisor_visit(&machine, "supervise", "supervise"));
-        assert!(!transition_ends_supervisor_visit(&machine, "supervise", "completed"));
-        assert!(!transition_ends_supervisor_visit(&machine, "supervise", "human-review"));
+        assert!(transition_ends_supervisor_visit(&machine, "supervising", "supervising"));
+        assert!(!transition_ends_supervisor_visit(&machine, "supervising", "completed"));
+        assert!(!transition_ends_supervisor_visit(&machine, "supervising", "human-review"));
         assert!(
             !transition_ends_supervisor_visit(&machine, "review", "review"),
             "an ordinary state's self-loop is not a supervisor's visit"

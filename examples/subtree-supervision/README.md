@@ -3,9 +3,11 @@
 A parent task that looks after its children **while they run** instead of only
 integrating them at the end.
 
-`Task 1` sits in `supervise`, a state that declares `supervise: task`. That one
-field turns the task holding it into a **supervisor**: the orchestrator wakes it
-after every descendant that reaches a terminal state, and holds the rest of the
+`Task 1` sits in `supervising`, a state that declares
+`execute_on: descendant-terminal`. That one field turns the task holding it into
+a **supervisor**: the value is a scope (`child` or `descendant`) and an event
+(`terminal` or `transition`), and this one wakes the task after every
+descendant that reaches a terminal state, at any depth, holding the rest of the
 subtree in between. Between visits the parent briefs the next step, appends work
 the plan turned out to need, or cancels a step the results made unnecessary.
 
@@ -36,15 +38,15 @@ Nine invocations, the supervisor scheduled *between* its children and never
 beside one:
 
 ```
-ss.1   supervise  visit 1     briefs 1.1, then releases the subtree
+ss.1   supervising  visit 1     briefs 1.1, then releases the subtree
 ss.1.1 review     visit 1     writes runtime/review/ss.1.1.md, finishes
-ss.1   supervise  visit 2     reads the checkpoint, briefs 1.2, releases
+ss.1   supervising  visit 2     reads the checkpoint, briefs 1.2, releases
 ss.1.2 fix        visit 1
-ss.1   supervise  visit 3
+ss.1   supervising  visit 3
 ss.1.3 review     visit 1
-ss.1   supervise  visit 4
+ss.1   supervising  visit 4
 ss.1.4 fix        visit 1
-ss.1   supervise  visit 5     openDescendants == 0 → writes its result
+ss.1   supervising  visit 5     openDescendants == 0 → writes its result
 ```
 
 (the id prefix is the workspace directory's name)
@@ -59,13 +61,13 @@ order *is* the design:
 
 | # | Edge | Condition | Meaning |
 |---|------|-----------|---------|
-| 1 | `supervise → human-review` | `visitCount >= visits` | the budget ran out; a human decides |
-| 2 | `supervise → completed` | `openDescendants < 1` | the subtree closed; write the result |
-| 3 | `supervise → supervise` | *(none)* | release the subtree and wait for the next checkpoint |
+| 1 | `supervising → human-review` | `visitCount >= visits` | the budget ran out; a human decides |
+| 2 | `supervising → completed` | `openDescendants < 1` | the subtree closed; write the result |
+| 3 | `supervising → supervising` | *(none)* | release the subtree and wait for the next checkpoint |
 
 The unconditional self-loop is the **release** edge: without it the supervisor
 would run once and never wait for its children. It is also what ends a *manual*
-visit — `rhei transition /tmp/ss --task 1 --from supervise --to supervise`
+visit — `rhei transition /tmp/ss --task 1 --from supervising --to supervising`
 releases the subtree and drops the worker's claim.
 
 ## Watching the barrier
@@ -77,7 +79,7 @@ claimable. Stop the run mid-chain and ask:
 rhei next /tmp/ss --task 1.2
 ```
 
-and you get `Task ss.1.2 is held by supervisor Task ss.1 (supervise)`, naming
+and you get `Task ss.1.2 is held by supervisor Task ss.1 (supervising)`, naming
 the ticket to work instead.
 
 ## Session continuity
@@ -87,8 +89,8 @@ an agent with session support. Of the built-in profiles only `pi` has one today,
 and only through a `target:` that resolves a provider and a model:
 
 ```yaml
-  supervise:
-    supervise: task
+  supervising:
+    execute_on: descendant-terminal
     target: pi:anthropic:claude-sonnet-4-5
     snapshot:
       emit:    { name: supervisor, on: always }

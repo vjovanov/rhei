@@ -121,6 +121,7 @@ mod tests {
     include!("cli/tests_snapshot_runtime.rs");
     include!("cli/tests_supervised.rs");
     include!("cli/tests_subtree_supervision.rs");
+    include!("cli/tests_subtree_supervision_scope.rs");
     include!("cli/tests_subtree_supervision_barrier.rs");
     include!("cli/tests_run_descriptor.rs");
     include!("cli/tests_run_registry.rs");

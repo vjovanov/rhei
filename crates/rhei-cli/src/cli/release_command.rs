@@ -53,7 +53,7 @@ help = ticket_id_required_help(),
             // A supervisor is claimed where it stands, and a name the machine
             // does not declare cannot be transitioned to.
             // §FS-rhei-supervision.3.4 §FS-rhei-release
-            let claimable_where_it_stands = supervise_kind_of(machine, &state).is_some();
+            let claimable_where_it_stands = execute_on_of(machine, &state).is_some();
             let target_exists = machine.states.contains_key(initial);
             if state != initial && !claimable_where_it_stands && target_exists {
                 println!(

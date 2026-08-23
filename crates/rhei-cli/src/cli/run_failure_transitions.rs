@@ -251,7 +251,7 @@ fn format_dry_run_transition(
     // A supervisor's self-loop is the release edge, and rendered bare it reads
     // as a no-op — the one line in a dry run that decides whether the subtree
     // beneath it moves. §FS-rhei-supervision.3.1
-    let release = from == to && supervise_kind_of(machine, &normalized_state_name(from, machine)).is_some();
+    let release = from == to && execute_on_of(machine, &normalized_state_name(from, machine)).is_some();
     let suffix = if release { " (release)" } else { "" };
     format!("would transition: Task {task_id}  {from} -> {to}{suffix}")
 }

@@ -94,21 +94,31 @@ impl SupervisionTransition<'_> {
             // the supervisor waiting: neither is the subtree progressing.
             let from_def = self.machine.states.get(self.from);
             if from_def.map(|def| def.poll.is_some()).unwrap_or(false)
-                || from_def.and_then(|def| def.supervise_kind()).is_some()
+                || from_def.and_then(|def| def.execute_on()).is_some()
             {
                 return None;
             }
         }
-        // §FS-rhei-supervision.2.2: exactly one task hears about it.
-        let supervisor = self
-            .ancestors
-            .iter()
-            .find(|ancestor| task_is_supervising(ancestor, self.machine))?;
-        let kind = supervise_kind_of(
-            self.machine,
-            &normalized_state_name(supervisor.state.as_str(), self.machine),
-        )?;
-        if kind == rhei_validator::SuperviseKind::Task && !self.to_is_terminal() {
+        // §FS-rhei-supervision.2.2: exactly one task hears about it — the
+        // nearest supervising ancestor whose scope includes this one; a move a
+        // `child-*` supervisor declines climbs past it, or reaches nobody.
+        let (supervisor, execute_on) =
+            self.ancestors.iter().enumerate().find_map(|(distance, ancestor)| {
+                let execute_on = execute_on_of(
+                    self.machine,
+                    &normalized_state_name(ancestor.state.as_str(), self.machine),
+                )?;
+                let in_scope = match execute_on.scope() {
+                    // Distance 0 is the transitioning task's own parent.
+                    rhei_validator::SupervisionScope::Child => distance == 0,
+                    rhei_validator::SupervisionScope::Descendant => true,
+                };
+                in_scope.then_some((ancestor, execute_on))
+            })?;
+        // §FS-rhei-supervision.2.1: the event narrows what the move has to be,
+        // once the scope has said whose move it is.
+        if execute_on.event() == rhei_validator::SupervisionEvent::Terminal && !self.to_is_terminal()
+        {
             return None;
         }
         if supervisor_is_in_flight(supervisor, &supervisor_local_id(supervisor, self.local_id, self.task)) {
@@ -152,8 +162,8 @@ fn apply_supervision_transition(
     existing: Option<&Metadata>,
     move_: SupervisionTransition<'_>,
 ) -> Option<Metadata> {
-    let from_supervises = supervise_kind_of(move_.machine, move_.from).is_some();
-    let to_supervises = supervise_kind_of(move_.machine, move_.to).is_some();
+    let from_supervises = execute_on_of(move_.machine, move_.from).is_some();
+    let to_supervises = execute_on_of(move_.machine, move_.to).is_some();
     let to_is_gating =
         move_.machine.states.get(move_.to).map(|def| def.gating).unwrap_or(false);
 
@@ -220,7 +230,7 @@ fn transition_ends_supervisor_visit(
     from: &str,
     to: &str,
 ) -> bool {
-    from == to && supervise_kind_of(machine, from).is_some()
+    from == to && execute_on_of(machine, from).is_some()
 }
 
 /// Say, once, that a supervisor left supervision for a human gate.
@@ -237,7 +247,7 @@ fn announce_supervision_gate_handoff(
     from: &str,
     to: &str,
 ) {
-    if from == to || supervise_kind_of(machine, from).is_none() {
+    if from == to || execute_on_of(machine, from).is_none() {
         return;
     }
     if !machine.states.get(to).map(|def| def.gating).unwrap_or(false) {

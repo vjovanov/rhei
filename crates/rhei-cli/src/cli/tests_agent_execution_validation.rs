@@ -542,7 +542,7 @@ done
     fn a_supervisor_told_to_drop_snapshot_is_told_what_it_keeps() {
         let settings = default_settings();
         let machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  supervise:\n    description: x\n    supervise: task\n    target: claude-code:anthropic:model\n    snapshot:\n      emit:\n        name: supervisor\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: supervise\n    to: supervise\n  - from: supervise\n    to: done\n    condition: openDescendants < 1\n",
+            "name: t\nversion: 1\nstates:\n  supervising:\n    description: x\n    execute_on: descendant-terminal\n    target: claude-code:anthropic:model\n    snapshot:\n      emit:\n        name: supervisor\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: supervising\n    to: supervising\n  - from: supervising\n    to: done\n    condition: openDescendants < 1\n",
         );
         let errs = validate_machine_settings_references(&machine, &settings);
         let hinted = errs

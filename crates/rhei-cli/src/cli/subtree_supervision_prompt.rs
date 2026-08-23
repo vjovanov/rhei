@@ -304,6 +304,34 @@ const SUPERVISOR_BARRIER_SENTENCE: &str =
     "While you run, nothing beneath you runs; when this invocation ends the subtree is \
      released.";
 
+/// Which moves under this task bring it back, in one sentence.
+///
+/// A supervisor that does not know what wakes it cannot tell waiting from
+/// being finished with a step: under `child-terminal` a grandchild's exit never
+/// reaches it, under `descendant-transition` every hop does. The state's own
+/// `execute_on:` is the only place that answers it, and the agent does not read
+/// the machine.
+// §FS-rhei-supervision.1.1 §FS-rhei-supervision.5.1
+fn supervisor_wake_sentence(render_context: &RuntimeTemplateContext<'_>) -> &'static str {
+    let state = normalized_state_name(render_context.task.state.as_str(), render_context.machine);
+    match execute_on_of(render_context.machine, &state) {
+        Some(rhei_validator::ExecuteOn::ChildTerminal) => {
+            "You are woken after every finished child."
+        }
+        Some(rhei_validator::ExecuteOn::ChildTransition) => {
+            "You are woken after every transition one of your children makes; moves deeper in \
+             the subtree do not reach you."
+        }
+        Some(rhei_validator::ExecuteOn::DescendantTerminal) => {
+            "You are woken after every finished descendant."
+        }
+        Some(rhei_validator::ExecuteOn::DescendantTransition) => {
+            "You are woken after every transition any descendant makes."
+        }
+        None => "",
+    }
+}
+
 /// The extra permission a supervisor's `## Rhei Commands` section carries.
 // §FS-rhei-supervision.5.1
 fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -> String {
@@ -312,13 +340,14 @@ fn supervisor_command_permissions(render_context: &RuntimeTemplateContext<'_>) -
     }
     let root = export_root_for_task(render_context, &render_context.task.id);
     format!(
-        "You are supervising this task's subtree. {SUPERVISOR_BARRIER_SENTENCE} {} \
+        "You are supervising this task's subtree. {} {SUPERVISOR_BARRIER_SENTENCE} {} \
          You may run `rhei transition` against \
          descendants of this task — to cancel a step the checkpoints made unnecessary, \
          typically — and you may append descendants under this task in its task file. \
          A cancel does not have to satisfy the cancelled step's own declared outputs, \
          but it does have to say why: pass `--result \"<why>\"` on every cancel. \
          You must still not transition this task itself; the orchestrator owns that edge.\n\n",
+        supervisor_wake_sentence(render_context),
         supervisor_brief_directions(root)
     )
 }
@@ -354,13 +383,14 @@ fn render_supervisor_visit_notes(
     format!(
         "\n## Supervising This Subtree\n\n\
          {}\n\n\
-         {SUPERVISOR_BARRIER_SENTENCE} The subtree below is held for as long as this ticket \
+         {} {SUPERVISOR_BARRIER_SENTENCE} The subtree below is held for as long as this ticket \
          is claimed; release it with:\n\n\
          ```\n{release_command}\n```\n\n\
          That edge is the state's own self-loop: it ends this visit and drops the claim, so \
          the next checkpoint is claimed afresh.\n\n\
          A transition from this state can finish this task once its subtree is closed. \
          {SUPERVISOR_RESULT_QUALIFIER}\n",
-        supervisor_brief_directions(root)
+        supervisor_brief_directions(root),
+        supervisor_wake_sentence(render_context)
     )
 }

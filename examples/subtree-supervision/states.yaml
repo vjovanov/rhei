@@ -3,9 +3,12 @@ version: 1
 
 # The §FS-rhei-supervision.7 chain: a parent that steers its own subtree.
 #
-# `supervise: task` on the parent's state makes it a *supervisor*. The
-# orchestrator wakes it after every descendant that reaches a terminal state and
-# holds the rest of the subtree while it decides what happens next. Its three
+# `execute_on: descendant-terminal` on the parent's state makes it a
+# *supervisor*. The value is a scope (`child` or `descendant`) and an event
+# (`terminal` or `transition`): this one wakes the parent after every descendant
+# that reaches a terminal state, at any depth, and holds the rest of the subtree
+# while it decides what happens next. `child-terminal` would hear only its four
+# children finishing; a `*-transition` value would hear every hop as well. Its three
 # outgoing edges are tried in declaration order, and the order is the design:
 #
 #   1. exhaustion  `visitCount >= visits` — the budget ran out; a human decides
@@ -21,9 +24,9 @@ version: 1
 # built-in profiles only `pi` supports that today; see the README.
 
 states:
-  supervise:
+  supervising:
     initial: true
-    supervise: task
+    execute_on: descendant-terminal
     description: >-
       The parent, woken between its children. Judges the checkpoints, briefs the
       next step, and finishes once the subtree is closed.
@@ -71,7 +74,7 @@ states:
     gating: true
     instructions: |
       The supervisor ran out of visits. Read runtime/review/ and the plan, then
-      transition Task {task_id} back to `supervise` to give it more rope, or to
+      transition Task {task_id} back to `supervising` to give it more rope, or to
       `cancelled` to stop.
 
   completed:
@@ -84,18 +87,18 @@ states:
     final: true
 
 transitions:
-  - from: supervise
+  - from: supervising
     to: human-review
     description: Supervisor budget exhausted; a human decides.
     condition: visitCount >= visits
 
-  - from: supervise
+  - from: supervising
     to: completed
     description: Every child is terminal and the supervisor wrote its result.
     condition: openDescendants < 1
 
-  - from: supervise
-    to: supervise
+  - from: supervising
+    to: supervising
     description: Released the subtree; wait for the next checkpoint.
 
   - from: review
@@ -107,7 +110,7 @@ transitions:
     description: Fixes applied.
 
   - from: human-review
-    to: supervise
+    to: supervising
     description: A human gave the supervisor more rope.
 
   - from: "*"

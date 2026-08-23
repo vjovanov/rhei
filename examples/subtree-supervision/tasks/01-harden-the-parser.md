@@ -1,5 +1,5 @@
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 Goal and acceptance criteria for the whole change: the parser must reject
 malformed input without panicking, and the fixes must be the ones the review

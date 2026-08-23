@@ -590,7 +590,7 @@ fn snapshot_record_is_orphaned_for_loaded(
 /// works — and that is the sentence the error owes them.
 // §FS-rhei-supervision.1.1 §FS-rhei-supervision.6
 fn snapshot_removal_hint(state: &rhei_validator::StateDef) -> &'static str {
-    if state.supervise_kind().is_some() {
+    if state.execute_on().is_some() {
         "; remove the `snapshot:` block \u{2014} the supervisor still receives \
          `## Checkpoints` and the briefs (\u{a7}FS-rhei-supervision.6), it just starts each \
          visit cold"

@@ -5,10 +5,10 @@
 
 A pre-authored review/fix chain whose parent looks after it *while* it runs.
 
-`Task 1` (in `tasks/01-harden-the-parser.md`) is in `supervise`, a state that
-declares `supervise: task`. That makes the task holding it a **supervisor**: the
-orchestrator wakes it after every child that finishes and holds the rest of the
-subtree in between. Between visits the parent briefs the next step, appends work
+`Task 1` (in `tasks/01-harden-the-parser.md`) is in `supervising`, a state that
+declares `execute_on: descendant-terminal`. That makes the task holding it a
+**supervisor**: the orchestrator wakes it after every descendant that finishes
+and holds the rest of the subtree in between. Between visits the parent briefs the next step, appends work
 the plan turned out to need, or cancels a step the results made unnecessary — and
 it finishes only once every child is terminal.
 

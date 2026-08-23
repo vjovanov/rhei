@@ -24,7 +24,7 @@ metadata:
   tasks:
     1:
       stateVisits:
-        supervise: 3
+        supervising: 3
       supervision:
         phase: held
         checkpoints:
@@ -37,13 +37,17 @@ metadata:
 ## Tasks
 
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: Review parser
 **State:** review
 "#;
-    let (dir, plan_path, machine_path) =
-        setup_supervision("supervision-reset", plan, &supervision_machine("task", "completed"), "");
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-reset",
+        plan,
+        &supervision_machine("descendant-terminal", "completed"),
+        "",
+    );
 
     let result = run_cli("reset", &plan_path, &machine_path, &["-y"]);
     assert_success(&result);
@@ -62,32 +66,52 @@ metadata:
 /// a supervisor could never be scheduled, and warned about when it could never
 /// finish.
 #[test]
-fn supervise_validation_rejects_and_warns_through_rhei_validate() {
+fn execute_on_validation_rejects_and_warns_through_rhei_validate() {
     // The workspace registers the `mock` agent the machines name, so the only
     // findings left are the supervision rules.
     let (dir, plan_path, _machine_path) = setup_supervision(
         "supervision-validate",
         TWO_CHILD_PLAN,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
-    let no_self_loop = supervision_machine("task", "completed")
-        .replace("  - { from: supervise, to: supervise, description: Released the subtree }\n", "");
+    let no_self_loop = supervision_machine("descendant-terminal", "completed").replace(
+        "  - { from: supervising, to: supervising, description: Released the subtree }\n",
+        "",
+    );
     let bad = write_fixture_file(&dir, "no-self-loop.yaml", &no_self_loop);
     let result = run_cli("validate", &plan_path, &bad, &[]);
     assert!(!result.status.success(), "a supervisor with no release edge is rejected");
     assert_stderr_contains(&result, "no self-loop transition");
 
-    let bad_value =
-        supervision_machine("task", "completed").replace("supervise: task", "supervise: subtree");
+    // The refusal names every value that would have worked, because the
+    // grammar is two axes and a reader who got one wrong cannot guess which.
+    let bad_value = supervision_machine("descendant-terminal", "completed")
+        .replace("execute_on: descendant-terminal", "execute_on: subtree");
     let bad = write_fixture_file(&dir, "bad-value.yaml", &bad_value);
     let result = run_cli("validate", &plan_path, &bad, &[]);
-    assert!(!result.status.success(), "an unknown supervise value is rejected");
-    assert_stderr_contains(&result, "expected 'task' or 'state'");
+    assert!(!result.status.success(), "an unknown execute_on value is rejected");
+    for value in
+        ["child-terminal", "child-transition", "descendant-terminal", "descendant-transition"]
+    {
+        assert_stderr_contains(&result, value);
+    }
 
-    let no_exit = supervision_machine("task", "completed").replace(
-        "  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }\n",
+    // A state has one trigger; the refusal says which two it is choosing
+    // between rather than only that they collide.
+    let polling = supervision_machine("descendant-terminal", "completed")
+        .replace("    visits: 12\n", "    poll: { interval: 5m, max_attempts: 3 }\n");
+    let bad = write_fixture_file(&dir, "poll-and-execute-on.yaml", &polling);
+    let result = run_cli("validate", &plan_path, &bad, &[]);
+    assert!(!result.status.success(), "poll and execute_on cannot both trigger a state");
+    assert_stderr_contains(
+        &result,
+        "a state has one trigger: `poll:` (time) or `execute_on:` (its subtree)",
+    );
+
+    let no_exit = supervision_machine("descendant-terminal", "completed").replace(
+        "  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }\n",
         "",
     );
     let warned = write_fixture_file(&dir, "no-exit.yaml", &no_exit);
@@ -119,7 +143,7 @@ structure:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: A
 **State:** fix
@@ -131,7 +155,7 @@ structure:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-manual-release",
         plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
@@ -142,7 +166,7 @@ structure:
         "the visit is claimed"
     );
 
-    let released = run_transition(&plan_path, &machine_path, "1", "supervise", "supervise");
+    let released = run_transition(&plan_path, &machine_path, "1", "supervising", "supervising");
     assert_success(&released);
     assert!(
         !fs::read_to_string(&plan_path).expect("read plan").contains("**Assignee:**"),
@@ -203,7 +227,7 @@ structure:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: A
 **State:** fix
@@ -211,7 +235,7 @@ structure:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-list-ready",
         held,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
@@ -222,7 +246,7 @@ structure:
     assert!(!ready.stdout.contains("Task plan.1.1:"), "got:\n{}", ready.stdout);
 
     // Released: the descendant is the work, the supervisor is not.
-    assert_success(&run_transition(&plan_path, &machine_path, "1", "supervise", "supervise"));
+    assert_success(&run_transition(&plan_path, &machine_path, "1", "supervising", "supervising"));
     let ready = run_cli("list", &plan_path, &machine_path, &["--ready"]);
     assert_success(&ready);
     assert!(!ready.stdout.contains("Task plan.1:"), "got:\n{}", ready.stdout);
@@ -236,7 +260,7 @@ structure:
         &machine_path,
         &["--task", "1.1", "--result", "fixed"],
     ));
-    assert_success(&run_transition(&plan_path, &machine_path, "1", "supervise", "supervise"));
+    assert_success(&run_transition(&plan_path, &machine_path, "1", "supervising", "supervising"));
     let ready = run_cli("list", &plan_path, &machine_path, &["--ready"]);
     assert_success(&ready);
     assert!(!ready.stdout.contains("Task plan.1:"), "got:\n{}", ready.stdout);
@@ -250,15 +274,15 @@ structure:
 /// and says, twice, what is wrong with it.
 ///
 /// Before: the warning existed only in `rhei validate`, and the run drove the
-/// whole subtree and then reported "stalled in non-terminal state supervise /
+/// whole subtree and then reported "stalled in non-terminal state supervising /
 /// inspect logs", which is advice for a halt nobody can name. This one is
 /// nameable: the machine is missing one line.
 // §FS-rhei-supervision.1.2 §FS-rhei-supervision.4.1 §FS-rhei-run.3
 #[test]
 fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
-    let machine = supervision_machine("task", "completed")
+    let machine = supervision_machine("descendant-terminal", "completed")
         .replace(
-            "  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }\n",
+            "  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }\n",
             "",
         );
     assert!(
@@ -273,7 +297,7 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
     // `rhei validate`.
     assert!(
         result.stderr.contains(
-            "warning: state 'supervise' declares 'supervise' but no transition from it \
+            "warning: state 'supervising' declares 'execute_on' but no transition from it \
              reaches a final state on `openDescendants`"
         ),
         "got stderr:\n{}",
@@ -282,11 +306,12 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
     // And the halt names the line to add, wherever the halt is reported.
     let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
     assert!(
-        report.contains("no transition out of 'supervise' is eligible on `openDescendants`"),
+        report.contains("no transition out of 'supervising' is eligible on `openDescendants`"),
         "got:\n{report}"
     );
     assert!(
-        report.contains("add `- {from: supervise, to: completed, condition: openDescendants < 1}`"),
+        report
+            .contains("add `- {from: supervising, to: completed, condition: openDescendants < 1}`"),
         "got:\n{report}"
     );
     assert!(
@@ -313,9 +338,9 @@ states:
   pending:
     initial: true
     description: Fresh
-  supervise:
+  supervising:
     description: Supervise
-    supervise: task
+    execute_on: descendant-terminal
     agent: mock
     agent_timeout: 30s
     visits: 12
@@ -327,9 +352,9 @@ states:
     description: Done
     final: true
 transitions:
-  - { from: pending, to: supervise, description: Start supervising }
-  - { from: supervise, to: completed, description: Done, condition: openDescendants < 1 }
-  - { from: supervise, to: supervise, description: Released }
+  - { from: pending, to: supervising, description: Start supervising }
+  - { from: supervising, to: completed, description: Done, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released }
   - { from: review, to: completed, description: Reviewed }
 "#;
     let plan = r#"# Rhei: Release
@@ -342,7 +367,7 @@ structure:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise
+**State:** supervising
 **Assignee:** pi
 
 #### Task 1.1: A
@@ -372,10 +397,13 @@ structure:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// `rhei states` says when a supervisor wakes and what the granularity costs.
+/// `rhei states` says when a supervisor wakes, for every value it can carry.
 ///
-/// "Supervises: task" read as "supervises a task" — the one thing `supervise:`
-/// does not mean. `--json` keeps the value itself, for scripts.
+/// The reader's question is which moves under the task bring it back, and the
+/// bare value answers that only to someone who already knows the grammar. The
+/// scope is the half a text line used to lose: `child-terminal` and
+/// `descendant-terminal` are different machines and used to read the same.
+/// `--json` keeps the value itself, for scripts.
 // §FS-rhei-supervision.1.1 §FS-rhei-states-cmd.4
 #[test]
 fn rhei_states_says_when_a_supervisor_wakes() {
@@ -389,7 +417,7 @@ structure:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: A
 **State:** review
@@ -397,42 +425,42 @@ structure:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-states-cmd",
         plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
+    drop(machine_path);
 
-    let by_task = run_cli("states", &plan_path, &machine_path, &[]);
-    assert_success(&by_task);
-    assert!(
-        by_task.stdout.contains("Supervision: after every finished descendant (task)"),
-        "got:\n{}",
-        by_task.stdout
-    );
-
-    let state_machine =
-        write_fixture_file(&dir, "state-level.yaml", &supervision_machine("state", "completed"));
-    let by_state = run_cli("states", &plan_path, &state_machine, &[]);
-    assert_success(&by_state);
-    assert!(
-        by_state.stdout.contains(
-            "Supervision: after every descendant transition (state) \u{2014} one invocation \
-             per hop"
+    for (value, phrase) in [
+        ("child-terminal", "Executes on: every finished child"),
+        ("child-transition", "Executes on: every child transition"),
+        ("descendant-terminal", "Executes on: every finished descendant"),
+        (
+            "descendant-transition",
+            "Executes on: every descendant transition \u{2014} one invocation per hop",
         ),
-        "got:\n{}",
-        by_state.stdout
-    );
+    ] {
+        let machine = write_fixture_file(
+            &dir,
+            &format!("{value}.yaml"),
+            &supervision_machine(value, "completed"),
+        );
 
-    let json = run_cli("states", &plan_path, &state_machine, &["--json"]);
-    assert_success(&json);
-    let payload: serde_json::Value =
-        serde_json::from_str(&json.stdout).expect("states --json parses");
-    let supervising = payload["states"]
-        .as_array()
-        .expect("states array")
-        .iter()
-        .find(|state| state["name"] == "supervise")
-        .expect("the supervising state");
-    assert_eq!(supervising["supervise"], "state", "scripts keep the value: {payload}");
+        let text = run_cli("states", &plan_path, &machine, &[]);
+        assert_success(&text);
+        assert!(text.stdout.contains(phrase), "expected `{phrase}`; got:\n{}", text.stdout);
+
+        let json = run_cli("states", &plan_path, &machine, &["--json"]);
+        assert_success(&json);
+        let payload: serde_json::Value =
+            serde_json::from_str(&json.stdout).expect("states --json parses");
+        let supervising = payload["states"]
+            .as_array()
+            .expect("states array")
+            .iter()
+            .find(|state| state["name"] == "supervising")
+            .expect("the supervising state");
+        assert_eq!(supervising["execute_on"], value, "scripts keep the value itself: {payload}");
+    }
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
@@ -449,7 +477,7 @@ fn a_dry_run_names_the_barrier_and_the_release_edge() {
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-dry-run",
         REVIEW_FIX_PLAN,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
@@ -462,7 +490,9 @@ fn a_dry_run_names_the_barrier_and_the_release_edge() {
         result.stdout
     );
     assert!(
-        result.stdout.contains("would transition: Task plan.1  supervise -> supervise (release)"),
+        result
+            .stdout
+            .contains("would transition: Task plan.1  supervising -> supervising (release)"),
         "got:\n{}",
         result.stdout
     );

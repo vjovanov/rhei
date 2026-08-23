@@ -41,8 +41,12 @@ comes next. Four shapes were weighed. §FS-rhei-supervision
 ## Decision
 
 Supervision is an engine-owned **hold/release barrier** declared on a state
-with `supervise: task | state` (§FS-rhei-supervision.1). The value picks the
-checkpoint set; the hold moves into the engine so the children's states stay
+with `execute_on: <scope>-<event>` (§FS-rhei-supervision.1) — one of
+`child-terminal`, `child-transition`, `descendant-terminal`, or
+`descendant-transition`. The scope picks whose moves the supervisor hears (its
+direct children, or its whole subtree) and the event picks which of them (a
+task finishing, or every transition it applies); together they pick the
+checkpoint set. The hold moves into the engine so the children's states stay
 plain and reusable unsupervised.
 
 - A supervisor and its descendants are never worked at the same time. Entry
@@ -50,8 +54,10 @@ plain and reusable unsupervised.
   holds it again and the supervisor is ready once nothing beneath it is in
   flight (§FS-rhei-supervision.3.1). This is the non-leaf model's existing
   guarantee, extended to a parent that runs many times.
-- Checkpoints are **post-transition** and are delivered to the **nearest**
-  supervising ancestor only (§FS-rhei-supervision.2). The supervisor judges
+- Checkpoints are **post-transition** and are delivered to the **nearest
+  in-scope** supervising ancestor only (§FS-rhei-supervision.2): a `child-*`
+  supervisor declines a grandchild's move and the event climbs to the next
+  ancestor whose scope reaches that deep, or to nobody. The supervisor judges
   what happened; vetoing stays with callbacks.
 - The supervisor steers with the levers that already exist: a *brief* the
   next step reads, plan edits that append children, `rhei transition` that
@@ -69,9 +75,12 @@ plain and reusable unsupervised.
 
 ## Consequences
 
-- After-every-task and after-every-state supervision both fall out of one
-  rule; `state` is the expensive setting — it serializes the subtree at every
-  hop and spends one supervisor invocation per hop — and the spec says so.
+- All four triggers fall out of one rule; the `*-transition` values are the
+  expensive setting — they serialize the subtree at every hop and spend one
+  supervisor invocation per hop — and the spec says so. Scope narrows what
+  *wakes* a supervisor, never what it holds: a `child-*` supervisor is still
+  the barrier over its whole subtree, so supervision can be layered one level
+  of decomposition at a time without a task having two owners.
 - Pre-authored chains stay visible as tasks from the start, so every surface
   that explains readiness needs a "held by supervisor" reason row
   (§FS-rhei-supervision.3.4) or a held subtree reads as a stall.

@@ -10,7 +10,7 @@ use super::*;
 ///
 /// It logs one line per invocation, saves the prompt it was handed, writes the
 /// state's declared output and its result, and — in a supervising state — leaves
-/// a brief for each of its children. `extra` is spliced into the `supervise`
+/// a brief for each of its children. `extra` is spliced into the `supervising`
 /// arm so a scenario can make the supervisor act on its subtree.
 pub fn supervision_agent_script(extra: &str) -> String {
     format!(
@@ -34,7 +34,7 @@ done
 printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state-$visit.md"
 
 case "$state" in
-  supervise)
+  supervising)
     for child in 1 2; do
       printf 'Brief for child %s written on visit %s.\n' "$child" "$visit" \
         > "$root/runtime/supervise/$task.$child.md"
@@ -53,15 +53,15 @@ printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PA
 }
 
 /// The canonical supervisor machine of §FS-rhei-supervision.7.
-pub fn supervision_machine(supervise: &str, review_to: &str) -> String {
+pub fn supervision_machine(execute_on: &str, review_to: &str) -> String {
     format!(
         r#"name: supervision-e2e
 version: 1
 states:
-  supervise:
+  supervising:
     initial: true
     description: Supervise the subtree
-    supervise: {supervise}
+    execute_on: {execute_on}
     agent: mock
     agent_timeout: 30s
     visits: 12
@@ -89,9 +89,9 @@ states:
     description: Dropped
     final: true
 transitions:
-  - {{ from: supervise, to: human-review, description: Budget exhausted, condition: visitCount >= visits }}
-  - {{ from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }}
-  - {{ from: supervise, to: supervise, description: Released the subtree }}
+  - {{ from: supervising, to: human-review, description: Budget exhausted, condition: visitCount >= visits }}
+  - {{ from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }}
+  - {{ from: supervising, to: supervising, description: Released the subtree }}
   - {{ from: review, to: {review_to}, description: Findings written }}
   - {{ from: fix, to: completed, description: Fixes applied }}
   - {{ from: "*", to: cancelled, description: Dropped }}
@@ -172,7 +172,7 @@ structure:
 ## Tasks
 
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 Goal and acceptance criteria for the whole change.
 
@@ -187,11 +187,11 @@ Goal and acceptance criteria for the whole change.
 /// §FS-rhei-supervision.7: the whole trace — hold, visit, release, child,
 /// checkpoint, visit — with the supervisor never running beside a child.
 #[test]
-fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
+fn a_descendant_terminal_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-task-chain",
         REVIEW_FIX_PLAN,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
@@ -207,23 +207,30 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     assert_eq!(
         spawn_log(&dir),
         vec![
-            "plan.1 supervise 1".to_string(),
+            "plan.1 supervising 1".to_string(),
             "plan.1.1 review 1".to_string(),
-            "plan.1 supervise 2".to_string(),
+            "plan.1 supervising 2".to_string(),
             "plan.1.2 fix 1".to_string(),
-            "plan.1 supervise 3".to_string(),
+            "plan.1 supervising 3".to_string(),
         ],
         "expected hold \u{2192} visit \u{2192} release \u{2192} child \u{2192} checkpoint \u{2192} visit"
     );
 
     // §FS-rhei-supervision.5.1: the first visit has nothing to judge; the
     // second reads the checkpoint the first child produced.
-    let first = prompt_for(&dir, "plan.1", "supervise", 1);
+    let first = prompt_for(&dir, "plan.1", "supervising", 1);
     assert!(!first.contains("## Checkpoints"), "got:\n{first}");
     assert!(first.contains("## Child Tasks"), "got:\n{first}");
     assert!(
         first.contains("You are supervising this task's subtree."),
         "the supervisor's command permissions are stated; got:\n{first}"
+    );
+    // §FS-rhei-supervision.1.1 §FS-rhei-supervision.5.1: which moves bring it
+    // back, in the words of the state's own `execute_on` — an agent that does
+    // not know what wakes it cannot tell waiting from being done with a step.
+    assert!(
+        first.contains("You are woken after every finished descendant."),
+        "the prompt names the trigger; got:\n{first}"
     );
     // §FS-rhei-supervision.6: a cancel waives the abandoned step's outputs but
     // not its result, and the permission text says so.
@@ -260,7 +267,7 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
         "got:\n{first}"
     );
 
-    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    let second = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(second.contains("## Checkpoints"), "got:\n{second}");
     assert!(
         second.contains(
@@ -291,10 +298,10 @@ fn a_task_supervisor_is_woken_between_its_children_and_finishes_after_them() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
-/// §FS-rhei-supervision.2.1: `supervise: state` hears every hop, so a child
+/// §FS-rhei-supervision.2.1: `execute_on: descendant-transition` hears every hop, so a child
 /// with its own two-step machine hands control back twice.
 #[test]
-fn a_state_supervisor_is_woken_after_every_hop_of_a_descendant() {
+fn a_descendant_transition_supervisor_is_woken_after_every_hop_of_a_descendant() {
     let plan = r#"# Rhei: Every hop
 
 ---
@@ -305,7 +312,7 @@ structure:
 ## Tasks
 
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: Review then fix
 **State:** review
@@ -315,7 +322,7 @@ structure:
         plan,
         // `review` lands in `fix` rather than `completed`, so the child takes
         // two hops of its own.
-        &supervision_machine("state", "fix"),
+        &supervision_machine("descendant-transition", "fix"),
         "",
     );
 
@@ -327,16 +334,16 @@ structure:
     assert_eq!(
         spawn_log(&dir),
         vec![
-            "plan.1 supervise 1".to_string(),
+            "plan.1 supervising 1".to_string(),
             "plan.1.1 review 1".to_string(),
-            "plan.1 supervise 2".to_string(),
+            "plan.1 supervising 2".to_string(),
             "plan.1.1 fix 1".to_string(),
-            "plan.1 supervise 3".to_string(),
+            "plan.1 supervising 3".to_string(),
         ],
-        "a non-terminal hop is a checkpoint under `supervise: state`"
+        "a non-terminal hop is a checkpoint under `execute_on: descendant-transition`"
     );
 
-    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    let second = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(
         second.contains("\u{2014} review \u{2192} fix (visit 1)"),
         "the non-terminal hop is rendered with the source state's outputs; got:\n{second}"

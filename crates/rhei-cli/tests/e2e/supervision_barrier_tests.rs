@@ -23,7 +23,7 @@ structure:
 ## Tasks
 
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: Review parser
 **State:** review
@@ -45,7 +45,7 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-cancel",
         TWO_CHILD_PLAN,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         &cancel,
     );
 
@@ -58,14 +58,14 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
     assert_eq!(
         spawn_log(&dir),
         vec![
-            "plan.1 supervise 1".to_string(),
+            "plan.1 supervising 1".to_string(),
             "plan.1.1 review 1".to_string(),
-            "plan.1 supervise 2".to_string(),
+            "plan.1 supervising 2".to_string(),
         ],
         "the cancelled step never runs, and the supervisor is woken once for the one that did"
     );
 
-    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    let second = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(second.contains("### Task plan.1.1:"), "got:\n{second}");
     assert!(
         !second.contains("### Task plan.1.2:"),
@@ -90,10 +90,10 @@ structure:
 ## Tasks
 
 ### Task 1: Top
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: Middle
-**State:** supervise
+**State:** supervising
 
 ##### Task 1.1.1: Leaf
 **State:** review
@@ -101,7 +101,7 @@ structure:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-nested",
         plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
@@ -114,23 +114,23 @@ structure:
     assert_eq!(
         spawn_log(&dir),
         vec![
-            "plan.1 supervise 1".to_string(),
-            "plan.1.1 supervise 1".to_string(),
+            "plan.1 supervising 1".to_string(),
+            "plan.1.1 supervising 1".to_string(),
             "plan.1.1.1 review 1".to_string(),
-            "plan.1.1 supervise 2".to_string(),
-            "plan.1 supervise 2".to_string(),
+            "plan.1.1 supervising 2".to_string(),
+            "plan.1 supervising 2".to_string(),
         ],
         "the outer supervisor releases the inner one, which releases the leaf"
     );
 
-    let inner = prompt_for(&dir, "plan.1.1", "supervise", 2);
+    let inner = prompt_for(&dir, "plan.1.1", "supervising", 2);
     assert!(
         inner.contains("### Task plan.1.1.1:"),
         "the leaf checkpoints its nearest; got:\n{inner}"
     );
-    let outer = prompt_for(&dir, "plan.1", "supervise", 2);
+    let outer = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(
-        outer.contains("### Task plan.1.1: Middle \u{2014} supervise \u{2192} completed"),
+        outer.contains("### Task plan.1.1: Middle \u{2014} supervising \u{2192} completed"),
         "the outer supervisor hears only the inner one's own exit; got:\n{outer}"
     );
     assert!(
@@ -146,7 +146,7 @@ structure:
 /// every checkpoint they produced in one visit.
 #[test]
 fn a_checkpoint_drains_the_parallel_siblings_before_the_supervisor_runs() {
-    let machine = supervision_machine("task", "completed")
+    let machine = supervision_machine("descendant-terminal", "completed")
         .replace("  review:\n", "  review:\n    concurrent: true\n")
         .replace("  fix:\n", "  fix:\n    concurrent: true\n");
     let (dir, plan_path, machine_path) =
@@ -162,13 +162,13 @@ fn a_checkpoint_drains_the_parallel_siblings_before_the_supervisor_runs() {
 
     assert_task_state(&plan_path, &machine_path, "1", "completed");
     let log = spawn_log(&dir);
-    assert_eq!(log.first().map(String::as_str), Some("plan.1 supervise 1"));
-    assert_eq!(log.last().map(String::as_str), Some("plan.1 supervise 2"));
+    assert_eq!(log.first().map(String::as_str), Some("plan.1 supervising 1"));
+    assert_eq!(log.last().map(String::as_str), Some("plan.1 supervising 2"));
     assert_eq!(log.len(), 4, "both children run inside the one release; got:\n{log:?}");
 
     // §FS-rhei-supervision.3.3: the checkpoints accumulate and one visit
     // consumes them all.
-    let second = prompt_for(&dir, "plan.1", "supervise", 2);
+    let second = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(second.contains("### Task plan.1.1:"), "got:\n{second}");
     assert!(second.contains("### Task plan.1.2:"), "got:\n{second}");
 
@@ -194,10 +194,10 @@ structure:
 ## Tasks
 
 ### Task 1: Outer
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: Inner supervisor
-**State:** supervise
+**State:** supervising
 
 ##### Task 1.1.1: A
 **State:** fix
@@ -213,14 +213,14 @@ structure:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-tail-collision",
         plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
     assert_success(&result);
 
-    let outer = prompt_for(&dir, "plan.1", "supervise", 3);
+    let outer = prompt_for(&dir, "plan.1", "supervising", 3);
     assert!(
         outer.contains("### Task plan.1.2: Sibling \u{2014} fix \u{2192} completed (visit 1)"),
         "the checkpoint is the sibling, titled and qualified as such; got:\n{outer}"
@@ -246,8 +246,8 @@ structure:
 // §FS-rhei-supervision.3.1 §FS-rhei-supervision.3.2 §FS-rhei-supervision.3.3
 #[test]
 fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
-    let machine =
-        supervision_machine("task", "completed").replace("    visits: 12\n", "    visits: 1\n");
+    let machine = supervision_machine("descendant-terminal", "completed")
+        .replace("    visits: 12\n", "    visits: 1\n");
     let (dir, plan_path, machine_path) =
         setup_supervision("supervision-gate-hold", REVIEW_FIX_PLAN, &machine, "");
 

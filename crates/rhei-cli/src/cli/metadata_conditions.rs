@@ -119,7 +119,7 @@ fn state_counts_visits(machine: &rhei_validator::StateMachine, state_name: &str)
     if def.poll.is_some() {
         return false;
     }
-    def.supervise_kind().is_some() || state_declares_self_loop(machine, state_name)
+    def.execute_on().is_some() || state_declares_self_loop(machine, state_name)
 }
 
 /// Whether the machine declares a literal self-loop from this state.

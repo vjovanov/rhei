@@ -3,9 +3,12 @@
 This document specifies **subtree supervision**: how a non-leaf task node
 looks after the tasks beneath it *while* they run, instead of only
 integrating them once they are all finished. A state that declares
-`supervise:` turns the task holding it into a *supervisor*. The orchestrator
-wakes the supervisor at *checkpoints* — after every descendant finishes
-(`task`) or after every state a descendant passes through (`state`) — with
+`execute_on:` turns the task holding it into a *supervisor*. The value names
+the *scope* the supervisor watches — its direct children, or its whole subtree
+— and the *event* that wakes it — a task finishing, or every transition a task
+applies. The orchestrator wakes the supervisor at *checkpoints*: after every
+finished child, every child transition, every finished descendant, or every
+descendant transition — with
 the same agent session continued from its previous visit *where the agent
 supports one* (today that is `pi`; with the built-in `claude-code` profile the
 supervisor runs each visit cold, carried by its checkpoints and its briefs),
@@ -40,7 +43,7 @@ authored as four children runs unattended until the end. With supervision the
 parent is a standing participant:
 
 ```
-supervise (visit 1) → release → 1.1 review → checkpoint → supervise (visit 2) → release → 1.2 fix → …
+supervising (visit 1) → release → 1.1 review → checkpoint → supervising (visit 2) → release → 1.2 fix → …
 ```
 
 Each visit continues the supervisor's own transcript
@@ -62,12 +65,12 @@ unrelated and never appear in the same rule.
 
 ## 1. Declaring a Supervisor
 
-### 1.1. The `supervise` Field
+### 1.1. The `execute_on` Field
 
 ```yaml
 states:
-  supervise:
-    supervise: task          # task | state
+  supervising:
+    execute_on: descendant-terminal   # <scope>-<event>
     target: pi:anthropic:claude-sonnet-4-5
     visits: 20
     snapshot:
@@ -87,29 +90,55 @@ block; declaring it is a hard `unsupported-snapshot-session` validation error,
 and the error says so. A supervisor without it still supervises: it runs each
 visit cold, carried by its checkpoints and its briefs (§6).
 
-| Value | A checkpoint is produced when a descendant… | The supervisor runs… |
-|-------|----------------------------------------------|----------------------|
-| `task` | enters a terminal state | after every finished descendant |
-| `state` | fires any transition, terminal ones included | after every hop of every descendant's own machine |
+The value is a *scope* and an *event*, in that order, and exactly four are
+legal:
 
-`supervise` is a property of the *state*, not of the task: a task supervises
+| Value | A checkpoint is produced when… | The supervisor runs… |
+|-------|--------------------------------|----------------------|
+| `child-terminal` | a direct child enters a terminal state | after every finished child |
+| `child-transition` | a direct child fires any transition, terminal ones included | after every hop of a child's own machine |
+| `descendant-terminal` | any descendant, at any depth, enters a terminal state | after every finished descendant |
+| `descendant-transition` | any descendant fires any transition, terminal ones included | after every hop of every descendant's own machine |
+
+The **scope** says whose moves the supervisor hears about — `child`: its direct
+children only; `descendant`: everything beneath it, at any depth. The **event**
+says which of their moves those are — `terminal`: the applied transition's
+effective target is `final: true`; `transition`: any applied transition,
+terminal ones included.
+
+A non-leaf child is terminal only once its own subtree is
+(§FS-rhei-plan-language.3), so `child-terminal` wakes the supervisor exactly
+once per finished child *subtree*: it is supervision at one level of
+decomposition, with each child's internal steps left to the child — or to a
+supervisor of its own, nested beneath this one. `child-transition` watches a
+child's own hops — its `review ↔ fix` loop — without hearing the grandchildren
+that child dispatches. Narrowing the scope needs no new way to say "the subtree
+is done": because a non-leaf child cannot be terminal while anything under it
+is open, `openDescendants` (§4.1) is zero exactly when no child is open, so
+`openDescendants < 1` stays the edge every supervisor finishes on, whatever its
+scope.
+
+`execute_on` is a property of the *state*, not of the task: a task supervises
 while it is in a supervising state and stops when it leaves one. A leaf task
 in a supervising state behaves as an ordinary agent state — it has no
 descendants, so it is woken once and finishes on its `openDescendants < 1`
 edge (§4.1).
 
-Omitting `supervise` leaves the state with today's behavior: a non-leaf task
+Omitting `execute_on` leaves the state with today's behavior: a non-leaf task
 in it is worked once, after its whole subtree is terminal
 (§FS-rhei-plan-language.3).
 
 ### 1.2. Validation Rules
 
-- `supervise`, when present, must be `task` or `state`.
+- `execute_on`, when present, must be one of `child-terminal`,
+  `child-transition`, `descendant-terminal`, or `descendant-transition`; the
+  error names all four.
 - A supervising state must be agent-bearing: it declares `agent`, `target`,
   `model`, or a legacy agent/model selection (§FS-rhei-states.1.2).
-  `supervise` on a `final: true`, `gating: true`, `program:`, or `poll:` state
-  is a validation error.
-- `supervise` combined with `all_targets` or `all_models` is a validation
+  `execute_on` on a `final: true`, `gating: true`, `program:`, or `poll:` state
+  is a validation error. On a `poll:` state the error says why: a state has one
+  trigger — `poll:` (time) or `execute_on:` (its subtree).
+- `execute_on` combined with `all_targets` or `all_models` is a validation
   error in v1: a supervisor is one continued session, not a fanout.
 - A supervising state must declare a self-loop transition
   (`from: <state>, to: <state>`). The self-loop is the *release* edge (§3.1);
@@ -139,10 +168,12 @@ A *checkpoint event* is produced on the shared transition path
 `rhei complete`, or a callback redirect alike — when a transition is applied
 to a task that has a supervising ancestor:
 
-- under `supervise: task`, when the applied transition's effective target is
+- under a `*-terminal` value, when the applied transition's effective target is
   `final: true`;
-- under `supervise: state`, on every applied transition, terminal ones
+- under a `*-transition` value, on every applied transition, terminal ones
   included.
+
+The event decides *which* moves are news; the scope decides *whose* (§2.2).
 
 A polling state's self-loop attempt (§FS-rhei-states.2) is a retry, not
 progress, and never produces a checkpoint. A fanout state's per-invocation
@@ -157,18 +188,27 @@ claim, and the task id the invocation it is running inside carries
 (§FS-rhei-agents.4). A descendant's own worker carries the descendant's id, so
 its exits are checkpoints as usual.
 
-### 2.2. Nearest Supervising Ancestor
+### 2.2. Nearest In-Scope Supervising Ancestor
 
 A checkpoint event is delivered to exactly one task: the **nearest** ancestor
-of the transitioning task that is currently in a supervising state. Ancestors
-farther up see nothing of it; what they see is the nearer supervisor's own
-transitions, per their own `supervise` setting.
+of the transitioning task that is currently in a supervising state **whose
+scope includes that task**. A `child-*` supervisor's scope includes only its
+own children, so it declines a grandchild's move; the event then climbs to the
+next ancestor up whose scope includes the task — a `descendant-*` supervisor,
+however far up — or to nobody, in which case the transition is ordinary and
+nothing is held. Ancestors above the one that takes it see nothing of it; what
+they see is that supervisor's own transitions, per their own `execute_on`.
+
+Scope is the only filter that climbs. An in-scope supervisor whose *event* does
+not match — a `child-terminal` supervisor over a child that merely hopped — is
+still the one this move belongs to: it simply produces no checkpoint, and the
+move is not offered to anyone above.
 
 A supervisor's **self-loop** exit is never a checkpoint for its ancestors — it
 is the supervisor waiting, not the subtree progressing. Every other transition
 of a supervisor is an ordinary transition of an ordinary descendant: its
-terminal exit is a `task`-level event for the next supervisor up, and its exit
-into any other state is a `state`-level one.
+terminal exit is a `*-terminal` event for the next supervisor whose scope
+reaches it, and its exit into any other state is a `*-transition` one.
 
 ### 2.3. Timing
 
@@ -230,9 +270,16 @@ Two invariants follow, and they are the point:
 Under `--parallel`, rule 3 is a drain: siblings already running finish, no new
 ones start, and the supervisor sees every checkpoint they produced in one
 visit (§FS-rhei-run.5). A subtree that shares a supervisor therefore
-serializes at each checkpoint; `supervise: state` serializes it at every hop
+serializes at each checkpoint; a `*-transition` value serializes it at every hop
 and costs one supervisor invocation per hop, which is the trade an author makes
 by choosing it.
+
+Scope narrows what *wakes* a supervisor, never what it is responsible for. A
+`child-*` supervisor is the barrier over its whole subtree exactly as a
+`descendant-*` one is: it is never worked concurrently with any descendant, and
+a checkpoint drains and holds everything beneath it, grandchildren included.
+Between its visits the descendants it does not hear about run freely — that is
+the whole difference.
 
 ### 3.2. Readiness
 
@@ -265,7 +312,7 @@ metadata:
   tasks:
     1:
       stateVisits:
-        supervise: 3
+        supervising: 3
       supervision:
         phase: held                 # held | released
         checkpoints:
@@ -373,16 +420,16 @@ The canonical supervisor edges are:
 
 ```yaml
 transitions:
-  - from: supervise
+  - from: supervising
     to: human-review
     description: Supervisor budget exhausted; a human decides
     condition: visitCount >= visits
-  - from: supervise
+  - from: supervising
     to: completed
     description: Every child is terminal and the supervisor wrote its result
     condition: openDescendants < 1
-  - from: supervise
-    to: supervise
+  - from: supervising
+    to: supervising
     description: Released the subtree; wait for the next checkpoint
 ```
 
@@ -482,7 +529,13 @@ The `## Rhei Commands` section of a supervisor's prompt names the lever the
 supervisor steers with before the ones it destroys with: one sentence giving
 both brief paths (§5.2) with the execution root resolved to an absolute path,
 because the supervisor's working directory is not something the prompt can
-promise. It also states the barrier in one sentence — while this invocation
+promise. It says in one clause which moves bring this supervisor back — the
+state's `execute_on` in words: *woken after every finished child*, *after every
+transition one of your children makes*, *after every finished descendant*, or
+*after every transition any descendant makes* (§1.1) — because an agent that
+does not know what wakes it cannot tell waiting from being finished with a
+step, and it does not read the machine. It also states the barrier in one
+sentence — while this invocation
 runs nothing beneath it runs, and when the invocation ends the subtree is
 released (§3.1) — because everything a supervisor is tempted to do wrong
 follows from not knowing it: waiting for a child that cannot start, or treating
@@ -535,10 +588,11 @@ engine; a supervisor that wants a fresh one overwrites it.
   state. `visits` budgets them; the exhaustion edge is the safety valve for a
   subtree that never converges.
 - **Gating descendants.** A descendant at a human gate is not in flight, so it
-  does not keep the subtree from being quiescent. Under `supervise: state` its
-  entry into the gate is a checkpoint — the supervisor can cancel the step or
-  leave it to the human; under `supervise: task` it is not, and the subtree
-  waits on the human as it would unsupervised.
+  does not keep the subtree from being quiescent. Under a `*-transition` value
+  its entry into the gate is a checkpoint — the supervisor can cancel the step
+  or leave it to the human; under a `*-terminal` one it is not, and the subtree
+  waits on the human as it would unsupervised. A gate below a `child-*`
+  supervisor's own children is invisible to it either way.
 - **Polling descendants.** Poll self-loops are not checkpoints (§2.1); a
   polling descendant between attempts is not in flight.
 - **Appending and cancelling.** The supervisor appends descendants by editing
@@ -566,11 +620,11 @@ engine; a supervisor that wants a fresh one overwrites it.
 
 ## 7. Example
 
-A pre-authored review/fix chain, supervised after every task:
+A pre-authored review/fix chain, supervised after every finished descendant:
 
 ```markdown
 ### Task 1: Harden the parser
-**State:** supervise
+**State:** supervising
 
 Goal and acceptance criteria for the whole change.
 
@@ -592,9 +646,9 @@ name: harden-the-parser
 version: 1
 
 states:
-  supervise:
+  supervising:
     initial: true
-    supervise: task
+    execute_on: descendant-terminal
     target: pi:anthropic:claude-sonnet-4-5
     visits: 12
     snapshot:
@@ -622,9 +676,9 @@ states:
     final: true
 
 transitions:
-  - { from: supervise, to: human-review, description: Budget exhausted, condition: visitCount >= visits }
-  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }
-  - { from: supervise, to: supervise, description: Released; wait for the next checkpoint }
+  - { from: supervising, to: human-review, description: Budget exhausted, condition: visitCount >= visits }
+  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released; wait for the next checkpoint }
   - { from: review, to: completed, description: Findings written }
   - { from: fix, to: completed, description: Fixes applied }
   - { from: "*", to: cancelled, description: Dropped }
@@ -633,17 +687,20 @@ transitions:
 The run then proceeds:
 
 ```
-pass 1  Task 1 held, nothing in flight  → supervise v1: briefs 1.1 → self-loop (released)
+pass 1  Task 1 held, nothing in flight  → supervising v1: briefs 1.1 → self-loop (released)
 pass 2  1.1 ready → review runs → completed: checkpoint → Task 1 held
-pass 3  supervise v2 (inherits v1): reads 1.1's result, briefs 1.2 → released
+pass 3  supervising v2 (inherits v1): reads 1.1's result, briefs 1.2 → released
 pass 4  1.2 fix runs → completed: checkpoint
-pass 5  supervise v3: if 1.1 found nothing, cancels 1.3 and 1.4 → released
+pass 5  supervising v3: if 1.1 found nothing, cancels 1.3 and 1.4 → released
         …
-last    openDescendants = 0 → supervise vN writes its result → completed
+last    openDescendants = 0 → supervising vN writes its result → completed
 ```
 
-Change `supervise: task` to `supervise: state` and a child that runs its own
-`review → fix` loop would hand control back at every hop as well.
+Change `execute_on: descendant-terminal` to `descendant-transition` and a child
+that runs its own `review → fix` loop hands control back at every hop as well.
+Change it to `child-terminal` and the supervisor hears only its four children
+finishing — a child that decomposes further runs its own subtree unwatched, or
+supervises it itself.
 
 ## Related Specifications
 

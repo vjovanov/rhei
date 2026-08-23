@@ -38,15 +38,15 @@ pub struct StateDef {
     pub poll: Option<PollConfig>,
     /// Optional visit budget for returning to this state.
     pub visits: Option<u32>,
-    /// Marks this state as a *supervising* state: `task` or `state`.
+    /// Marks this state as a *supervising* state: `<scope>-<event>`.
     ///
     /// A non-leaf task in it is woken at checkpoints of its subtree and holds
     /// the subtree between visits. Kept as a raw string so an unrecognized
-    /// value is reported by the machine's own validation pass with the two
+    /// value is reported by the machine's own validation pass with the four
     /// legal values named, rather than as a serde variant error.
-    // §FS-rhei-supervision.1.1: `supervise: task|state` declares a supervisor.
+    // §FS-rhei-supervision.1.1: `execute_on:` declares a supervisor.
     #[serde(default)]
-    pub supervise: Option<String>,
+    pub execute_on: Option<String>,
     /// Optional named snapshot emit/inherit declaration.
     ///
     /// The operational CLI and run override surface inspect this field to
@@ -414,23 +414,58 @@ pub struct StateMachine {
 /// The built-in default states YAML shipped with rhei.
 const DEFAULT_STATES_YAML: &str = include_str!("../default-states.yaml");
 
-/// Which descendant events wake a supervising task.
-// §FS-rhei-supervision.1.1: `task` fires on a descendant's terminal entry,
-// `state` on every descendant transition.
+/// Which tasks a supervising state hears about.
+// §FS-rhei-supervision.1.1: `child` is the direct children only, `descendant`
+// is the whole subtree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SuperviseKind {
-    /// A checkpoint per descendant that reaches a terminal state.
-    Task,
-    /// A checkpoint per transition any descendant applies.
-    State,
+pub enum SupervisionScope {
+    /// Only the supervisor's direct children produce checkpoints for it.
+    Child,
+    /// Any descendant, at any depth, produces checkpoints for it.
+    Descendant,
 }
 
-impl SuperviseKind {
-    /// Parse the declared `supervise:` value; `None` for anything else.
+/// Which of those tasks' moves wake it.
+// §FS-rhei-supervision.1.1: `terminal` is a finished task, `transition` is
+// every applied transition, terminal ones included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupervisionEvent {
+    /// A checkpoint per in-scope task that reaches a terminal state.
+    Terminal,
+    /// A checkpoint per transition an in-scope task applies.
+    Transition,
+}
+
+/// The `execute_on:` value of a supervising state: a scope and an event.
+// §FS-rhei-supervision.1.1
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecuteOn {
+    /// Woken after every finished child.
+    ChildTerminal,
+    /// Woken after every transition of a child.
+    ChildTransition,
+    /// Woken after every finished descendant.
+    DescendantTerminal,
+    /// Woken after every transition of any descendant.
+    DescendantTransition,
+}
+
+impl ExecuteOn {
+    /// The four legal values, in the order an error message lists them.
+    pub const VALUES: [&'static str; 4] = [
+        "child-terminal",
+        "child-transition",
+        "descendant-terminal",
+        "descendant-transition",
+    ];
+
+    /// Parse the declared `execute_on:` value; `None` for anything else.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
-            "task" => Some(Self::Task),
-            "state" => Some(Self::State),
+            "child-terminal" => Some(Self::ChildTerminal),
+            "child-transition" => Some(Self::ChildTransition),
+            "descendant-terminal" => Some(Self::DescendantTerminal),
+            "descendant-transition" => Some(Self::DescendantTransition),
             _ => None,
         }
     }
@@ -438,19 +473,37 @@ impl SuperviseKind {
     /// The value as authored.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Task => "task",
-            Self::State => "state",
+            Self::ChildTerminal => "child-terminal",
+            Self::ChildTransition => "child-transition",
+            Self::DescendantTerminal => "descendant-terminal",
+            Self::DescendantTransition => "descendant-transition",
+        }
+    }
+
+    /// Which tasks this supervisor hears about.
+    pub fn scope(self) -> SupervisionScope {
+        match self {
+            Self::ChildTerminal | Self::ChildTransition => SupervisionScope::Child,
+            Self::DescendantTerminal | Self::DescendantTransition => SupervisionScope::Descendant,
+        }
+    }
+
+    /// Which of their moves wake it.
+    pub fn event(self) -> SupervisionEvent {
+        match self {
+            Self::ChildTerminal | Self::DescendantTerminal => SupervisionEvent::Terminal,
+            Self::ChildTransition | Self::DescendantTransition => SupervisionEvent::Transition,
         }
     }
 }
 
 impl StateDef {
-    /// The checkpoint granularity of a supervising state, or `None` when the
+    /// The scope and event a supervising state executes on, or `None` when the
     /// state does not supervise. A machine that reached the runtime has passed
     /// validation, so an unparseable value cannot survive to here.
     // §FS-rhei-supervision.1.1
-    pub fn supervise_kind(&self) -> Option<SuperviseKind> {
-        self.supervise.as_deref().and_then(SuperviseKind::parse)
+    pub fn execute_on(&self) -> Option<ExecuteOn> {
+        self.execute_on.as_deref().and_then(ExecuteOn::parse)
     }
 
     /// Whether this state names an executor: an `agent`, a `target`, or a

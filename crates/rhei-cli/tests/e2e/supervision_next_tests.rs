@@ -17,22 +17,22 @@ use super::*;
 #[test]
 fn rhei_next_reports_a_held_descendant_instead_of_claiming_it() {
     let plan = TWO_CHILD_PLAN
-        .replace("**State:** supervise\n", "**State:** supervise\n**Assignee:** pi\n");
+        .replace("**State:** supervising\n", "**State:** supervising\n**Assignee:** pi\n");
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-next-held",
         &plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 
     let targeted = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
     assert!(!targeted.status.success(), "a held descendant is not claimable");
-    assert_stderr_contains(&targeted, "held by supervisor Task plan.1 (supervise)");
+    assert_stderr_contains(&targeted, "held by supervisor Task plan.1 (supervising)");
 
     let auto = run_cli("next", &plan_path, &machine_path, &["--peek"]);
     assert!(!auto.status.success(), "nothing else is claimable either");
     assert_stderr_contains(&auto, "ticket(s) held by a supervisor");
-    assert_stderr_contains(&auto, "Task plan.1.1 held by supervisor Task plan.1 (supervise)");
+    assert_stderr_contains(&auto, "Task plan.1.1 held by supervisor Task plan.1 (supervising)");
     // §FS-rhei-supervision.3.4: the visit is already claimed here, so the row
     // names who holds it and how to hand it back.
     assert_stderr_contains(&auto, "pi holds it");
@@ -49,26 +49,26 @@ fn rhei_next_reports_a_held_descendant_instead_of_claiming_it() {
 // §FS-rhei-supervision.3.4
 #[test]
 fn the_held_row_names_the_supervisor_as_the_ticket_to_work() {
-    // `supervise` is not the profile's initial state, so nothing is
+    // `supervising` is not the profile's initial state, so nothing is
     // auto-claimable and the diagnosis is all the worker gets.
     let machine = r#"name: midflow
 version: 1
 states:
   plan: { initial: true, description: Plan, agent: mock, agent_timeout: 30s, instructions: plan }
-  supervise:
+  supervising:
     description: Supervise
-    supervise: task
+    execute_on: descendant-terminal
     agent: mock
     agent_timeout: 30s
     visits: 12
-    instructions: supervise
+    instructions: supervising
   fix: { description: Fix, agent: mock, agent_timeout: 30s, instructions: fix }
   completed: { description: Done, final: true }
   cancelled: { description: Dropped, final: true }
 transitions:
-  - { from: plan, to: supervise, description: Start supervising }
-  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }
-  - { from: supervise, to: supervise, description: Released }
+  - { from: plan, to: supervising, description: Start supervising }
+  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released }
   - { from: fix, to: completed, description: Fixed }
   - { from: "*", to: cancelled, description: Dropped }
 "#;
@@ -82,7 +82,7 @@ structure:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise
+**State:** supervising
 
 #### Task 1.1: A
 **State:** fix
@@ -118,7 +118,7 @@ metadata:
   tasks:
     1:
       stateVisits:
-        supervise: 2
+        supervising: 2
       supervision:
         phase: released
 ---
@@ -126,7 +126,7 @@ metadata:
 ## Tasks
 
 ### Task 1: Parent
-**State:** supervise-2
+**State:** supervising-2
 
 #### Task 1.1: A
 **State:** fix
@@ -134,7 +134,7 @@ metadata:
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-next-sections",
         plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
     let brief = dir.join("runtime/supervise");
@@ -174,6 +174,12 @@ metadata:
         )),
         "got: {supervising}"
     );
+    // §FS-rhei-supervision.1.1: a manual worker is told what brings the ticket
+    // back, the same clause `rhei run` puts in `## Rhei Commands`.
+    assert!(
+        supervising.contains("You are woken after every finished descendant."),
+        "got: {supervising}"
+    );
     // §FS-rhei-supervision.3.4: the barrier, and the one command that ends the
     // visit — spelled with this invocation's own plan and machine.
     assert!(
@@ -182,7 +188,7 @@ metadata:
     );
     assert!(
         supervising.contains(&format!(
-            "rhei --state-machine={} transition {} --task plan.1 --from supervise --to supervise",
+            "rhei --state-machine={} transition {} --task plan.1 --from supervising --to supervising",
             machine_path.display(),
             plan_path.display()
         )),
@@ -274,11 +280,11 @@ Body text.
 #[test]
 fn the_targeted_held_refusal_names_the_holder_and_rhei_release() {
     let plan = TWO_CHILD_PLAN
-        .replace("**State:** supervise\n", "**State:** supervise\n**Assignee:** pi\n");
+        .replace("**State:** supervising\n", "**State:** supervising\n**Assignee:** pi\n");
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-targeted-held",
         &plan,
-        &supervision_machine("task", "completed"),
+        &supervision_machine("descendant-terminal", "completed"),
         "",
     );
 

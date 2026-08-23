@@ -2,7 +2,7 @@
 # Mock supervisor and worker for the subtree-supervision example.
 #
 # Stands in for a real coding agent so the example runs with no credentials:
-# every state writes the artifact its contract declares, and the `supervise`
+# every state writes the artifact its contract declares, and the `supervising`
 # state writes the brief the next step reads. `rhei run` does the rest — the
 # hold/release barrier, the checkpoints, and the edge selection are the engine's.
 set -eu
@@ -36,7 +36,7 @@ case "$state" in
     printf '## Result\n\nApplied the briefed fixes for %s.\n' "$task" \
       > "$RHEI_RESULT_PATH"
     ;;
-  supervise)
+  supervising)
     # One brief per visit, aimed at the child the release edge lets run next.
     # A real supervisor picks the target off `## Checkpoints`; the mock walks
     # the chain in order.

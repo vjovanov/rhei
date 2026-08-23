@@ -8,9 +8,9 @@
             r#"name: supervision
 version: 1
 states:
-  supervise:
+  supervising:
     description: Supervise
-    supervise: task
+    execute_on: descendant-terminal
     agent: pi
     visits: 12
   review:
@@ -26,9 +26,9 @@ states:
     description: Dropped
     final: true
 transitions:
-  - { from: supervise, to: human-review, description: Budget spent, condition: visitCount >= visits }
-  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }
-  - { from: supervise, to: supervise, description: Released }
+  - { from: supervising, to: human-review, description: Budget spent, condition: visitCount >= visits }
+  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released }
   - { from: review, to: completed, description: Reviewed }
   - { from: "*", to: cancelled, description: Dropped }
 "#,
@@ -37,7 +37,7 @@ transitions:
 
     fn supervised_plan(child_states: &[&str]) -> rhei_core::ast::Rhei {
         let mut plan = String::from(
-            "# Rhei: Supervised\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervise\n",
+            "# Rhei: Supervised\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervising\n",
         );
         for (index, state) in child_states.iter().enumerate() {
             plan.push_str(&format!(
@@ -67,7 +67,7 @@ transitions:
         let terminal_edge = machine
             .transitions()
             .iter()
-            .find(|rule| rule.from.0 == "supervise" && rule.to.0 == "completed")
+            .find(|rule| rule.from.0 == "supervising" && rule.to.0 == "completed")
             .expect("terminal edge declared");
 
         let open = supervised_plan(&["completed", "review"]);
@@ -78,8 +78,8 @@ transitions:
             None,
             &parent.id,
             Some(parent),
-            "supervise",
-            "supervise",
+            "supervising",
+            "supervising",
         )
         .expect("condition evaluates"));
 
@@ -91,8 +91,8 @@ transitions:
             None,
             &parent.id,
             Some(parent),
-            "supervise",
-            "supervise",
+            "supervising",
+            "supervising",
         )
         .expect("condition evaluates"));
     }
@@ -127,8 +127,8 @@ transitions:
             None,
             &parse_task_id("1"),
             None,
-            "supervise",
-            "supervise",
+            "supervising",
+            "supervising",
             &machine,
         )
         .expect_err("no task node");
@@ -220,7 +220,7 @@ transitions:
         )
     }
 
-    /// §FS-rhei-supervision.2.1: under `supervise: task` only a terminal entry
+    /// §FS-rhei-supervision.2.1: under `execute_on: descendant-terminal` only a terminal entry
     /// is a checkpoint, and the nearest supervisor is the one that hears it.
     #[test]
     fn a_terminal_descendant_checkpoints_its_nearest_supervisor() {
@@ -230,7 +230,7 @@ transitions:
         let non_terminal = deliver(&plan, "1.1", "review", "review");
         assert!(
             non_terminal.is_none(),
-            "a non-terminal hop is not a `supervise: task` checkpoint"
+            "a non-terminal hop is not a `execute_on: descendant-terminal` checkpoint"
         );
 
         let delivered = deliver(&plan, "1.1", "review", "completed").expect("checkpoint delivered");
@@ -248,14 +248,14 @@ transitions:
         let plan = supervised_plan(&["completed"]);
         let parent = parse_task_id("1");
 
-        let released = deliver(&plan, "1", "supervise", "supervise").expect("release recorded");
+        let released = deliver(&plan, "1", "supervising", "supervising").expect("release recorded");
         assert_eq!(supervision_phase(Some(&released), &parent), SupervisionPhase::Released);
 
         let held = record_supervision_hold(None, &parent, None);
         let mut with_block = plan.clone();
         with_block.metadata = Some(held);
         let finished =
-            deliver(&with_block, "1", "supervise", "completed").expect("block removed on exit");
+            deliver(&with_block, "1", "supervising", "completed").expect("block removed on exit");
         assert!(supervision_map(Some(&finished), &parent).is_none());
     }
 
@@ -269,7 +269,7 @@ transitions:
 
         let mut exhausted = plan.clone();
         exhausted.metadata = Some(record_supervision_hold(None, &parent, None));
-        let parked = deliver(&exhausted, "1", "supervise", "human-review")
+        let parked = deliver(&exhausted, "1", "supervising", "human-review")
             .expect("the block survives the move");
         assert_eq!(supervision_phase(Some(&parked), &parent), SupervisionPhase::Held);
         assert!(
@@ -291,22 +291,22 @@ transitions:
     #[test]
     fn a_supervisors_self_loop_is_not_a_checkpoint_for_its_own_ancestor() {
         let plan = rhei_core::parse(
-            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervise\n\n#### Task 1.1: Middle\n**State:** supervise\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
+            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervising\n\n#### Task 1.1: Middle\n**State:** supervising\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
         )
         .expect("parse nested plan");
         let top = parse_task_id("1");
 
-        let released = deliver(&plan, "1.1", "supervise", "supervise").expect("release recorded");
+        let released = deliver(&plan, "1.1", "supervising", "supervising").expect("release recorded");
         assert!(
             supervision_checkpoints(Some(&released), &top).is_empty(),
             "the inner supervisor's release must not wake the outer one"
         );
 
         // Its terminal exit, though, is an ordinary descendant finishing.
-        let finished = deliver(&plan, "1.1", "supervise", "completed").expect("checkpoint delivered");
+        let finished = deliver(&plan, "1.1", "supervising", "completed").expect("checkpoint delivered");
         assert_eq!(
             supervision_checkpoints(Some(&finished), &top),
-            vec![checkpoint("1.1", "supervise", "completed", 1)]
+            vec![checkpoint("1.1", "supervising", "completed", 1)]
         );
     }
 
@@ -315,7 +315,7 @@ transitions:
     #[test]
     fn only_the_nearest_supervising_ancestor_hears_a_checkpoint() {
         let plan = rhei_core::parse(
-            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervise\n\n#### Task 1.1: Middle\n**State:** supervise\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
+            "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n### Task 1: Top\n**State:** supervising\n\n#### Task 1.1: Middle\n**State:** supervising\n\n##### Task 1.1.1: Leaf\n**State:** review\n",
         )
         .expect("parse nested plan");
         let delivered =
@@ -332,7 +332,7 @@ transitions:
     #[test]
     fn a_move_the_supervisor_itself_makes_is_not_a_checkpoint() {
         let plan = rhei_core::parse(
-            "# Rhei: Claimed\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervise\n**Assignee:** pi\n\n#### Task 1.1: Child\n**State:** review\n",
+            "# Rhei: Claimed\n---\nstructure:\n  maxLevels: 3\n---\n\n## Tasks\n\n### Task 1: Parent\n**State:** supervising\n**Assignee:** pi\n\n#### Task 1.1: Child\n**State:** review\n",
         )
         .expect("parse claimed plan");
         assert!(
@@ -341,12 +341,13 @@ transitions:
         );
     }
 
-    /// §FS-rhei-supervision.2.1: `supervise: state` hears every hop.
+    /// §FS-rhei-supervision.2.1: `execute_on: descendant-transition` hears every hop.
     #[test]
-    fn state_granularity_checkpoints_every_transition() {
-        let machine = machine_with_states(
-            &supervision_machine_yaml().replace("supervise: task", "supervise: state"),
-        );
+    fn descendant_transition_checkpoints_every_hop() {
+        let machine = machine_with_states(&supervision_machine_yaml().replace(
+            "execute_on: descendant-terminal",
+            "execute_on: descendant-transition",
+        ));
         let plan = supervised_plan(&["review"]);
         let target = parse_task_id("1.1");
         let task = find_task_by_id(&plan.tasks, &target).expect("child in plan");
@@ -366,7 +367,7 @@ transitions:
                 to_visit: 1,
             },
         )
-        .expect("every hop is a checkpoint under `supervise: state`");
+        .expect("every hop is a checkpoint under `execute_on: descendant-transition`");
         assert_eq!(
             supervision_checkpoints(Some(&delivered), &parse_task_id("1")),
             vec![checkpoint("1.1", "review", "human-review", 1)]
@@ -377,9 +378,9 @@ transitions:
         r#"name: supervision
 version: 1
 states:
-  supervise:
+  supervising:
     description: Supervise
-    supervise: task
+    execute_on: descendant-terminal
     agent: pi
     visits: 12
   review:
@@ -395,9 +396,9 @@ states:
     description: Dropped
     final: true
 transitions:
-  - { from: supervise, to: human-review, description: Budget spent, condition: visitCount >= visits }
-  - { from: supervise, to: completed, description: Subtree done, condition: openDescendants < 1 }
-  - { from: supervise, to: supervise, description: Released }
+  - { from: supervising, to: human-review, description: Budget spent, condition: visitCount >= visits }
+  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released }
   - { from: review, to: completed, description: Reviewed }
   - { from: review, to: human-review, description: Escalated }
   - { from: "*", to: cancelled, description: Dropped }
@@ -413,17 +414,17 @@ transitions:
             &supervision_machine_yaml().replace("    visits: 12\n", ""),
         );
         let id = parse_task_id("1");
-        assert!(state_counts_visits(&machine, "supervise"));
+        assert!(state_counts_visits(&machine, "supervising"));
         assert!(!state_counts_visits(&machine, "review"));
 
-        let first = update_metadata_for_transition(None, &id, "supervise", &machine)
+        let first = update_metadata_for_transition(None, &id, "supervising", &machine)
             .expect("a supervising state is counted");
-        assert_eq!(task_visit_count(Some(&first), &id, "supervise"), 1);
-        let second = update_metadata_for_transition(Some(&first), &id, "supervise", &machine)
+        assert_eq!(task_visit_count(Some(&first), &id, "supervising"), 1);
+        let second = update_metadata_for_transition(Some(&first), &id, "supervising", &machine)
             .expect("the re-entry increments");
-        assert_eq!(task_visit_count(Some(&second), &id, "supervise"), 2);
+        assert_eq!(task_visit_count(Some(&second), &id, "supervising"), 2);
         // Without a `visits:` budget the rendered state name stays unsuffixed.
-        assert_eq!(format_task_state_value("supervise", Some(2), &machine), "supervise");
+        assert_eq!(format_task_state_value("supervising", Some(2), &machine), "supervising");
     }
 
     /// A checkpoint names one descendant exactly.
@@ -436,8 +437,8 @@ transitions:
     fn a_checkpoint_resolves_its_descendant_by_exact_qualified_id() {
         let rhei = rhei_core::parse(
             "# Rhei: Nested\n---\nstructure:\n  maxLevels: 4\n---\n\n## Tasks\n\n\
-             ### Task 1: Outer\n**State:** supervise\n\n\
-             #### Task 1.1: Inner\n**State:** supervise\n\n\
+             ### Task 1: Outer\n**State:** supervising\n\n\
+             #### Task 1.1: Inner\n**State:** supervising\n\n\
              ##### Task 1.1.1: A\n**State:** review\n\n\
              ##### Task 1.1.2: B\n**State:** review\n\n\
              #### Task 1.2: Sibling\n**State:** review\n",

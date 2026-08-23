@@ -61,7 +61,7 @@ fn warn_on_supervising_state(
     state: &StateDef,
     report: &mut ValidationReport,
 ) {
-    if state.supervise_kind().is_none() {
+    if state.execute_on().is_none() {
         return;
     }
     let outgoing = || machine.transitions.iter().filter(|rule| rule.from.0 == *state_name);
@@ -75,7 +75,7 @@ fn warn_on_supervising_state(
     });
     if !has_open_descendants_exit {
         report.warnings.push(format!(
-            "state '{state_name}' declares 'supervise' but no transition from it reaches a final \
+            "state '{state_name}' declares 'execute_on' but no transition from it reaches a final \
              state on `openDescendants`; the supervisor has no way to finish"
         ));
     }
@@ -88,7 +88,7 @@ fn warn_on_supervising_state(
     });
     if state.visits.is_none() && !has_exhaustion_edge {
         report.warnings.push(format!(
-            "state '{state_name}' declares 'supervise' but neither 'visits' nor an exhaustion \
+            "state '{state_name}' declares 'execute_on' but neither 'visits' nor an exhaustion \
              transition on `visitCount`; a subtree that never converges has no safety valve"
         ));
     }

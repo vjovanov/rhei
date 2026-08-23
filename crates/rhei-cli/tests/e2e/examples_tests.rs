@@ -242,8 +242,8 @@ fn example_subtree_supervision_runs_its_supervisor_between_its_children() {
     assert_eq!(
         states,
         vec![
-            "supervise", "review", "supervise", "fix", "supervise", "review", "supervise", "fix",
-            "supervise"
+            "supervising", "review", "supervising", "fix", "supervising", "review", "supervising", "fix",
+            "supervising"
         ],
         "expected hold \u{2192} visit \u{2192} release \u{2192} child \u{2192} checkpoint; got:\n{log}"
     );

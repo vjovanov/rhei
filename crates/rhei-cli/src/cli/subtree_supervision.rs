@@ -1,4 +1,4 @@
-// Subtree supervision: the hold/release barrier a task in a `supervise:` state
+// Subtree supervision: the hold/release barrier a task in an `execute_on:` state
 // puts over its own subtree, the checkpoints its descendants deliver to it, and
 // the `supervision` frontmatter block that survives a stopped run.
 //
@@ -70,22 +70,23 @@ fn open_descendant_count(task: &rhei_core::ast::Task, machine: &rhei_validator::
     count
 }
 
-/// The granularity a state supervises at, or `None` when it does not.
+/// The scope and event a state executes on, or `None` when it does not
+/// supervise.
 // §FS-rhei-supervision.1.1
-fn supervise_kind_of(
+fn execute_on_of(
     machine: &rhei_validator::StateMachine,
     state_name: &str,
-) -> Option<rhei_validator::SuperviseKind> {
-    machine.states.get(state_name).and_then(|def| def.supervise_kind())
+) -> Option<rhei_validator::ExecuteOn> {
+    machine.states.get(state_name).and_then(|def| def.execute_on())
 }
 
 /// Whether the state a task is *currently in* supervises.
-// §FS-rhei-supervision.1.1: `supervise` is a property of the state, not the task.
+// §FS-rhei-supervision.1.1: `execute_on` is a property of the state, not the task.
 fn task_is_supervising(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,
 ) -> bool {
-    supervise_kind_of(machine, &normalized_state_name(task.state.as_str(), machine)).is_some()
+    execute_on_of(machine, &normalized_state_name(task.state.as_str(), machine)).is_some()
 }
 
 // ---------------------------------------------------------------------------
