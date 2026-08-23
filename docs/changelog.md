@@ -11,7 +11,7 @@
   against ~3 for macOS, so every pull request and every release waited on it.
   The gate binaries are now cached by their pinned versions, and the cargo
   hooks are skipped in the lint job because the test job has just run them.
-  §AR-ci-release.1
+  §AR-ci-release.1 (PR #93)
 
 ## 2. [0.3.0] - 2026-08-23
 
