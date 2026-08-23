@@ -51,6 +51,71 @@
         );
     }
 
+    /// §FS-rhei-memory.4.3: the fan-out fold writes one `## Result — <identity>`
+    /// entry per invocation (§FS-rhei-states.3.3), and the standing verdict is
+    /// the last of them — not the heading the file happens to open with.
+    #[test]
+    fn the_summary_of_a_folded_result_is_its_last_entry() {
+        let dir = memory_plan_dir(&[
+            ("runtime/state-transitions.log", "plan.1.1 review@completed\n"),
+            (
+                "runtime/results/plan.1.1.md",
+                "## Result \u{2014} claude-code\n\nApproved with two nits.\n\n\
+                 ## Result \u{2014} codex\n\nBLOCKED: the migration is unsafe.\n",
+            ),
+        ]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.4").expect("task 1.4");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
+
+        let history = render_plan_history(&context).expect("history");
+        assert!(
+            history.contains(
+                "- Task plan.1.1: Implement \u{2014} completed \u{2014} BLOCKED: the migration \
+                 is unsafe.\n"
+            ),
+            "got:\n{history}"
+        );
+        assert!(!history.contains("## Result"), "a heading became the summary:\n{history}");
+    }
+
+    /// §FS-rhei-memory.4.3: a plain entry ahead of a fold is an older verdict,
+    /// and reporting it would tell the agent the opposite of what stands.
+    #[test]
+    fn a_plain_entry_before_a_fold_is_not_the_summary() {
+        let dir = memory_plan_dir(&[
+            ("runtime/state-transitions.log", "plan.1.1 review@completed\n"),
+            (
+                "runtime/results/plan.1.1.md",
+                "## Result\n\nFirst round: everything looked fine.\n\n\
+                 ## Result \u{2014} claude-code\n\nSecond round: still fine.\n\n\
+                 ## Result \u{2014} codex\n\nSecond round: BLOCKED, do not ship.\n",
+            ),
+        ]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.4").expect("task 1.4");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
+
+        let history = render_plan_history(&context).expect("history");
+        assert!(
+            history.contains(
+                "- Task plan.1.1: Implement \u{2014} completed \u{2014} Second round: BLOCKED, \
+                 do not ship.\n"
+            ),
+            "got:\n{history}"
+        );
+    }
+
     /// §FS-rhei-memory.4.3: a task the ledger never moved cannot be placed in
     /// time, so it comes first, in plan order.
     #[test]

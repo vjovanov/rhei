@@ -218,18 +218,32 @@ fn cut_to_summary_columns(line: &str) -> String {
     format!("{kept}\u{2026}")
 }
 
+/// Whether a line opens a `## Result` entry of a result file.
+///
+/// A verdict written straight into the file heads a plain `## Result`; the
+/// fan-out fold re-titles each fragment as `## Result — <identity>` and
+/// appends them to the same list.
+///
+/// Both are entries, so a matcher that knew only the plain form read a folded
+/// file as one long entry and reported its oldest verdict — or its heading.
+// §FS-rhei-memory.4.3 §FS-rhei-states.3.3
+fn is_result_entry_heading(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed == "## Result" || trimmed.starts_with("## Result ")
+}
+
 /// The first non-blank line of the **last** `## Result` entry of a result file.
 ///
-/// A result file accumulates one `## Result` block per verdict, so the last
-/// block is the standing one. A file a worker wrote by hand may carry no
-/// heading at all; its first non-blank line is then the whole account's first
-/// line, which is what the rule is after either way.
+/// A result file accumulates one entry per verdict, so the last entry is the
+/// standing one. A file a worker wrote by hand may carry no heading at all; its
+/// first non-blank line is then the whole account's first line, which is what
+/// the rule is after either way.
 // §FS-rhei-memory.4.3
 fn result_summary_from_body(body: &str) -> Option<String> {
     let lines: Vec<&str> = body.lines().collect();
     let start = lines
         .iter()
-        .rposition(|line| line.trim() == "## Result")
+        .rposition(|line| is_result_entry_heading(line))
         .map(|index| index + 1)
         .unwrap_or(0);
     lines[start..]
