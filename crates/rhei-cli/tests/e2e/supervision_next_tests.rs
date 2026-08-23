@@ -204,6 +204,58 @@ metadata:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// One `rhei next` screen spells a state one way, the child list included: a
+/// child in a counted loop is named by the machine's own state, not by the
+/// `-<n>` bookkeeping its `**State:**` line carries. And the authority this
+/// visit has is printed before the map the prompt ends with, the way
+/// `## Rhei Commands` carries both under `rhei run`.
+// §FS-rhei-next.4.1 §FS-rhei-supervision.3.4 §FS-rhei-memory.5
+#[test]
+fn the_supervisor_screen_spells_its_children_and_orders_its_sections() {
+    let plan = r#"# Rhei: Handover
+
+---
+structure:
+  maxLevels: 3
+metadata:
+  tasks:
+    1:
+      stateVisits:
+        supervising: 2
+      supervision:
+        phase: released
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervising-2
+
+#### Task 1.1: A
+**State:** fix-2
+"#;
+    // A counted `fix`, so the child's authored state carries a suffix.
+    let machine = supervision_machine("descendant-terminal", "completed")
+        .replace("  fix:\n    description: Fix\n", "  fix:\n    description: Fix\n    visits: 3\n");
+    let (dir, plan_path, machine_path) =
+        setup_supervision("supervision-next-spelling", plan, &machine, "");
+
+    let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek"]);
+    assert_success(&peek);
+    assert!(peek.stdout.contains("  - Task plan.1.1: A [fix]\n"), "got:\n{}", peek.stdout);
+    for suffix in ["supervising-2", "fix-2"] {
+        assert!(!peek.stdout.contains(suffix), "one spelling only; got:\n{}", peek.stdout);
+    }
+    // §FS-rhei-supervision.3.4: what this visit may do, then where to read the
+    // rest of the project.
+    let supervising =
+        peek.stdout.find("## Supervising This Subtree").expect("the supervising section");
+    let navigation = peek.stdout.find("## Rhei Navigation").expect("the map");
+    assert!(supervising < navigation, "the authority precedes the map; got:\n{}", peek.stdout);
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// A plan with no supervising state carries no supervision section and no
 /// supervision field — not an empty one, not a blank line. What it does carry
 /// is the mid-term memory `rhei run` composes for the same ticket, which every
