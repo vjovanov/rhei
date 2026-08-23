@@ -226,10 +226,45 @@ fn cut_to_summary_columns(line: &str) -> String {
 ///
 /// Both are entries, so a matcher that knew only the plain form read a folded
 /// file as one long entry and reported its oldest verdict — or its heading.
+///
+/// The line still has to be prose: [`last_result_entry_line`] decides that.
 // §FS-rhei-memory.4.3 §FS-rhei-states.3.3
 fn is_result_entry_heading(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed == "## Result" || trimmed.starts_with("## Result ")
+}
+
+/// Index of the line that opens the **last** entry of a result file, if any.
+///
+/// A result file quotes as often as it reports: an account that shows the
+/// verdict block it is objecting to puts a `## Result — <identity>` heading
+/// inside a fenced example, and read as an entry that quotation becomes the
+/// standing verdict — the opposite of what the file says. So fences are
+/// tracked while scanning, by the rule the plan validator applies to a plan
+/// body: [`rhei_validator::code_fence_run`], which `markdown_prose` in
+/// `validator_links.rs` is built from. An unclosed fence runs to the end of
+/// the file, as a renderer reads it.
+// §FS-rhei-memory.4.3 §FS-rhei-plan-language.3.6
+fn last_result_entry_line(lines: &[&str]) -> Option<usize> {
+    let mut fence: Option<(char, usize)> = None;
+    let mut last = None;
+    for (index, line) in lines.iter().enumerate() {
+        match fence {
+            Some((marker, open)) => {
+                if let Some((character, run, bare)) = rhei_validator::code_fence_run(line) {
+                    if character == marker && run >= open && bare {
+                        fence = None;
+                    }
+                }
+            }
+            None => match rhei_validator::code_fence_run(line) {
+                Some((marker, run, _)) => fence = Some((marker, run)),
+                None if is_result_entry_heading(line) => last = Some(index),
+                None => {}
+            },
+        }
+    }
+    last
 }
 
 /// The first non-blank line of the **last** `## Result` entry of a result file.
@@ -241,11 +276,7 @@ fn is_result_entry_heading(line: &str) -> bool {
 // §FS-rhei-memory.4.3
 fn result_summary_from_body(body: &str) -> Option<String> {
     let lines: Vec<&str> = body.lines().collect();
-    let start = lines
-        .iter()
-        .rposition(|line| is_result_entry_heading(line))
-        .map(|index| index + 1)
-        .unwrap_or(0);
+    let start = last_result_entry_line(&lines).map(|index| index + 1).unwrap_or(0);
     lines[start..]
         .iter()
         .find(|line| !line.trim().is_empty())

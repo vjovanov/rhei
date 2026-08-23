@@ -317,13 +317,16 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    display columns; `(no result)` when the file is missing or empty. An entry
    opens with a plain `## Result` heading or with the `## Result — <identity>`
    a fanned-out fold writes (§FS-rhei-states.3.3); the last of either kind is
-   the standing verdict. If `T`'s result is pasted in full elsewhere in this
-   prompt, `see above` replaces the summary. When that file does not exist and
-   `T`'s body carries a `> **Result:**` block, the file **that block links**,
-   resolved against `root(rhei(T))`, is read instead (§FS-rhei-plan-language.3.8)
-   — a plan finished before ids were qualified keeps its account under the
-   rhei-local name, and `(no result)` printed under a body that shows the link
-   is a false statement. Nothing else is consulted.
+   the standing verdict. A heading inside a fenced code block is **not** an
+   entry: a file that quotes a verdict is showing one, not casting it
+   (§FS-rhei-plan-language.3.6). If `T`'s result is pasted in full elsewhere
+   in this prompt, `see above` replaces the summary. When that file does not
+   exist and `T`'s body carries a `> **Result:**` block, the file **that block
+   links**, resolved against `root(rhei(T))`, is read instead
+   (§FS-rhei-plan-language.3.8) — a plan finished before ids were qualified
+   keeps its account under the rhei-local name, and `(no result)` printed
+   under a body that shows the link is a false statement. Nothing else is
+   consulted.
 4. Cap: 40 lines. Entries in `priors` are never dropped; entries in `own` are
    dropped **oldest first** until the cap holds, and the overflow line
    `… {n} earlier tasks not shown — rhei list --rhei <R₀> --terminal` is
