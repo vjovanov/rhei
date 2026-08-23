@@ -57,11 +57,18 @@ jobs:
       # Windows runs every test that needs no shell: the unit tests of every
       # crate and rhei-core's integration tests. The CLI's e2e suite drives
       # `sh` mock agents and is still excluded there; porting it is #91.
-      - name: cargo test (unit and rhei-core)
+      #
+      # Two steps rather than two lines in one, so a failure in the unit tests
+      # still lets the rhei-core suite run and one red job reports everything
+      # there is to fix. `rhei-core` is the directory; `rhei-plan` is the
+      # package name cargo answers to.
+      - name: cargo test (unit)
         if: matrix.os == 'windows-latest'
-        run: |
-          cargo test --workspace --lib --locked --no-fail-fast
-          cargo test -p rhei-core --locked --no-fail-fast
+        run: cargo test --workspace --lib --locked --no-fail-fast
+
+      - name: cargo test (rhei-core)
+        if: matrix.os == 'windows-latest' && !cancelled()
+        run: cargo test -p rhei-plan --locked --no-fail-fast
 
   lint:
     name: repository gates (grund, fissile, lychee, changelog, attribution)
