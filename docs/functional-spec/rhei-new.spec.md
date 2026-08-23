@@ -361,6 +361,17 @@ than two: a lone plan, where the scope file *is* the destination, and a
 destination that does not exist yet, which holds no ticket any other command
 could be rewriting.
 
+Because the destination is read while the write is decided but locked only
+afterwards, the file is **witnessed before the lock and compared after it**. A
+create that finds it changed decides again, against the file as it now is, up to
+three times before giving up and saying another command is rewriting that plan.
+Without that check the second lock would close the window it was added for only
+partway: a completion landing between the read and the lock would still be read
+as absent and written over, which is the same lost write arriving through a
+narrower door. Re-deciding rather than failing keeps the promise the blocking
+locks already make — a create waits for a busy project instead of handing the
+caller back the race.
+
 Both are released on every exit path, and the OS releases them if the process
 dies, so neither can go stale.
 

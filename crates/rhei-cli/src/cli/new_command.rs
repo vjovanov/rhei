@@ -50,17 +50,65 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     // §FS-rhei-new.4
     let scope_lock = lock_new_create(&target)?;
 
-    let write = match options.under.as_deref() {
-        Some(parent) => new_ticket_write(&target, options, parent, description.as_deref())?,
-        None => new_rhei_write(&target, options, description.as_deref())?,
-    };
-
-    // Only now is the destination known, which is why this lock comes second.
-    // It is the object the other commands lock, and the scope lock is not.
-    // §FS-rhei-new.4
-    let _destination_lock = lock_new_destination(&scope_lock, &write.path)?;
+    let (write, _destination_lock) =
+        decide_under_destination_lock(&target, options, description.as_deref(), &scope_lock)?;
 
     apply_new_write(&target, &write, options)
+}
+
+/// Decide the write, take the destination's own lock, and confirm the file did
+/// not change between the two.
+///
+/// The destination can only be locked once its path is known, and its path is
+/// only known once the write has been decided — which reads that same file. A
+/// `rhei complete` landing in that window would be read as absent and written
+/// over, which is the whole failure the second lock exists to prevent, just
+/// narrower. So the file is witnessed before the lock and compared after it,
+/// and a create that lost the race simply decides again against the file as it
+/// now is. Re-deciding rather than failing keeps the command's promise: a
+/// create waits for a busy project instead of handing the caller back the race.
+// §FS-rhei-new.4
+fn decide_under_destination_lock(
+    target: &Path,
+    options: &NewOptions,
+    description: Option<&str>,
+    scope_lock: &NewCreateLock,
+) -> MietteResult<(NewWrite, Option<NewCreateLock>)> {
+    /// Enough for any real contention: the scope lock already excludes other
+    /// creates, so only a rewriting command can move the file, and it holds its
+    /// own lock for one rewrite.
+    const ATTEMPTS: usize = 3;
+
+    for _ in 0..ATTEMPTS {
+        let write = decide_new_write(target, options, description)?;
+        let witnessed = fs::read(&write.path).ok();
+        let destination_lock = lock_new_destination(scope_lock, &write.path)?;
+        if fs::read(&write.path).ok() == witnessed {
+            return Ok((write, destination_lock));
+        }
+        // Release before re-reading, so the next attempt locks the file it
+        // actually decided against.
+        drop(destination_lock);
+    }
+    Err(miette!(
+help = "another command is rewriting that plan. Let it finish, then re-run.",
+
+        "gave up deciding what to create: the plan kept changing while `rhei new` prepared \
+         the write, {ATTEMPTS} times running"
+    ))
+}
+
+/// The mode split: `--under` creates a ticket, its absence creates a rhei.
+// §FS-rhei-new.1
+fn decide_new_write(
+    target: &Path,
+    options: &NewOptions,
+    description: Option<&str>,
+) -> MietteResult<NewWrite> {
+    match options.under.as_deref() {
+        Some(parent) => new_ticket_write(target, options, parent, description),
+        None => new_rhei_write(target, options, description),
+    }
 }
 
 /// Refuse a `TITLE` that cannot become a heading.

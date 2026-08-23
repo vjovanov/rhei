@@ -468,3 +468,50 @@ fn an_unresolvable_machine_elsewhere_does_not_stop_a_create() {
     let into_it = new_run(&["new", "Nope", "--under", "billing"], &dir);
     assert_failure(&into_it, "declares state machine 'billing-review'");
 }
+
+/// A create must not swallow a concurrent `rhei complete`.
+///
+/// The destination lock closes the window where a create rewrites a whole plan
+/// while a completion rewrites one `**State:**` line in it — but the create
+/// *reads* that file while deciding, before its path is known and so before the
+/// lock exists. Anything landing in that window has to be noticed and the write
+/// decided again, or the completion is read as absent and written over with
+/// both commands exiting 0.
+// §FS-rhei-new.4
+#[test]
+fn a_create_does_not_swallow_a_concurrent_completion() {
+    let dir = project_with_rhei("new-race-complete");
+    // Enough tickets that deciding the write takes long enough to overlap.
+    for n in 1..=20 {
+        assert_success(&new_run(&["new", &format!("Anchor {n}"), "--under", "auth"], &dir));
+    }
+
+    for round in 1..=6 {
+        let creating = {
+            let dir = dir.clone();
+            let title = format!("Racer {round}");
+            std::thread::spawn(move || new_run(&["new", &title, "--under", "auth"], &dir))
+        };
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        let completed = new_run(&["complete", &format!("auth.{round}"), "--result", "done"], &dir);
+        assert_success(&creating.join().expect("create"));
+
+        // A completion that reported success must be in the plan: the result
+        // link is what `rhei complete` writes and a lost update erases.
+        if completed.status.success() {
+            let plan = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+            assert!(
+                plan.contains(&format!("runtime/results/auth.{round}.md")),
+                "completion of auth.{round} exited 0 but the create overwrote it:\n{plan}"
+            );
+        }
+    }
+
+    let plan = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+    assert_eq!(
+        plan.matches("\n### Task ").count(),
+        26,
+        "every create and completion must survive:\n{plan}"
+    );
+    assert_success(&new_run(&["validate"], &dir));
+}
