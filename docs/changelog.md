@@ -41,7 +41,7 @@
   *ticket* selector: the earlier sketch of `rhei new "Billing" --under auth`
   nesting one rhei inside another described something the hierarchy forbids,
   since a rhei id is a single segment and discovery never descends past the
-  project directory's immediate children. §FS-rhei-new §FS-rhei-panta.2
+  project directory's immediate children. §FS-rhei-new §FS-rhei-panta.2 (PR #88)
 
 - Give a parent a way to look after its subtree *while* it runs instead of only
   integrating it at the end. A state that declares
