@@ -253,8 +253,11 @@
             "got:\n{navigation}"
         );
         assert!(navigation.contains("  - `downstream` \u{2014} `.`\n"), "got:\n{navigation}");
+        // A root outside this rhei has no relative form and is spelled
+        // canonically — on macOS a temp dir is `/private/var/…`, not `/var/…`.
+        let upstream = dir.path().canonicalize().expect("the project exists");
         assert!(
-            navigation.contains(&format!("  - `upstream` \u{2014} `{}`\n", dir.path().display())),
+            navigation.contains(&format!("  - `upstream` \u{2014} `{}`\n", upstream.display())),
             "a root outside this rhei has no relative form; got:\n{navigation}"
         );
         assert!(navigation.contains("### Leaving a trail"), "got:\n{navigation}");
