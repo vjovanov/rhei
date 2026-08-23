@@ -57,9 +57,12 @@ Optional workflow controls:
 - `gating: true` — state requires explicit human action to exit
 - `personality` — state-specific role framing (overrides the machine-level default)
 - `visits: <integer>` — counted loop re-entry limit (minimum `1`)
-- `supervise: task | state` — make a non-leaf task in this state a *supervisor*
-  of its subtree, woken after every finished descendant (`task`) or every
-  descendant transition (`state`) and holding the subtree in between. Requires
+- `execute_on: <scope>-<event>` — make a non-leaf task in this state a
+  *supervisor* of its subtree, holding the subtree between visits. The scope is
+  `child` (its direct children only) or `descendant` (any depth); the event is
+  `terminal` (the task finished) or `transition` (every hop it takes), so the
+  four legal values are `child-terminal`, `child-transition`,
+  `descendant-terminal`, and `descendant-transition`. Requires
   an agent-bearing state and a self-loop transition (the release edge); never
   valid on `final`, `gating`, `program`, `poll`, `all_models`, or `all_targets`
   states
@@ -131,7 +134,7 @@ states:
     final: true                        # terminal states only
     gating: true                       # human-exit states only
     visits: 2                          # counted-loop states only
-    supervise: task                    # supervising states only: task | state
+    execute_on: descendant-terminal    # supervising states only: {child,descendant}-{terminal,transition}
     all_models: [<model-name>, ...]    # OR model: <name> — never both
     inputs:
       - { name: <artifact>, path: <root-relative path with {task_id}/{state}/{model}>, format: markdown }
@@ -178,7 +181,7 @@ Paths resolve relative to the plan's execution root (the directory containing th
 4. Mark at least one state `final: true`. Include both a success terminal and a cancellation terminal unless the workflow clearly needs only one. Every terminal state carries one artifact contract you do not declare: a task does not enter it without a non-empty `runtime/results/<task-id>.md`. Under `rhei run` the worker in the state before it writes that file — agents are told the path in their prompt, programs get `RHEI_RESULT_PATH` — so a `program:` state whose exit routes straight into a terminal state must write it, or the run stalls with the result reported as a missing output.
 5. Mark human gates `gating: true` and say in `instructions` that the state must not transition out autonomously. `rhei next` refuses to claim gating tasks; `rhei complete` refuses to exit them.
 6. Keep the machine proportional. Past roughly 15 states, consider splitting workflows.
-7. Use `supervise` when a parent should steer its subtree *while* it runs rather than only integrate it at the end. A supervising state needs three outgoing edges, in this order: the exhaustion edge (`condition: visitCount >= visits`), the terminal edge (`condition: openDescendants < 1`), and the unconditional self-loop that releases the subtree. `supervise: state` serializes the subtree at every hop and spends one supervisor invocation per hop — choose it deliberately.
+7. Use `execute_on` when a parent should steer its subtree *while* it runs rather than only integrate it at the end. A supervising state needs three outgoing edges, in this order: the exhaustion edge (`condition: visitCount >= visits`), the terminal edge (`condition: openDescendants < 1`), and the unconditional self-loop that releases the subtree. Pick the value by what the parent is meant to judge: `child-terminal` wakes it once per finished child subtree (supervision at one level of decomposition, with each child free to supervise its own), while a `*-transition` value serializes the subtree at every hop and spends one supervisor invocation per hop — choose that deliberately.
 8. Use `visits` only when the workflow intentionally loops through the same state and should eventually escalate or take another exit. Visit 1 renders as the unsuffixed name; later visits render as `<name>-<n>`. (Never combine `visits` with `all_models`/`all_targets` — see the Worked Pattern gotcha.)
 
 ### Transitions
@@ -245,7 +248,7 @@ Before returning the machine, verify:
 - Machine-critical decisions live in gating states / artifacts / conditions / exit-code routes / callback results, not prose.
 - If `models` is present, every `model` / `all_models` entry is declared there; no state sets both `all_models` and `model`.
 - `visits`, when present, is ≥ `1`, and never appears alongside `all_models` / `all_targets`.
-- `supervise`, when present, is `task` or `state` on an agent-bearing state that declares a self-loop transition, plus a terminal edge conditioned on `openDescendants` and either `visits` or a `visitCount` exhaustion edge.
+- `execute_on`, when present, is one of `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition` on an agent-bearing state that declares a self-loop transition, plus a terminal edge conditioned on `openDescendants` and either `visits` or a `visitCount` exhaustion edge.
 - `inputs:` / `outputs:` paths are execution-root-relative and use template variables, not hard-coded task ids.
 - Recurring sweeps define an idempotency marker; queue flows define a no-ready-items drain path.
 - Publish/merge/deploy/release/notify states re-check approval artifacts via `inputs:` and have a non-publish path for missing/stale/negative results.

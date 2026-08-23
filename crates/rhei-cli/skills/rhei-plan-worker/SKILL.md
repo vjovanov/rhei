@@ -50,7 +50,7 @@ When multiple tasks are claimable, `rhei next` picks the first in plan order —
 
 A task with child nodes is a task in its own right, not a container that fills up. Nothing advances it when its children advance: it carries its own state, its own work, and its own result. Rule 1 is the only thing that makes it different — it is not claimable while any descendant is still open, and it becomes claimable the moment the last one closes.
 
-So a parent is worked exactly like a leaf, just later: `rhei next` hands it to you after its subtree is terminal — unless its state declares `supervise:`, in which case it is handed to you *between* its children instead (see *Supervising parents*). You do whatever its state's instructions say (the integration, the verification, the write-up the children do not cover), and you finish it with `rhei complete`. Do not try to skip it, and do not read a parent left in `pending` after its children finished as a bug — it is work waiting for you.
+So a parent is worked exactly like a leaf, just later: `rhei next` hands it to you after its subtree is terminal — unless its state declares `execute_on:`, in which case it is handed to you *between* its children instead (see *Supervising parents*). You do whatever its state's instructions say (the integration, the verification, the write-up the children do not cover), and you finish it with `rhei complete`. Do not try to skip it, and do not read a parent left in `pending` after its children finished as a bug — it is work waiting for you.
 
 Two refusals follow from the same rule, and neither is worked around by editing markdown:
 
@@ -59,7 +59,7 @@ Two refusals follow from the same rule, and neither is worked around by editing 
 
 ### Supervising parents
 
-A parent whose current state declares `supervise:` is a **supervisor**: `rhei next` hands it to you *while* its subtree is open, at every checkpoint, not once at the end. The visit is short and it is not the parent's own work:
+A parent whose current state declares `execute_on:` is a **supervisor**: `rhei next` hands it to you *while* its subtree is open, at every checkpoint, not once at the end. Which moves reach you is that state's `execute_on` value — every finished child, every child transition, every finished descendant, or every descendant transition — and your prompt says which. The visit is short and it is not the parent's own work:
 
 1. **Judge the checkpoints.** `rhei next` prints `## Checkpoints` — the descendants that moved since the last visit, each with what that step left behind — plus `## Supervising This Subtree`, which gives the paths below.
 2. **Steer the next step.** Write a brief at `<root>/runtime/supervise/<task-id>.md` (read by every state of that descendant) or `<root>/runtime/supervise/<task-id>/<state>.md` (that state only). Append a child by editing the parent's own task file. Cancel a step the checkpoints made unnecessary with `rhei transition <plan> --task <child> --from <state> --to cancelled --result "<why>"` — a cancel does not have to satisfy the cancelled step's declared outputs, but it does have to say why.

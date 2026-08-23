@@ -210,9 +210,10 @@ items improve operator diagnosis without changing the execution model.
 
 Status: shipped, with two follow-ups. A non-leaf task can look after its
 subtree while it runs instead of only integrating it at the end: a state
-declaring `supervise: task|state` wakes the task at every finished descendant
-or every descendant transition and holds the subtree in between. The
-`supervise` field, the hold/release readiness rule, the `supervision` task
+declaring `execute_on: <scope>-<event>` wakes the task at every finished child,
+every child transition, every finished descendant, or every descendant
+transition, and holds the subtree in between. The
+`execute_on` field, the hold/release readiness rule, the `supervision` task
 metadata, the `openDescendants` condition operand, and the prompt sections all
 ship. So does the reason where a surface has somewhere to put it: `rhei next`
 names the supervisor holding a ticket and the command that claims it, the run

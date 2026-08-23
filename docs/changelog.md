@@ -3,12 +3,18 @@
 ## Unreleased
 
 - Give a parent a way to look after its subtree *while* it runs instead of only
-  integrating it at the end. A state that declares **`supervise: task | state`**
-  turns the task holding it into a **supervisor**: the orchestrator wakes it at
-  *checkpoints* — after every finished descendant (`task`) or after every state
-  a descendant passes through (`state`) — with the same agent session continued
-  from its previous visit, and holds the rest of the subtree while it decides
-  how to steer. Continuity needs an agent with session support, which today
+  integrating it at the end. A state that declares
+  **`execute_on: <scope>-<event>`** turns the task holding it into a
+  **supervisor**: the orchestrator wakes it at *checkpoints* — after every
+  finished child (`child-terminal`), every child transition
+  (`child-transition`), every finished descendant (`descendant-terminal`), or
+  every descendant transition (`descendant-transition`) — with the same agent
+  session continued from its previous visit, and holds the rest of the subtree
+  while it decides how to steer. The scope says whose moves reach the
+  supervisor, the event says which of them do; because a non-leaf child is
+  terminal only once its own subtree is, `child-terminal` wakes it exactly once
+  per finished child *subtree*, which is how supervision is layered one level of
+  decomposition at a time. Continuity needs an agent with session support, which today
   means `pi`: with the built-in `claude-code` profile the supervisor runs each
   visit cold, carried by its checkpoints and its briefs rather than by a
   transcript. A review/fix chain authored as four children no longer runs
@@ -24,8 +30,13 @@
   is a drain: siblings already running finish, nothing new starts, and one visit
   sees every checkpoint they produced.
 
-  Checkpoints are **post-transition** and reach exactly one task, the *nearest*
-  supervising ancestor. A poll retry is not one, a supervisor's own release edge
+  Checkpoints are **post-transition** and reach exactly one task, the *nearest
+  in-scope* supervising ancestor: a `child-*` supervisor declines a
+  grandchild's move and the event climbs to the next ancestor whose scope
+  reaches that deep, or to nobody. Scope narrows what wakes a supervisor, never
+  what it holds — a `child-*` supervisor is still the barrier over its whole
+  subtree, and the descendants it does not hear about simply run freely between
+  its visits. A poll retry is not a checkpoint, a supervisor's own release edge
   is not one for its own ancestors, and neither is a move the supervisor made
   itself during its visit. The phase and the pending checkpoints live in plan
   frontmatter beside `stateVisits`, written on the shared transition path — so

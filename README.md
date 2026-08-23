@@ -47,9 +47,10 @@ Rhei is the only agent runtime that combines all of:
   logs and artifacts, and exposes the same model through reusable crates and
   bindings.
 - **Parents that supervise, not just integrate.** A state declaring
-  `supervise: task | state` turns the task holding it into a *supervisor*: the
-  orchestrator wakes it after every finished descendant (or every descendant
-  transition), holds the rest of the subtree in between, and lets it steer with
+  `execute_on: <scope>-<event>` turns the task holding it into a *supervisor*: the
+  orchestrator wakes it after every finished child, every child transition,
+  every finished descendant, or every descendant transition, holds the rest of
+  the subtree in between, and lets it steer with
   briefs, appended children, and cancellations. A review/fix chain no longer runs
   unattended to the end with the parent's context out of the room. See
   [`examples/subtree-supervision/`](examples/subtree-supervision/) and
