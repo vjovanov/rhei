@@ -62,9 +62,13 @@ jobs:
       # still lets the rhei-core suite run and one red job reports everything
       # there is to fix. `rhei-core` is the directory; `rhei-plan` is the
       # package name cargo answers to.
+      # `rhei-api` is excluded rather than left to its manifest's `test = false`:
+      # `--lib` selects targets explicitly, and an explicit selection overrides
+      # that flag. Its N-API shims resolve against a host Node process, so the
+      # empty harness aborts here.
       - name: cargo test (unit)
         if: matrix.os == 'windows-latest'
-        run: cargo test --workspace --lib --locked --no-fail-fast
+        run: cargo test --workspace --lib --exclude rhei-api --locked --no-fail-fast
 
       - name: cargo test (rhei-core)
         if: matrix.os == 'windows-latest' && !cancelled()

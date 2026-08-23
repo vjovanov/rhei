@@ -18,7 +18,8 @@ name = "rhei_napi"
 crate-type = ["cdylib"]
 # The N-API shims resolve against the host Node process, which a test harness
 # is not: on Windows the empty harness aborts before it can report zero tests.
-# There are no unit tests here to lose. #91
+# There are no unit tests here to lose. A run that names `--lib` selects the
+# target explicitly and overrides this, so CI excludes the package as well. #91
 test = false
 
 [dependencies]
