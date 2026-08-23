@@ -286,6 +286,12 @@ states:
       would a user get what the spec promised, would they understand what
       happened when it fails, and does the documentation still tell the truth?
 
+      Exercise it the way a user would rather than reading the diff for it: run
+      the commands the change touches, on a real subject, and report what
+      surprised you with the command and the output it printed. A finding of
+      this role is "I ran X and it told me Y, which is not what the spec
+      promised" — not "this could be clearer".
+
       You run alongside this round's code review and never read its findings.
       Duplication between the two is expected and cheap; the fixer reconciles
       them.

@@ -113,8 +113,10 @@ finish a step that did not publish its export.
 `changes-requested`; `severity` is `blocker`, `major`, `minor`, or `nit`. The
 **code-review** role must reproduce every finding — `repro` is non-empty or the
 finding is not filed. The **product** role judges user experience,
-predictability, and documentation against the spec and the project's goals, and
-may leave `repro` empty for a judgement.
+predictability, and documentation against the spec and the project's goals; it
+is told to exercise the change the way a user would rather than read the diff
+for it (the house style of `docs/functional-spec/pm-review-2026-04-22.md`), and
+may leave `repro` empty for a judgement about wording or docs.
 
 `resolutions` — written by `fix-k` and `coverage-fix-k`:
 
