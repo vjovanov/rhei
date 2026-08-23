@@ -20,7 +20,7 @@
   §FS-rhei-run-headless.3 **Rooted artifact paths**: a state declaring
   `path: /etc/passwd`, and a ticket linking its result to one, were rejected
   on Unix and accepted on Windows, where a path needs a drive letter to count
-  as absolute; both are rejected everywhere now. §FS-rhei-states.4
+  as absolute; both are rejected everywhere now. §FS-rhei-states.1.3
   **Snapshot lineage**: where the platform has no unprivileged symlinks the
   `current` pointer is written as a one-line file, but only the symlink form
   was ever read back, so every cached snapshot looked stale and `inherit:`
