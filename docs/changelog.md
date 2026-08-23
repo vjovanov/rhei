@@ -26,8 +26,11 @@
   was ever read back, so every cached snapshot looked stale and `inherit:`
   resolved nothing. §FS-rhei-snapshots.7 **Plan rewrites**: a file lock is
   advisory on Unix and mandatory on Windows, so `rhei complete`,
-  `rhei transition`, `rhei reset`, and a dashboard gate choice locked the plan
-  and were then refused their own read of it. (PR #94)
+  `rhei transition`, `rhei reset`, `rhei new`, and a dashboard gate choice
+  locked the plan and were then refused their own read of it — and then
+  refused the rename over it. `rhei new` failed twice over: a project create
+  read its own lock as another command rewriting the plan and gave up saying
+  so, and a lone-plan create died on its own write. (PR #94)
 
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
