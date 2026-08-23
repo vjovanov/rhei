@@ -9,6 +9,7 @@
   most. Until now the Windows job stopped after `cargo build`, so Windows
   proved compilation and nothing about behaviour. The CLI's e2e suite, which
   drives `sh` mock agents, is still Linux and macOS only. §AR-ci-release.1
+  (PR #94)
 
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
