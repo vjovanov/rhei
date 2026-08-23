@@ -19,7 +19,7 @@ four independent opinions.
   `all_models: [claude, codex, gemini, cursor]`. The runtime invokes the
   `write-position` callback once per participant, with `RHEI_MODEL` set.
 - Each participant writes `runtime/discussion/round-<N>/<model>.md`, arguing from
-  the project goal it champions (see `goal_for` in `workflow.sh`).
+  the project goal it champions (see `goal_for` in `workflow.py`).
 - The `judge` state synthesizes the round into
   `runtime/discussion/digest/round-<N>.md` and decides via a callback redirect:
   converge (`converged`), run another round (`collect`), or escalate to a human
@@ -29,5 +29,5 @@ four independent opinions.
   discussion reaches `converged`, so the decision actually gates work.
 - The `collect ↔ judge` loop is driven by the judge's `nextState` redirect, not by
   `visits` (which must not be combined with `all_models`). The round budget is
-  capped by `CAP` in `workflow.sh` (default 3). By default the mock converges in
+  capped by `CAP` in `workflow.py` (default 3). By default the mock converges in
   round 2; set `RHEI_DISCUSSION_FORCE_ESCALATE=1` to drive it to the human gate.

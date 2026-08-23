@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh poll-exhaust
+program: python3 ./bin/mock-program.py poll-exhaust
 task: poll-exhaustion
 state: poll-exhaust
 timeout: 30s

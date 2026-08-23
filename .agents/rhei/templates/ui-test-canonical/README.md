@@ -58,8 +58,8 @@ exercised:
 
 - **Legacy execution selectors** `all_models` and bare `model` — superseded by
   `target` / `all_targets`.
-- **Non-CLI callback prefixes** `js:` / `py:` / `java:` — this fixture is a
-  bash/CLI harness, so only `cli:` callbacks are used.
+- **Non-CLI callback prefixes** `js:` / `py:` / `java:` — this fixture drives
+  its mocks as `cli:` commands, so only `cli:` callbacks are used.
 - **`max_retries` / `retry_delay` and `> **Result:**` links** — not parsed by the
   current engine (Result links are written by the runtime on completion, not
   seeded in the plan).

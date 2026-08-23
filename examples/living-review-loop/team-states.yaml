@@ -81,19 +81,19 @@ transitions:
   - from: review
     to: consolidate
     description: All model reviews written; consolidate findings and spawn follow-up tasks.
-    on_leave: "cli:bash ./workflow.sh write-review"
+    on_leave: "cli:python3 ./workflow.py write-review"
 
   - from: consolidate
     to: completed
     description: Findings consolidated and verification tasks appended to the workspace.
-    on_leave: "cli:bash ./workflow.sh consolidate"
+    on_leave: "cli:python3 ./workflow.py consolidate"
 
   - from: prove
     to: completed
     description: Verification written and any warranted fix task appended.
-    on_leave: "cli:bash ./workflow.sh execute-task"
+    on_leave: "cli:python3 ./workflow.py execute-task"
 
   - from: "*"
     to: cancelled
     description: Cancel the task from any non-final state.
-    on_leave: "cli:bash ./workflow.sh cancel"
+    on_leave: "cli:python3 ./workflow.py cancel"

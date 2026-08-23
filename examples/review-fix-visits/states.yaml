@@ -54,21 +54,21 @@ transitions:
   - from: review
     to: fix
     description: Append the current review pass and hand off to the next fix pass.
-    on_leave: "cli:bash ./workflow.sh append-review"
+    on_leave: "cli:python3 ./workflow.py append-review"
 
   - from: fix
     to: review
     description: Write the first fix artifact revision and re-enter review for the second pass.
     condition: visitCount < visits
-    on_leave: "cli:bash ./workflow.sh write-fix"
+    on_leave: "cli:python3 ./workflow.py write-fix"
 
   - from: fix
     to: completed
     description: Write the final fix artifact revision and finish after the second fix pass.
     condition: visitCount >= visits
-    on_leave: "cli:bash ./workflow.sh write-fix"
+    on_leave: "cli:python3 ./workflow.py write-fix"
 
   - from: "*"
     to: cancelled
     description: Cancel the task from any non-final state.
-    on_leave: "cli:bash ./workflow.sh cancel"
+    on_leave: "cli:python3 ./workflow.py cancel"

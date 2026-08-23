@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh build
+program: python3 ./bin/mock-program.py build
 task: full-pipeline
 state: script-build
 timeout: 30s

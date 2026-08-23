@@ -7,7 +7,7 @@ The flow is:
 
 1. `review-seed` starts in the `review` state, which declares
    `all_models: [claude, codex]`.
-2. The runtime calls `workflow.sh write-review` twice — once per model —
+2. The runtime calls `workflow.py write-review` twice — once per model —
    with `RHEI_MODEL` set to `claude` and `codex` in turn.
 3. Each model writes its findings to `runtime/findings/<model>-findings.md`.
 4. Once all model callbacks complete, `review-seed` advances to `consolidate`.
@@ -22,7 +22,7 @@ The flow is:
 
 By default the example stays deterministic and writes canned findings so the
 checked-in tests do not depend on local model credentials. Set
-`RHEI_LIVING_REVIEW_MODE=live` to make `workflow.sh` dispatch to the local
+`RHEI_LIVING_REVIEW_MODE=live` to make `workflow.py` dispatch to the local
 `claude` and `codex` CLIs instead. When you run a disposable copy in live mode,
 also set `RHEI_LIVING_REVIEW_SOURCE_ROOT` to the project root so the reviewers
 can still inspect the real repository after the example has been copied to a

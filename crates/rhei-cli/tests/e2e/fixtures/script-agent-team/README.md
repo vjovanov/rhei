@@ -6,7 +6,7 @@ It demonstrates:
 
 - a directory workspace (`index.rhei.md` plus `tasks/`)
 - a custom state machine for team handoffs
-- bash-based `cli:` callbacks
+- script-based `cli:` callbacks
 - a mock kickoff command on the first transition
 - full transition execution with runtime logs and artifacts
 
@@ -21,8 +21,8 @@ checked-in fixture. Keep the checked-in task files here in their initial
 The checked-in paths under this fixture are:
 
 - `tasks/*.md` for the initial workspace task files
-- `team-states.yaml` for the bash callback state machine
-- `workflow.sh` for the callback implementation
+- `team-states.yaml` for the callback state machine
+- `workflow.py` for the callback implementation
 
 ## Current CLI Callback Contract
 

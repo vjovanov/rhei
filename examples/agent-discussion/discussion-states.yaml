@@ -2,14 +2,14 @@ name: agent-discussion
 version: 1.0
 
 # Four participants discuss one point. Each argues from a different project goal
-# (see `goal_for` in workflow.sh), so the discussion is a multi-perspective
+# (see `goal_for` in workflow.py), so the discussion is a multi-perspective
 # deliberation rather than four independent opinions.
 #
 # A real loop: collect <-> judge.
 #   collect  fans the position callback out across all participants (all_models)
 #   judge    digests the round, then redirects via the callback's `nextState`:
 #              - converged  : consensus reached, decision.md recorded
-#              - escalated  : round budget (CAP in workflow.sh) spent, human gate
+#              - escalated  : round budget (CAP in workflow.py) spent, human gate
 #              - no redirect: loop back to `collect` for another round
 # Round 2+ positions read the previous round's digest, so participants take each
 # other's points into account. `visits` is deliberately NOT used: it must not be
@@ -103,7 +103,7 @@ transitions:
   - from: collect
     to: judge
     description: Every participant has written this round's position; hand off to the judge.
-    on_leave: "cli:bash ./workflow.sh write-position"
+    on_leave: "cli:python3 ./workflow.py write-position"
 
   - from: judge
     to: collect
@@ -111,7 +111,7 @@ transitions:
       Default — no consensus yet and rounds remain, so run another round. The judge
       callback redirects to `converged` (consensus) or `escalated` (budget spent)
       instead when the round resolves the discussion.
-    on_leave: "cli:bash ./workflow.sh judge-round"
+    on_leave: "cli:python3 ./workflow.py judge-round"
 
   - from: judge
     to: converged
@@ -124,7 +124,7 @@ transitions:
   - from: apply
     to: completed
     description: The converged decision was applied to downstream work.
-    on_leave: "cli:bash ./workflow.sh apply-decision"
+    on_leave: "cli:python3 ./workflow.py apply-decision"
 
   - from: escalated
     to: converged
@@ -137,4 +137,4 @@ transitions:
   - from: "*"
     to: cancelled
     description: Cancel the discussion from any non-final state.
-    on_leave: "cli:bash ./workflow.sh cancel"
+    on_leave: "cli:python3 ./workflow.py cancel"

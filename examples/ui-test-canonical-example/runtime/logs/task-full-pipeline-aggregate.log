@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh aggregate
+program: python3 ./bin/mock-program.py aggregate
 task: full-pipeline
 state: aggregate
 timeout: 30s

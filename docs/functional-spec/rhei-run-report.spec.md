@@ -498,10 +498,10 @@ The transition ledger should make spawned work and artifact checks compact:
 | Task | From | To | Driver | Inputs | Outputs | Invocation | Reason |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ui-test-canonical-example.full-pipeline | collect-inputs | script-normalize | agent | - | raw-inputs: created, raw-notes: created | mock-agent[yolo]:mock:ui-implementer / runtime/logs/task-ui-test-canonical-example.full-pipeline-collect-inputs-mock-agent-yolo-mock-ui-implementer.log | exit 0, outputs present |
-| ui-test-canonical-example.full-pipeline | script-normalize | mock-implement | program | raw-inputs: ok, raw-notes: ok | normalized-inputs: created, io-map: created | bash ./bin/mock-program.sh normalize / runtime/logs/task-ui-test-canonical-example.full-pipeline-script-normalize.log | exit 0 |
+| ui-test-canonical-example.full-pipeline | script-normalize | mock-implement | program | raw-inputs: ok, raw-notes: ok | normalized-inputs: created, io-map: created | python3 ./bin/mock-program.py normalize / runtime/logs/task-ui-test-canonical-example.full-pipeline-script-normalize.log | exit 0 |
 | ui-test-canonical-example.full-pipeline | parallel-review | aggregate | agent | build-report: ok | review-findings: created x2 | 2 targets / runtime/logs/task-ui-test-canonical-example.full-pipeline-parallel-review-*.log | all target outputs present |
-| ui-test-canonical-example.polling | script-poll | script-poll | program | - | poll-ready: missing | bash ./bin/mock-program.sh poll / runtime/logs/task-ui-test-canonical-example.polling-script-poll.log | exit 75, retry scheduled |
-| ui-test-canonical-example.poll-exhaustion | poll-exhaust | blocked | program | - | poll-pending: created | bash ./bin/mock-program.sh poll-exhaust / runtime/logs/task-ui-test-canonical-example.poll-exhaustion-poll-exhaust.log | pollAttempts >= pollMaxAttempts |
+| ui-test-canonical-example.polling | script-poll | script-poll | program | - | poll-ready: missing | python3 ./bin/mock-program.py poll / runtime/logs/task-ui-test-canonical-example.polling-script-poll.log | exit 75, retry scheduled |
+| ui-test-canonical-example.poll-exhaustion | poll-exhaust | blocked | program | - | poll-pending: created | python3 ./bin/mock-program.py poll-exhaust / runtime/logs/task-ui-test-canonical-example.poll-exhaustion-poll-exhaust.log | pollAttempts >= pollMaxAttempts |
 | ui-test-canonical-example.terminal-completed | completed | - | terminal-at-start | - | not-checked | none | already terminal |
 ```
 
