@@ -87,10 +87,14 @@ fn render_result_entries(
     body: &str,
 ) -> String {
     let (kept, truncated) = tail_lines(body, memory_caps::RESULT_LINES);
-    let path = task_result_path(
-        export_root_for_task(render_context, &render_context.task.id),
-        &render_context.task.id,
-    );
+    // The file the body came from — the legacy link's, when a pre-qualification
+    // plan is what carries this ticket's account. §FS-rhei-memory.4.4
+    let path = resolved_result_path(render_context, &render_context.task.id).unwrap_or_else(|| {
+        task_result_path(
+            export_root_for_task(render_context, &render_context.task.id),
+            &render_context.task.id,
+        )
+    });
     let overflow = if truncated {
         format!(
             "\u{2026} earlier entries omitted; read {}\n\n",

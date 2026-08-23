@@ -422,3 +422,55 @@
         );
         assert!(!navigation.contains("plan `.`"), "got:\n{navigation}");
     }
+
+    /// §FS-rhei-memory.4.3: a plan finished before ids were qualified keeps its
+    /// account under the rhei-local name its `> **Result:**` block links, and
+    /// `(no result)` under a body that shows that link is a false statement.
+    #[test]
+    fn a_legacy_result_link_is_read_when_the_qualified_file_is_missing() {
+        let files: &[(&str, &str)] = &[
+            (
+                "plan.rhei.md",
+                "# Rhei: Legacy\n\n## Tasks\n\n\
+                 ### Task 1: Old finished task\n**State:** completed\n\n\
+                 > **Result:** [1](runtime/results/1.md)\n\n\
+                 ### Task 2: New task\n**State:** pending\n**Prior:** 1\n",
+            ),
+            ("runtime/results/1.md", "## Result\n\nLegacy rhei-local result body.\n"),
+        ];
+        let dir = memory_dir(files);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.2").expect("task 2");
+
+        // `rhei run` pastes the prior in full, so the history refers to it.
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
+        let priors = render_prior_task_results(&context).expect("prior results");
+        assert!(priors.contains("Legacy rhei-local result body."), "got:\n{priors}");
+        let history = render_plan_history(&context).expect("history");
+        assert!(
+            history
+                .contains("- Task plan.1: Old finished task \u{2014} completed \u{2014} see above\n"),
+            "got:\n{history}"
+        );
+
+        // `rhei next` pastes neither, so the same file is what the summary reads.
+        let mut memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        memory.pastes_task_inputs = false;
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
+        let history = render_plan_history(&context).expect("history");
+        assert!(
+            history.contains(
+                "- Task plan.1: Old finished task \u{2014} completed \u{2014} Legacy rhei-local \
+                 result body.\n"
+            ),
+            "got:\n{history}"
+        );
+        assert!(!history.contains("(no result)"), "got:\n{history}");
+    }
