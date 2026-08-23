@@ -37,9 +37,9 @@ rather than a silent no-op (§5.3).
 | Flag                  | Default          | Description                                                       |
 |-----------------------|------------------|-------------------------------------------------------------------|
 | `--project <PATH>`    | inferred         | The project or plan to write into, resolved exactly as every other command resolves one: omitted, the enclosing project, workspace, or lone plan; named, a member rhei widens to the project it belongs to (§FS-rhei-panta.6) |
-| `--id <ID>`           | derived          | Explicit id, replacing derivation from the title (§4)             |
-| `--description <TEXT>`| empty            | Body content — the ticket's description, or the rhei's lead paragraph |
-| `--description-file <PATH>` | —          | Read the description from a file; `-` reads standard input        |
+| `--id <ID>`           | derived          | Explicit id: for a rhei, the one otherwise derived from the title; for a ticket, the segment otherwise taken from the sibling numbering — a name works there too, so `--id review --under plat` writes `plat.review` (§4) |
+| `--description <TEXT>`| empty            | Body content — the ticket's description, or the rhei's lead paragraph (§3.4) |
+| `--description-file <PATH>` | —          | Read the description from a file; `-` reads standard input (§3.4) |
 | `--dry-run`           | off              | Print the target path and the markdown that would be written; write nothing |
 | `--json`              | off              | Emit the created id, kind, path, and state as JSON                |
 | `--keep-on-error`     | off              | Keep the write when validation fails, instead of rolling it back (§5.2) |
@@ -69,7 +69,7 @@ thought.
 | `--prior <ID>`             | none               | `**Prior:**` entry; repeatable, and a comma-separated list is accepted |
 | `--provides <NAME>`        | none               | `**Provides:**` entry; repeatable (§FS-rhei-plan-language.3.12) |
 | `--consumes <ID:NAME>`     | none               | `**Consumes:**` entry; repeatable (§FS-rhei-plan-language.3.12) |
-| `--assignee <WHO>`         | none               | `**Assignee:**`                                          |
+| `--assignee <WHO>`         | none               | `**Assignee:**`, which is a claim: `rhei next` and `rhei run` skip an assigned ticket until `rhei release <id>`, and the create says so (§5.4) |
 | `--model <MODEL>`          | none               | `**Model:**` (§FS-rhei-plan-language.3.11)               |
 | `--target <TARGET>`        | none               | `**Target:**` (§FS-rhei-plan-language.3.11)              |
 
@@ -120,7 +120,11 @@ Everything invoice-related, including dunning.
 
 `--states` only writes the declaration; it does not create the machine. A rhei
 declaring a machine that no `states.yaml` provides is an error at the next
-load, naming where the file is looked for (§AR-rhei-panta.4). This is the
+load, naming where the file is looked for, the machine names the project does
+provide, and `/rhei-state-machine-writer` for authoring the one that is missing
+(§AR-rhei-panta.4, §6). Every other flag with a declared set of legal values
+lists that set when the value is wrong, and this one is no exception just
+because its set lives in files rather than in the plan. This is the
 honest order: the machine is authored, and the rhei points at it — so the
 create is rolled back like any other invalid one (§5.2), and writing the rhei
 *before* its machine takes `--keep-on-error`.
@@ -218,10 +222,48 @@ ticket is being created in that state, not transitioning into it.
 ### 3.3. Depth and kind
 
 A subtask deeper than the rhei's `structure.maxLevels` is refused before
-anything is written, naming the limit and where it is declared. `--kind` is
+anything is written, naming the limit and where it is declared. A rhei created
+without `--max-levels` carries no frontmatter block at all, so the refusal spells
+out the block to add rather than naming a field that is not there. `--kind` is
 checked against `structure.nodeKinds` the same way (§FS-rhei-plan-language.3.7),
 so a mistyped kind is a message about the kinds this rhei declares rather than
-a parse error on the next command.
+a parse error on the next command; and a rhei that declares kinds not including
+`task` is a rhei where `--kind` is *required*, which is what the refusal says
+rather than blaming the user for a word they never typed.
+
+Every argument that has a checkable shape is checked in argument handling, and
+that includes the two reference fields: `--consumes` takes
+`<task-id>:<export-name>` and `--provides` takes an export name
+(§FS-rhei-plan-language.3.12). Round-tripping a flag through the file and
+reporting it back as a parse error with a line number is the failure this
+section exists to prevent — the user typed a flag, so the message is about the
+flag. Whether the reference *resolves* is a different question, and nothing
+answers it yet (§6).
+
+### 3.4. What a description may contain
+
+A description is prose, and `rhei new` writes it into the plan verbatim. A line
+the plan language reads as *structure* would therefore stop being the ticket's
+description and start being part of the plan, so those lines are refused before
+anything is written — as an argument error naming the offending line, not as a
+parse error with a line number in a file the author never opened.
+
+Two shapes are refused: an ATX heading at any level (`#` through `######`), and
+a line opening with a `**Field:**` metadata marker. An `### Task 9: Injected`
+line in a description is not a formatting mistake, it is a second ticket: the
+parser reads it as one, so a create could report a single new id while writing
+two — the second one carrying whatever `**State:**` the text supplied, including
+a terminal one that makes `rhei next` and `rhei run` skip work forever. This
+matters most for `--description-file`, which exists so an issue body or a design
+doc can be piped in, and that is exactly the content that carries `### `
+headings.
+
+Lines inside a fenced code block are content rather than structure and are
+accepted unchanged. The refusal names the three ways to keep the line — indent
+it, fence it, or make it bold text — and `rhei new` applies none of them itself.
+Demoting or escaping the author's line would mean a create that edits its input
+behind the author's back, and a description carrying someone's issue body has to
+come out the way they wrote it.
 
 ## 4. Ids
 
@@ -247,13 +289,31 @@ Three ids are refused outright:
 - `basin` as a *rhei* id, which is permanently reserved for the synthetic
   basin rhei (§FS-rhei-panta.2) — the refusal is at create time rather than at
   the next load, where it would arrive as a broken project;
+- `index` as a *rhei* id, reserved for the same reason: `index.rhei.md` is the
+  name that marks a Directory Workspace's index, and writing one beside
+  `index.panta.md` would make the project directory read as a workspace as
+  well;
 - an id that is not a legal single-segment rhei id (§AR-rhei-panta.3) or a
   legal ticket id segment.
 
-Two concurrent `rhei new` invocations against one rhei can derive the same
-ticket number. The second write is then a duplicate id, which validation
-catches and reports at once (§FS-rhei-plan-language.3.5); `rhei new` does not
-take a lock for a race that costs one re-run.
+Concurrent creates are serialized by a lock. `rhei new` takes an exclusive
+advisory lock for the whole invocation — before the first load, through the
+write, through both validation passes, and through any rollback — on the project
+manifest (`index.panta.md`) for a project, or on the plan file itself for a lone
+plan or a bare workspace. Both files always exist, so the lock adds no artifact
+to the tree and raises no `.gitignore` question, and holding it project-wide is
+what the pre/post validation diff (§5.2) needs anyway. It is released on every
+exit path, and the OS releases it if the process dies, so it cannot go stale.
+
+What the lock guarantees is that every create which exits 0 is in the file
+afterwards: sibling numbering, the write, and the verification all happen inside
+it, so `xargs -P8 rhei new` against one rhei allocates a distinct number per
+invocation. Without it a create is a read-modify-write over a whole file, and
+concurrent creates lose tickets rather than colliding on an id — a losing writer
+overwrites the winner's ticket, and one that then rolls back restores a snapshot
+taken *before* the winner's write, deleting committed work and reporting
+success. Agent fan-out is the thing Rhei exists to make ordinary, so a bulk
+create is an expected use rather than a race worth one re-run.
 
 ## 5. Write, validate, report
 
@@ -280,6 +340,13 @@ A create that leaves the project unloadable has likewise not succeeded, and
 reporting it at the next unrelated command is how a small mistake — a mistyped
 `--model`, a `--prior` naming nothing — becomes a confusing one.
 
+Replacing an existing plan is a whole-file replacement, so it is written through
+a temp file in the same directory and renamed into place, keeping the file's own
+permissions. A create interrupted halfway can then leave the plan untouched but
+never leave it truncated — an appended ticket is not worth the file it was
+appended to. A file that does not exist yet is written directly: there is no
+previous content to lose, and a failed create removes it whole (§5.2).
+
 ### 5.2. A create answers for the errors it introduced
 
 The validation pass runs twice: once *before* the write and once after it. What
@@ -293,6 +360,15 @@ decides the outcome is the difference between them.
   ones the pre-write pass already found, the write is **kept** and the command
   succeeds, with a warning saying the project was already failing validation
   and that the failure is not this create's.
+
+A rhei that will not *parse* follows the same rule, one step earlier: it blocks
+creates **into it** — that failure is genuinely this create's business, and the
+refusal names the rhei and its parse error — and blocks nothing else. Every
+other create loads the project leniently, skipping the unreadable rhei the way
+`rhei list` does, and the pre/post diff then keeps the write with the inherited
+warning. Basin capture is the case that proves it: `--under basin` is the
+operation that has to work while someone is mid-edit somewhere else in the
+project, and a strict load anywhere on this path takes it out.
 
 The second rule is the point of running the pass twice. `rhei new` is the
 on-ramp: a project with one broken rhei is exactly the project someone is
@@ -328,7 +404,25 @@ Next: `rhei new "<first ticket>" --under authentication`
 
 ```text
 Created ticket auth.4 "Rotate signing keys" [pending] in panta/auth.rhei.md
+Next: `rhei list` shows the rhei; `rhei next` picks up the work
 ```
+
+Both modes print a next step, because both are half of a two-step flow: the
+rhei create points at its first ticket, and the ticket create points at the
+commands that read what is now there.
+
+`--assignee` earns a note of its own. An assignee means "claimed, in progress"
+to the engine and "this is Alice's ticket" to whoever is writing the plan, so
+assigning work up front builds a plan `rhei run` will not start — and
+`rhei list --ready` and `rhei next` then disagree about the same ticket. The
+create says so: the ticket is marked claimed, and `rhei next` and `rhei run`
+skip it until `rhei release <id>`. Refusing the flag would be wrong — authoring
+a claimed ticket is legitimate — but letting it look like a label is not.
+
+Widening is announced here too, in `rhei new`'s own words rather than
+`rhei validate`'s: what a create is about to do is *write into the project*, and
+a line ending "validating the whole project" describes a command the user did
+not run.
 
 `--json` emits the same facts as an object (`kind`, `id`, `title`, `path`, and
 `state` for a ticket) for scripts that create tickets in bulk. `--dry-run`
