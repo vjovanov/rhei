@@ -12,6 +12,7 @@ mod run_lock_wait_tests;
 mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
+mod supervised_delivery_tests;
 mod supervision_barrier_tests;
 mod supervision_next_tests;
 mod supervision_surfaces_tests;

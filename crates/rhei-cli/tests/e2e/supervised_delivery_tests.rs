@@ -1,0 +1,379 @@
+//! The `supervised-delivery` built-in template, end to end.
+//!
+//! It is the template that showcases subtree supervision (§FS-rhei-supervision):
+//! a root task in a `supervising` state that briefs, routes, and cancels every
+//! step beneath it, with the brief as the release gate and plan exports
+//! (§FS-rhei-plan-language.3.12) as the structured channel between steps.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use super::*;
+
+fn template_dir() -> PathBuf {
+    repo_root().join("crates/rhei-cli/templates/supervised-delivery")
+}
+
+/// Instantiate the built-in template into `<dir>/ws` with a clean HOME.
+fn instantiate(dir: &Path, args: &[&str]) -> (PathBuf, CliRun) {
+    let out = dir.join("ws");
+    let home = dir.join(".home");
+    fs::create_dir_all(&home).expect("create isolated home");
+    let mut cmd = rhei_command(&home);
+    cmd.current_dir(dir);
+    cmd.arg("instantiate").arg(template_dir());
+    for arg in args {
+        cmd.arg(arg);
+    }
+    cmd.arg("--output").arg(&out);
+    let output = cmd.output().expect("rhei instantiate should run");
+    let run = CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+    (out, run)
+}
+
+/// The mock that stands in for all seven roles.
+///
+/// Every child writes the export its state declares and its result. The
+/// supervisor writes the preparation note and then briefs the next step, choosing
+/// it from which children have already finished — the same routing rule the
+/// state's instructions give a real agent, reduced to what a shell can check.
+fn mock_agent_script(dir: &Path) -> PathBuf {
+    let script = dir.join("mock-delivery-agent.sh");
+    fs::write(
+        &script,
+        r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+task="${RHEI_TASK_ID:?}"
+state="${RHEI_STATE:?}"
+visit="${RHEI_VISIT_COUNT:-1}"
+mkdir -p "$root/runtime/logs" "$root/runtime/prompts" "$root/runtime/supervise" \
+         "$root/runtime/supervision" "$root/runtime/exports/$task"
+printf '%s %s\n' "$task" "$state" >> "$root/runtime/logs/spawns.log"
+
+prompt=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--prompt" ]; then shift; prompt="${1:-}"; fi
+  shift || true
+done
+printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state.md"
+
+export_json() {
+  printf '```json\n%s\n```\n' "$2" > "$root/runtime/exports/$task/$1.md"
+}
+finished() { [ -s "$root/runtime/results/$task.$1.md" ]; }
+brief() {
+  printf 'Brief from the supervisor (visit %s) for %s.\n' "$visit" "$1" \
+    > "$root/runtime/supervise/$task.$1.md"
+}
+
+case "$state" in
+  supervising)
+    printf '# Preparation\n\nAcceptance criteria, risk areas, per-role focus.\n' \
+      > "$root/runtime/supervision/preparation.md"
+    if ! finished implement; then brief implement
+    elif ! finished review-1 || ! finished pm-1; then brief review-1; brief pm-1
+    elif ! finished fix-1; then brief fix-1
+    elif ! finished coverage-1; then brief coverage-1
+    elif ! finished coverage-fix-1; then brief coverage-fix-1
+    elif ! finished docs-1; then brief docs-1
+    else
+      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+      printf '## Result\n\nDelivered across %s supervisor visits.\n' "$visit" \
+        > "$RHEI_RESULT_PATH"
+    fi
+    ;;
+  implement|docs)
+    export_json report '{ "summary": "mock", "commits": [], "files": [], "ci": {}, "notes": "" }'
+    ;;
+  review)
+    export_json findings '{ "round": 1, "role": "code-review", "verdict": "approve", "findings": [] }'
+    ;;
+  pm-review)
+    export_json findings '{ "round": 1, "role": "product", "verdict": "approve", "findings": [] }'
+    ;;
+  fix)
+    export_json resolutions '{ "round": 1, "resolutions": [] }'
+    ;;
+  coverage)
+    export_json gaps '{ "round": 1, "gaps": [] }'
+    ;;
+esac
+
+if [ "$state" != "supervising" ]; then
+  mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+  printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
+fi
+"#,
+    )
+    .expect("write mock agent");
+    script
+}
+
+/// Point every agent the template's default targets name at the mock.
+fn write_mock_settings(workspace: &Path, script: &Path) {
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
+    let profile = format!(
+        r#"{{
+      "command": ["sh", {}],
+      "prompt_flag": "--prompt",
+      "model_flag": "--model",
+      "timeout": "30s",
+      "modes": {{ "yolo": [], "xhigh": [] }}
+    }}"#,
+        serde_json::to_string(&script.display().to_string()).expect("json string")
+    );
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
+  "agents": {{
+    "mock": {profile},
+    "claude-code": {profile},
+    "codex": {profile}
+  }}
+}}"#
+        ),
+    )
+    .expect("write mock settings");
+}
+
+/// `<local-task-suffix> <state>` per invocation, in spawn order.
+fn spawns(workspace: &Path) -> Vec<String> {
+    fs::read_to_string(workspace.join("runtime/logs/spawns.log"))
+        .expect("the mock logs every invocation")
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// §FS-rhei-templates.6.1: the template instantiates from its defaults, its
+/// rendered workspace validates without a warning, and a dry run shows the one
+/// shape supervision gives it — the supervisor ready, everything else held.
+#[test]
+fn the_default_instantiation_validates_clean_and_holds_every_child() {
+    let dir = unique_temp_dir("supervised-delivery-defaults");
+    let (workspace, instantiated) =
+        instantiate(&dir, &["spec_path=docs/functional-spec/rhei-supervision.spec.md"]);
+    assert!(
+        instantiated.status.success(),
+        "instantiate failed:\nstdout:\n{}\nstderr:\n{}",
+        instantiated.stdout,
+        instantiated.stderr
+    );
+
+    // Eleven tasks: the supervisor, the implementer, two review rounds of three
+    // tasks each, one coverage round of two, and one documentation round.
+    assert!(
+        instantiated.stdout.contains("Tasks: 11"),
+        "the default round ceilings unroll eleven tasks; got:\n{}",
+        instantiated.stdout
+    );
+
+    let machine = workspace.join("states.yaml");
+    let validated = run_cli("validate", &workspace, &machine, &[]);
+    assert_success(&validated);
+    assert!(validated.stdout.contains("Validation succeeded"), "got:\n{}", validated.stdout);
+    // §FS-rhei-supervision.1.2: a supervising state with no `openDescendants`
+    // edge, or with no visit budget, is warned about. This one has both.
+    assert!(
+        !validated.stdout.to_lowercase().contains("warning")
+            && !validated.stderr.to_lowercase().contains("warning"),
+        "the supervisor's edges must not warn:\nstdout:\n{}\nstderr:\n{}",
+        validated.stdout,
+        validated.stderr
+    );
+
+    // §FS-rhei-supervision.3.4: the dry run names the barrier and renders the
+    // release self-loop as such.
+    let dry = run_cli("run", &workspace, &machine, &["--dry-run", "--no-tui", "--parallel", "2"]);
+    assert_success(&dry);
+    assert!(
+        dry.stdout.contains("Pass 1: 1 ready, 0 terminal, 11 total."),
+        "one ticket is ready; got:\n{}",
+        dry.stdout
+    );
+    assert!(
+        dry.stdout.contains("Ready: Task ws.deliver: Supervised delivery"),
+        "the supervisor is the ready one; got:\n{}",
+        dry.stdout
+    );
+    assert!(
+        dry.stdout.contains("10 ticket(s) held by supervisor Task ws.deliver"),
+        "every child is held; got:\n{}",
+        dry.stdout
+    );
+    assert!(
+        dry.stdout.contains("supervising -> supervising (release)"),
+        "the self-loop is the release edge; got:\n{}",
+        dry.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The whole pipeline under mock agents: one round of everything, `--parallel 2`
+/// so the two reviews of a round overlap, and a supervisor visit between every
+/// phase. §FS-rhei-supervision.3.1
+#[test]
+fn the_supervisor_sends_every_step_and_finishes_after_the_last_one() {
+    let dir = unique_temp_dir("supervised-delivery-run");
+    let (workspace, instantiated) = instantiate(
+        &dir,
+        &[
+            "spec_path=docs/functional-spec/rhei-supervision.spec.md",
+            "title=Mock delivery",
+            "review_rounds=1",
+            "coverage_rounds=1",
+            "docs_rounds=1",
+        ],
+    );
+    assert!(
+        instantiated.status.success(),
+        "instantiate failed:\nstdout:\n{}\nstderr:\n{}",
+        instantiated.stdout,
+        instantiated.stderr
+    );
+
+    let script = mock_agent_script(&dir);
+    write_mock_settings(&workspace, &script);
+
+    let machine = workspace.join("states.yaml");
+    let result =
+        run_cli("run", &workspace, &machine, &["--no-tui", "--no-callbacks", "--parallel", "2"]);
+    assert_success(&result);
+    assert_all_tasks_in_state(&workspace, &machine, "completed");
+
+    // The trace, with runs of supervisor visits collapsed: under `--parallel 2`
+    // the two reviews drain into one visit, under `--parallel 1` they take two,
+    // and neither is a difference in the pipeline. §FS-rhei-supervision.3.1
+    let log = spawns(&workspace);
+    let mut shape: Vec<String> = Vec::new();
+    for line in &log {
+        let (task, state) = line.split_once(' ').expect("logged task and state");
+        let step = if state == "supervising" {
+            "supervising".to_string()
+        } else {
+            task.rsplit('.').next().expect("task id has a leaf").to_string()
+        };
+        if shape.last().map(String::as_str) != Some("supervising") || step != "supervising" {
+            shape.push(step);
+        }
+    }
+    // The two reviews of a round are concurrent, so their order is not ours to
+    // assert; everything around them is.
+    shape[3..5].sort();
+    assert_eq!(
+        shape,
+        vec![
+            "supervising",
+            "implement",
+            "supervising",
+            "pm-1",
+            "review-1",
+            "supervising",
+            "fix-1",
+            "supervising",
+            "coverage-1",
+            "supervising",
+            "coverage-fix-1",
+            "supervising",
+            "docs-1",
+            "supervising",
+        ],
+        "expected a supervisor visit between every phase; got:\n{log:#?}"
+    );
+
+    // §FS-rhei-supervision.5.2: the release gate is the brief — every child
+    // read one, and it reached the prompt.
+    for child in
+        ["implement", "review-1", "pm-1", "fix-1", "coverage-1", "coverage-fix-1", "docs-1"]
+    {
+        let brief = workspace.join(format!("runtime/supervise/ws.deliver.{child}.md"));
+        assert!(brief.is_file(), "the supervisor briefed every step it released: {child}");
+    }
+    let fix_prompt = fs::read_to_string(workspace.join("runtime/prompts/ws.deliver.fix-1-fix.md"))
+        .expect("read the fixer's prompt");
+    assert!(fix_prompt.contains("## Supervisor Brief"), "got:\n{fix_prompt}");
+
+    // §FS-rhei-plan-language.3.12: the structured channel. The fixer's prompt
+    // carries both reviews' findings, and every declared export was written.
+    assert!(
+        fix_prompt.contains("### findings from Task ws.deliver.review-1"),
+        "got:\n{fix_prompt}"
+    );
+    assert!(fix_prompt.contains("### findings from Task ws.deliver.pm-1"), "got:\n{fix_prompt}");
+    for (task, export) in [
+        ("implement", "report"),
+        ("review-1", "findings"),
+        ("pm-1", "findings"),
+        ("fix-1", "resolutions"),
+        ("coverage-1", "gaps"),
+        ("coverage-fix-1", "resolutions"),
+        ("docs-1", "report"),
+    ] {
+        let path = workspace.join(format!("runtime/exports/ws.deliver.{task}/{export}.md"));
+        assert!(path.is_file(), "{task} publishes its {export} export: {}", path.display());
+    }
+
+    // The preparation note is the memory a cold supervisor has of visit 1, and
+    // its absence is what tells visit 1 apart from every later one.
+    let first = fs::read_to_string(workspace.join("runtime/prompts/ws.deliver-supervising.md"))
+        .expect("read the supervisor's prompt");
+    assert!(
+        first.contains("## This is not your first visit"),
+        "the last visit knows it is not the first; got:\n{first}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// §FS-rhei-supervision.1.1: the `snapshot:` block that carries a supervisor's
+/// session between visits is legal only on a session-capable agent, so the
+/// template emits it only when asked and defaults to the shape `claude-code`
+/// accepts.
+#[test]
+fn the_snapshot_block_appears_only_for_a_session_capable_supervisor() {
+    let dir = unique_temp_dir("supervised-delivery-snapshot");
+    let (workspace, instantiated) =
+        instantiate(&dir, &["spec_path=docs/functional-spec/rhei-supervision.spec.md"]);
+    assert!(instantiated.status.success(), "instantiate failed:\n{}", instantiated.stderr);
+    let machine = fs::read_to_string(workspace.join("states.yaml")).expect("read machine");
+    // The header comment explains the block, so look for the emitted key.
+    assert!(
+        !machine.contains("\n    snapshot:\n"),
+        "the default supervisor runs cold, because claude-code rejects the block; got:\n{machine}"
+    );
+
+    let session_dir = unique_temp_dir("supervised-delivery-snapshot-on");
+    let (session_workspace, session) = instantiate(
+        &session_dir,
+        &[
+            "spec_path=docs/functional-spec/rhei-supervision.spec.md",
+            "supervisor_session=true",
+            "supervisor_target=pi:anthropic:claude-sonnet-4-5",
+        ],
+    );
+    assert!(
+        session.status.success(),
+        "a session-capable supervisor validates with the block:\nstdout:\n{}\nstderr:\n{}",
+        session.stdout,
+        session.stderr
+    );
+    let session_machine =
+        fs::read_to_string(session_workspace.join("states.yaml")).expect("read machine");
+    assert!(
+        session_machine.contains("emit: { name: supervisor, on: always }")
+            && session_machine.contains("inherit: { name: supervisor, from: self }"),
+        "each visit continues the last one; got:\n{session_machine}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+    fs::remove_dir_all(session_dir).expect("cleanup");
+}
