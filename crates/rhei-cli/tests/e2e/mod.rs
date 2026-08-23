@@ -14,6 +14,7 @@ mod new_tests;
 mod new_write_tests;
 mod next_tests;
 mod run_lock_wait_tests;
+mod run_shell_program_tests;
 mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
