@@ -213,7 +213,14 @@ fn install_skills_command(
 
         match result {
             Ok(()) => installed_count += 1,
-            Err(e) => eprintln!("  error: {e}"),
+            // The diagnostic, not just its message: `{e}` renders the
+            // message alone and drops the `help =` that says what to do
+            // instead — which is the whole point of `--link`'s platform
+            // refusal, since it names plain copying as the way through.
+            // `{e:?}` is what the rest of the CLI prints a report with.
+
+            // §FS-rhei-errors.1.2 §FS-rhei-install-skills.4.4
+            Err(e) => eprintln!("{e:?}"),
         }
     }
 

@@ -358,7 +358,42 @@ fn link_mode_creates_symlinks() {
             "the refusal names the platform limit; got:\n{}",
             result.stderr
         );
+        // And the way through it: a refusal with no next action is half a
+        // diagnostic. §FS-rhei-errors.1.2
+        assert!(
+            result.stderr.contains("drop --link and rhei will copy the skill files instead"),
+            "the refusal names plain copying as the way through; got:\n{}",
+            result.stderr
+        );
     }
+}
+
+/// Every per-agent failure this command reports goes through one `eprintln!`,
+/// and it used to print the message without the `help =`. Windows reaches it
+/// through `--link`; this reaches the same line on the platform that runs the
+/// whole suite, through an install with nowhere to install to.
+// §FS-rhei-errors.1.2
+
+// Unix: it unsets `HOME`, where a user-level install goes on Unix; Windows
+// derives that directory from `USERPROFILE`, so the same removal is not the
+// same experiment there. §REQ-cross-platform.3
+#[cfg(unix)]
+#[test]
+fn a_refused_install_prints_its_help_and_not_only_its_message() {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    cmd.env_remove("HOME");
+    cmd.args(["install-skills", "--agent", "kilocode", "--link"]);
+    let output = cmd.output().expect("rhei command should run");
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    assert!(
+        stderr.contains("HOME environment variable not set"),
+        "the message names what is missing; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("rhei writes user-level files under $HOME"),
+        "and the help says what to do about it; got:\n{stderr}"
+    );
 }
 
 #[test]
