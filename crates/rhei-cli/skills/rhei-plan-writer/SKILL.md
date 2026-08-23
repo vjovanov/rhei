@@ -28,7 +28,7 @@ Default to Single-File unless the user asks for high concurrency or merge-confli
 - Emit `index.rhei.md` at the workspace root: H1, optional `**States:**`, optional frontmatter, optional H2 context sections — **no** `## Tasks` section.
 - Emit one or more task files under `tasks/`. Each file begins directly with `### <kind> <id>:` headers and contains no `# Rhei:` header and no independent frontmatter.
 - Frontmatter (including `structure`, `metadata.tasks.*`) lives only in `index.rhei.md` — the workspace has exactly one authoritative metadata map.
-- Prefer letter-prefixed or name-style IDs (e.g., `task-avatar`, `bug-null-cache`) over sequential numbers. Numeric IDs are safe in Single-File Plans but risk collisions in a distributed workspace.
+- Numeric IDs are the default here too, as long as tickets are added with `rhei new` (see *Adding to a Live Project*): it allocates the next free number under a lock, which is exactly the collision the format used to fear. Prefer letter-prefixed or name-style IDs (e.g., `task-avatar`, `bug-null-cache`) only when task files are hand-authored in parallel branches, where nothing is holding that lock.
 
 ### Task Block
 
@@ -63,7 +63,8 @@ For markdown safety, format state names containing hyphens, spaces, or punctuati
 
 - Choose exactly one ID style per document and do not mix styles.
 - Numeric style (`1`, `2`, `3`, ...) or named style (`setup`, `review`, `api`, ...).
-- Prefer numeric IDs unless the plan is small and conceptual, or it is a Directory Workspace (prefer named IDs there to avoid collisions).
+- Prefer numeric IDs unless the plan is small and conceptual. Numeric is also right for a Directory Workspace whose tickets are added with `rhei new` — it allocates under a lock; reach for named IDs there only when task files are hand-authored in parallel branches.
+- A ticket created with `rhei new` gets the next free number automatically, so do not pre-assign one; pass `--id <name>` only when the ticket deserves a name.
 - Headings stay rhei-local (`### Task 1:`); command output shows the project-qualified form (`plan.1`) — never author the qualified prefix into a heading.
 
 ### Child Task Format
@@ -79,7 +80,7 @@ Decompose a task with nested `Task` nodes at a deeper heading level. Child nodes
 
 Apply these rules:
 - The child id extends the parent id by exactly one new `.`-separated segment (`1.1`, `1.2.3`, `api.cache`). Numeric children increment from `1` within their parent; named children use short identifiers; mixed numeric/named segments are allowed as long as depth matches. Sibling ids must be unique under the same parent.
-- Default to adding child tasks whenever a task benefits from progressive disclosure and per-step logging. Skip them only when the work is clearly atomic — and then make the task description explicit enough to act as a single implementation log entry.
+- Default to adding child tasks whenever a task benefits from progressive disclosure and per-step logging. Skip them only when the work is clearly atomic — and then make the task description explicit enough to act as a single implementation log entry. A ticket captured with `rhei new` starts as a leaf and stays valid as one; give it children when you come back to plan it, not to satisfy this rule at capture time.
 - Heading depth is bounded by the plan's `structure.maxLevels` (default `2`, maximum `4`). H3 is depth 1, H4 is depth 2, H5 is depth 3, H6 is depth 4. A plan that needs more than two levels must declare `structure.maxLevels` in frontmatter.
 - A parent is a ticket, not a folder. Once its children are all terminal it is handed to a worker like any other task — or, when the active machine puts it in a state that declares `execute_on:`, at every checkpoint *while* its children run — and that worker must have something to finish: integration, verification, the summary that ties the children together, or the judgement a supervisor makes between steps. Write the parent's description as that work. Nothing stamps a parent from its children, so a parent authored as an empty container becomes a ticket whose worker has no instructions.
 
@@ -123,7 +124,7 @@ Validate every response against all checks:
 - Every task (root or child) has `**State:**` with an allowed value from the resolved profile; `**Prior:**` appears only after `**State:**`; no `**Assignee:**` or `> **Result:**` is authored; no other metadata fields appear.
 - Each `**Prior:**` references only existing tasks (resolved across the merged workspace graph in a Directory Workspace). Dependencies are acyclic: a task never self-references nor lists its parent or any ancestor — follow-up work that must wait for a parent is a top-level sibling, not a child.
 - ID style is consistent; each child id extends its parent by exactly one segment; sibling ids under one parent are unique.
-- Each task has child tasks unless it is clearly simple and non-decomposable.
+- Each task has child tasks unless it is clearly simple and non-decomposable. This applies to a plan drafted as a document; a ticket captured one at a time with `rhei new` is a leaf by construction, and decomposing it later is `rhei new --under <ticket-id>` or a plan edit.
 - Heading depth ≤ `structure.maxLevels`; if mixed kinds are used, every heading keyword appears in `structure.nodeKinds` and `rhei` never does.
 
 When the CLI is available, run `rhei validate <plan>` after writing — it performs the full grammar, state, dependency, link, and terminal-coherence checks the checklist only approximates.
@@ -132,12 +133,39 @@ When the CLI is available, run `rhei validate <plan>` after writing — it perfo
 
 Save Single-File Plans as `<id>.rhei.md` — the file stem becomes the rhei id that prefixes every ticket id in command output (`plan.rhei.md` → tickets `plan.1`, `plan.2`, ...), so choose it like an identifier. A bare `.md` extension is not a valid single-file rhei. The Directory Workspace root file is always `index.rhei.md`.
 
+## Adding to a Live Project
+
+Authoring a plan from scratch is one job; adding to a project that already exists is another, and `rhei new` is the command for the second. Do not hand-write a new `.rhei.md` file or splice a task block into an existing one when the CLI is available — `rhei new` writes the file format for you, allocates the id under a lock, checks every flag against the rhei it is writing into, validates the result, and rolls the write back if the create broke anything.
+
+A Rhei project (Panta) is a directory holding `index.panta.md` with its rheis beside it; `rhei init` creates one. Ticket ids are project-qualified: rhei `auth` holds `auth.1`, `auth.2`, and `auth.1.1` under `auth.1`.
+
+```bash
+rhei new "Authentication"                          # a new rhei: authentication.rhei.md
+rhei new "Authentication" --id auth --dir          # a Directory Workspace rhei instead
+rhei new "Rotate signing keys" --under auth        # a ticket in rhei auth -> auth.1
+rhei new "Handle expiry" --under auth.1            # a subtask -> auth.1.1
+rhei new "Fix the footer typo" --under basin       # unfiled capture, no rhei chosen yet
+```
+
+Rules worth knowing before reaching for it:
+
+- **`--under` selects the mode.** With it you create a ticket; without it you create a rhei. Flags belonging to the other mode are a hard error, not a silent no-op.
+- **Every metadata field has a flag**, so a ticket never has to be finished by hand: `--state`, `--prior`, `--provides`, `--consumes`, `--kind`, `--model`, `--target`. `--prior` takes either form the plan language allows (`--prior "Task 3"`, `--prior auth.2`), and repeats or takes a comma-separated list.
+- **`--consumes` is not a dependency.** A consumer is ready before its producer has run; ordering comes from `--prior`.
+- **`--description` / `--description-file`** write the body. `--description-file -` reads standard input, which is how an issue body gets in. Prose only: a heading, a `**Field:**` line, a bare `---`, or an unbalanced ``` fence would author plan structure instead of describing the ticket, and each is refused with the offending line named.
+- **`--assignee` is a claim, not a label.** An assigned ticket is skipped by `rhei next` and `rhei run` until `rhei release <id>`, so do not assign work up front unless you mean it.
+- **`--dry-run` tells the truth.** It performs the write and the validation and then always rolls back, so a create that would fail fails in the preview too. Use it before a bulk create; add `--json` for a machine-readable object.
+- **`--states <name>` requires the machine to exist.** Author it with `rhei-state-machine-writer` first; the rhei points at a machine, never the other way round.
+- **Do not create a project or run an orchestrator.** `rhei init` is the human's call, and `rhei run` is always human-initiated.
+
+`rhei new` only ever creates. Re-titling, re-parenting, moving, and deleting remain plan edits, and state changes remain `rhei transition` / `rhei complete`.
+
 ## Editing Existing Rhei Plans
 
 When modifying an existing Rhei Plan:
 
 1. Preserve unchanged sections, task IDs, frontmatter, `**Assignee:**` lines, and `> **Result:**` blocks.
-2. Append new tasks using the existing ID style, and update dependencies transitively when inserting or deleting tasks.
+2. Append new tasks with `rhei new --under <parent>` where the CLI is available (see *Adding to a Live Project*); hand-append only when it is not, using the existing ID style. Update dependencies transitively when inserting or deleting tasks either way.
 3. Do not reset `completed` or `cancelled` tasks unless explicitly requested — the worker treats them as immutable.
 4. Keep `## Tasks` as the final section after edits (Single-File Plans), and run `rhei validate` afterward.
 

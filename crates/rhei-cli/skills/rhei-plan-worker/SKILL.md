@@ -119,7 +119,22 @@ State transitions and progress logging are separate concerns:
 - **Child task state transitions** — child nodes carry their own mandatory `**State:**` field. For child-only flows in the default machine you may update child states directly in the markdown as you finish each one. If the active machine's `node_policy` routes children through a stateful profile that uses the CLI, prefer `rhei transition` / `rhei complete` for children too.
 - **Progress logging** — edit the markdown directly to append per-child progress.
 
+- **New tickets** are `rhei new`, never a hand-written task block — see *Capturing Work You Did Not Come For*.
+
 Run `rhei validate <plan>` after any direct edit; a failure means the edit is wrong — fix it before moving on. Preserve IDs, titles, `**Prior:**` edges, and frontmatter (structural changes belong to the plan writer). Do not reorder tasks, delete completed or cancelled tasks, remove `> **Result:**` links, or reformat unrelated sections.
+
+## Capturing Work You Did Not Come For
+
+Implementing a ticket turns up work that is not this ticket's: a bug next door, a follow-up, a cleanup the diff made obvious. Do not widen the ticket, and do not hand-write a task block into the plan — capture it and carry on:
+
+```bash
+rhei new "Null-cache panic in the avatar loader" --under basin \
+  --description "Seen while working plan.3; reproduces on an empty cache."
+```
+
+`--under basin` is the project's unfiled inbox: it takes a ticket that has no rhei chosen yet, creates the basin on demand, and files nothing into your plan. When the work clearly belongs to a rhei that exists, name it instead (`--under auth`), and add `--prior <id>` when it genuinely cannot start before something else. `rhei new` allocates the id under a lock, validates the result, and rolls the write back if it broke anything, so capturing is safe mid-task.
+
+Capture is the only creation a worker does. Creating a *rhei*, and running an orchestrator, are the human's call. This is also not a way to move work off the ticket you were handed: capture what is genuinely out of scope, and finish what you claimed.
 
 ## Stopping Conditions
 
