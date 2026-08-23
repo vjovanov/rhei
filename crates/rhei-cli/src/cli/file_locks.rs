@@ -80,12 +80,26 @@ impl LockedPlanFile {
 
 /// Rename a temp file over `path`, which `locked` may be holding.
 ///
-/// A refused replace releases the lock and tries once more. Nothing is lost by
-/// releasing it there: the lock lives on the file object, the replace hands
-/// `path` to a *different* object, and a caller's own release after this point
-/// is already letting go of an orphan. Unix never reaches the retry — an
-/// advisory lock refuses no rename — so the window this opens exists only where
-/// the alternative is not writing at all.
+/// A refused replace releases the lock and tries once more — exactly once; a
+/// second refusal is returned to the caller. Unix never reaches the retry, an
+/// advisory lock refusing no rename, so everything below is about Windows.
+///
+/// **This opens a window, and the window is real.** Between the `release()` and
+/// the rename that follows it, the plan is held by nobody and this process has
+/// no handle on it: a command that was blocked on the lock acquires it there,
+/// reads the file as it stood *before* our rename, and may persist its own
+/// rewrite after ours — losing ours entirely. Nothing here narrows that; the
+/// retry only makes the write possible at all, where the alternative is a
+/// rewrite that cannot land on Windows even uncontended.
+///
+/// Nor does the caller's own `release()` afterwards close it: by then the lock
+/// object names a file no path points at any more, so releasing it is letting
+/// go of an orphan, and whatever the caller does between the rename and that
+/// release — an `on_enter` callback, a rollback write — it does unlocked.
+///
+/// The fix is a lock that does not live on the file being replaced: a sidecar
+/// the rename never touches, held across the whole rewrite. That is #95, and it
+/// is a change to every locking command rather than to this function.
 fn persist_locked(
     tmp: tempfile::NamedTempFile,
     path: &Path,
