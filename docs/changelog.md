@@ -34,6 +34,18 @@
   `## Child Task Results`, or `## Checkpoints` is referred to with `see above`
   rather than repeated. §FS-rhei-memory
 
+  A ticket finished **before ids were qualified** still has its account read.
+  Its result was written under the rhei-local name and linked from its body,
+  and the qualified file the sections look for was never written — so when
+  `runtime/results/<qualified-id>.md` is missing and the ticket's body carries
+  a `> **Result:**` block, the file that block links is read instead, resolved
+  against the owning rhei's execution root. `## Prior Task Results`,
+  `## Child Task Results`, `## Checkpoints`, `## Plan History`, and
+  `## Previous Visits` all read it, and the overflow line of
+  `## Previous Visits` names whichever file that was. A block whose target is
+  absolute or climbs out of that root names no artifact of the rhei and is
+  ignored. §FS-rhei-plan-language.3.8
+
   `rhei next` renders the same four sections from the same renderers — after the
   instructions in text, and under `--json` as the string fields `position`,
   `plan_history`, `previous_visits`, and `navigation`, each present exactly when
