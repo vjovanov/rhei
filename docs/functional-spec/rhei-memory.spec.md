@@ -303,7 +303,10 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 3. `summary(T)` = the first non-blank line of the **last** `## Result` entry
    of `runtime/results/<T>.md` under `root(rhei(T))`, excluding the heading
    line, cut to the first 120 characters followed by `…` — characters, not
-   display columns; `(no result)` when the file is missing or empty. If `T`'s result is pasted in full elsewhere in this
+   display columns; `(no result)` when the file is missing or empty. An entry
+   opens with a plain `## Result` heading or with the `## Result — <identity>`
+   a fanned-out fold writes (§FS-rhei-states.3.3); the last of either kind is
+   the standing verdict. If `T`'s result is pasted in full elsewhere in this
    prompt, `see above` replaces the summary.
 4. Cap: 40 lines. Entries in `priors` are never dropped; entries in `own` are
    dropped **oldest first** until the cap holds, and the overflow line
