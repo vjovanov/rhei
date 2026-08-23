@@ -39,6 +39,14 @@
   the rename and overwrite the change; closing it needs a lock that does not
   live on the file being replaced, which is #95. (PR #94)
 
+  And a fifth, found the moment Windows first ran a test that *spawns* `rhei`
+  rather than calling into it: the CLI overflowed the main thread's stack on
+  every invocation there, `rhei` with no arguments included. Windows reserves
+  1 MiB for a main thread where Linux and macOS give 8, and clap's command tree
+  and the plan parser's recursion both live on it. The CLI now runs on a thread
+  whose stack it sizes itself, so the size travels with the binary instead of
+  depending on how it was linked. §FS-rhei-distribution.1 (PR #94)
+
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
   attribution, changelog). The Ubuntu job used to carry every repository gate

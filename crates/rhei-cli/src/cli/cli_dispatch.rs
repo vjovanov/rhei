@@ -329,7 +329,45 @@ fn lost_output_verdict(message: &str, is_terminal: impl Fn(LostStream) -> bool) 
     IO_ERROR_MARKERS.iter().any(|marker| message.contains(marker)) && is_terminal(stream)
 }
 
+/// The stack the CLI gives itself, in bytes.
+///
+/// Windows reserves 1 MiB for a process's main thread where Linux and macOS
+/// give 8, and this CLI needs more than 1: clap's command tree is built on the
+/// stack and the plan parser descends recursively, so on Windows *every*
+/// invocation overflowed — `rhei` with no arguments at all included, before it
+/// had read a plan or a flag.
+///
+/// A thread asks for its stack in code, so this travels with the binary. A
+/// linker flag in this repository's `.cargo/config.toml` would not: it is not
+/// read when somebody runs `cargo install rhei-cli`, which is how the binary
+/// this fixes actually reaches a Windows machine.
+// §FS-rhei-distribution.1
+const CLI_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+/// Entry point for both installed binaries: run the CLI on a stack of a size
+/// this program chose, rather than on whatever the platform handed `main`.
+// §FS-rhei-distribution.1
 pub fn run() {
+    let spawned = std::thread::Builder::new()
+        .name("rhei".to_string())
+        .stack_size(CLI_STACK_BYTES)
+        .spawn(run_on_cli_stack);
+    match spawned {
+        // A panic has already been reported by the hook that ran inside the
+        // thread; joining only turns it back into the exit code the same panic
+        // on the main thread would have produced.
+        Ok(worker) => {
+            if worker.join().is_err() {
+                std::process::exit(101);
+            }
+        }
+        // No thread to be had — a process at its limit, a sandbox that refuses
+        // one. Run here on the platform's stack rather than not running.
+        Err(_) => run_on_cli_stack(),
+    }
+}
+
+fn run_on_cli_stack() {
     install_quiet_broken_pipe_exit();
     install_diagnostic_handler();
     CompleteEnv::with_factory(cli_command).bin(invoked_bin_name()).complete();

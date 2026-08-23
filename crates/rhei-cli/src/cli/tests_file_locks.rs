@@ -42,6 +42,22 @@ mod file_lock_tests {
     }
 
     #[test]
+    fn a_locked_plan_reads_back_while_the_lock_is_held() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = plan_file(&dir, "locked\n");
+        let locked = LockedPlanFile::open(&path).expect("lock the plan");
+
+        // The Windows case, asserted everywhere: a mandatory byte-range lock
+        // refuses this process its own read by path, and the read falls back to
+        // the handle it is holding rather than failing the command.
+        assert_eq!(locked.read_to_string("failed to read plan file").expect("read"), "locked\n");
+        locked.release();
+    }
+
+    // A rename over a locked file is refused on Windows, so the state this
+    // builds — somebody else's file at our locked path — cannot arise there.
+    #[cfg(unix)]
+    #[test]
     fn a_locked_plan_is_read_by_path_and_not_through_the_handle() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let path = plan_file(&dir, "before\n");
