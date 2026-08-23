@@ -40,8 +40,6 @@ fn build_program_command(
         .unwrap_or_else(|| render_context.workspace_root.to_path_buf());
 
     let mut cmd = if resolved.program.shell {
-        let mut command = std::process::Command::new("sh");
-        command.arg("-c");
         let rendered = match &resolved.program.command {
             ProgramCommand::Shell(command) => {
                 resolve_runtime_template_text(command, render_context)
@@ -52,8 +50,9 @@ fn build_program_command(
                 .collect::<Vec<_>>()
                 .join(" "),
         };
-        command.arg(rendered);
-        command
+        // The platform's own shell: `sh -c` here, `cmd /c` on Windows, which is
+        // what §FS-rhei-programs.1.1 promises a string-form command.
+        rhei_core::callback::system_shell_command(&rendered)
     } else {
         let ProgramCommand::Exec(args) = &resolved.program.command else {
             return Err(miette!(

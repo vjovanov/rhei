@@ -45,35 +45,22 @@ transitions:
     to: cancelled
 "#;
 
-fn make_executable(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(path).expect("stat script").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(path, perms).expect("chmod script");
-    }
-    #[cfg(not(unix))]
-    let _ = path;
-}
-
-/// Install a fake agent that reads its prompt from stdin and runs `script`.
-fn write_fake_agent(dir: &Path, name: &str, script: &str) {
-    let script_path = write_fixture_file(dir, name, script);
-    make_executable(&script_path);
+/// Install a fake agent that reads its prompt from stdin and runs `body`.
+fn write_fake_agent(dir: &Path, name: &str, body: &str) {
+    let script_path = write_python_agent(dir, name, body);
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let settings = format!(
         r#"{{
   "agents": {{
     "fake": {{
-      "command": [{}],
+      "command": {},
       "stdin_prompt": true,
       "timeout": "30s"
     }}
   }}
 }}"#,
-        serde_json::to_string(&script_path.display().to_string()).expect("script path json")
+        fixture_command(&script_path)
     );
     fs::write(settings_dir.join("settings.json"), settings).expect("write settings");
 }
@@ -97,20 +84,20 @@ fn run_run(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -> CliRun
 
 /// A fake agent that writes its handoff in `implement` and records the prompt
 /// it was given in every other state.
-const RECORD_PROMPT_SCRIPT: &str = r#"#!/usr/bin/env bash
-set -euo pipefail
-prompt="$(cat)"
-mkdir -p "$RHEI_ROOT/runtime"
-if [ "$RHEI_STATE" = "implement" ]; then
-  mkdir -p "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID"
-  printf 'Rewrote the tokenizer; two edge cases still fail.\n' \
-    > "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID/implementation.md"
-else
-  printf '%s\n' "$prompt" > "$RHEI_ROOT/runtime/$RHEI_STATE-prompt.txt"
-fi
+const RECORD_PROMPT_SCRIPT: &str = r#"prompt = sys.stdin.read().rstrip('\n')
+root = pathlib.Path(env('RHEI_ROOT'))
+state = env('RHEI_STATE')
+runtime = root / 'runtime'
+runtime.mkdir(parents=True, exist_ok=True)
+if state == 'implement':
+    write(
+        runtime / 'handoffs' / env('RHEI_TASK_ID') / 'implementation.md',
+        'Rewrote the tokenizer; two edge cases still fail.\n',
+    )
+else:
+    write(runtime / (state + '-prompt.txt'), prompt + '\n')
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nFinished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nFinished ' + state + '.\n')
 "#;
 
 /// The producing state's notes reach the successor's prompt, under a heading
@@ -128,7 +115,7 @@ fn state_handoff_reaches_the_successor_prompt_through_a_run() {
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", HANDOFF_MACHINE);
-    write_fake_agent(&dir, "agent.sh", RECORD_PROMPT_SCRIPT);
+    write_fake_agent(&dir, "agent.py", RECORD_PROMPT_SCRIPT);
 
     let result = run_run(&plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
     assert!(
@@ -180,21 +167,15 @@ fn an_empty_required_handoff_fails_its_task_and_spares_the_rest_of_the_run() {
     let machine_path = write_fixture_file(&dir, "states.yaml", HANDOFF_MACHINE);
     // Task 1's agent creates the handoff file but leaves it empty; Task 2's
     // writes real content.
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-cat > /dev/null
-mkdir -p "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID"
-if [ "$RHEI_STATE" = "implement" ]; then
-  if [ "$RHEI_TASK_ID_LOCAL" = "1" ]; then
-    : > "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID/implementation.md"
-  else
-    printf 'Real notes.\n' > "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID/implementation.md"
-  fi
-fi
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nFinished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+    let script = r#"sys.stdin.read()
+handoffs = pathlib.Path(env('RHEI_ROOT')) / 'runtime' / 'handoffs' / env('RHEI_TASK_ID')
+handoffs.mkdir(parents=True, exist_ok=True)
+if env('RHEI_STATE') == 'implement':
+    notes = '' if env('RHEI_TASK_ID_LOCAL') == '1' else 'Real notes.\n'
+    write(handoffs / 'implementation.md', notes)
+result('## Result\n\nFinished ' + env('RHEI_STATE') + '.\n')
 "#;
-    write_fake_agent(&dir, "agent.sh", script);
+    write_fake_agent(&dir, "agent.py", script);
 
     let result =
         run_run(&plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--continue-on-error"]);
@@ -225,13 +206,13 @@ fn an_empty_required_handoff_aborts_the_run_without_continue_on_error() {
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", HANDOFF_MACHINE);
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-cat > /dev/null
-mkdir -p "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID"
-: > "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID/implementation.md"
+    let script = r#"sys.stdin.read()
+write(
+    pathlib.Path(env("RHEI_ROOT")) / "runtime" / "handoffs" / env("RHEI_TASK_ID") / "implementation.md",
+    "",
+)
 "#;
-    write_fake_agent(&dir, "agent.sh", script);
+    write_fake_agent(&dir, "agent.py", script);
 
     let result = run_run(&plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
 
@@ -378,14 +359,14 @@ transitions:
 "#;
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-prompt="$(cat)"
-mkdir -p "$RHEI_ROOT/runtime" "$(dirname "$RHEI_RESULT_PATH")"
-printf '%s\n' "$prompt" > "$RHEI_ROOT/runtime/$RHEI_STATE-prompt.txt"
-printf '## Result\n\nBuilt on the groundwork.\n' > "$RHEI_RESULT_PATH"
+    let script = r#"prompt = sys.stdin.read().rstrip('\n')
+write(
+    pathlib.Path(env('RHEI_ROOT')) / 'runtime' / (env('RHEI_STATE') + '-prompt.txt'),
+    prompt + '\n',
+)
+result('## Result\n\nBuilt on the groundwork.\n')
 "#;
-    write_fake_agent(&dir, "agent.sh", script);
+    write_fake_agent(&dir, "agent.py", script);
 
     let completed = run_cli(
         "complete",

@@ -31,9 +31,12 @@ mod validate_retry_cache_tests;
 
 // Shared with the `integration_markdown_plans` harness, which cannot see this
 // module tree and `include!`s the same file.
+#[path = "../support/python_fixture.rs"]
+mod python_fixture;
 #[path = "../support/test_dir.rs"]
 mod test_dir;
 
+pub use python_fixture::{fixture_command, fixture_command_line, write_python_agent};
 pub use test_dir::TestDir;
 
 use std::fs;

@@ -120,9 +120,30 @@ pub trait CallbackExecutor {
     ) -> Result<CallbackResult, CallbackError>;
 }
 
+/// The platform's own shell, holding one command line.
+///
+/// §FS-rhei-programs.1.1 says a string-form command runs under `/bin/sh -c` on
+/// Unix and `cmd /c` on Windows, and a `cli:` callback is the same kind of
+/// value — a command line, not an argument vector. Only the Unix half was ever
+/// spawned, so on Windows every string-form program and every `cli:` callback
+/// died looking for a program named `sh` before its own first instruction.
+pub fn system_shell_command(command: &str) -> Command {
+    let mut cmd = if cfg!(windows) {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C");
+        cmd
+    } else {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c");
+        cmd
+    };
+    cmd.arg(command);
+    cmd
+}
+
 /// Executes `cli:`-prefixed callbacks as shell commands.
 ///
-/// The command portion after `cli:` is run via `sh -c` from
+/// The command portion after `cli:` is run via the platform's shell from
 /// [`CallbackContext::callback_cwd`]. The runtime delivers two channels:
 ///
 /// - **Environment variables** (always present):
@@ -162,10 +183,9 @@ impl CallbackExecutor for ShellCallbackExecutor {
         let command =
             id.strip_prefix("cli:").ok_or_else(|| CallbackError::UnknownPlatform(id.clone()))?;
 
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c")
-            .arg(command)
-            .current_dir(context.callback_cwd)
+        // §FS-rhei-programs.1.1: the platform's shell, not always `sh`.
+        let mut cmd = system_shell_command(command);
+        cmd.current_dir(context.callback_cwd)
             .env("RHEI_TASK_ID", context.task_id)
             .env("RHEI_TASK_ID_LOCAL", context.task_id_local)
             .env("RHEI_FROM_STATE", context.from_state)
@@ -292,6 +312,28 @@ impl CallbackExecutor for NoopCallbackExecutor {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The shell is chosen by platform, and both halves are pinned here — the
+    /// Windows one included, because Linux runs the whole suite and Windows
+    /// only exercises the branch it happens to take. §FS-rhei-programs.1.1
+    #[test]
+    fn a_string_command_goes_to_the_platforms_own_shell() {
+        let cmd = system_shell_command("echo hi");
+        let program = cmd.get_program().to_string_lossy().into_owned();
+        let args: Vec<String> =
+            cmd.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        if cfg!(windows) {
+            assert_eq!(
+                (program.as_str(), args.as_slice()),
+                ("cmd", &["/C".to_string(), "echo hi".to_string()][..])
+            );
+        } else {
+            assert_eq!(
+                (program.as_str(), args.as_slice()),
+                ("sh", &["-c".to_string(), "echo hi".to_string()][..])
+            );
+        }
+    }
 
     fn ctx<'a>(plan_path: &'a Path, cwd: &'a Path) -> CallbackContext<'a> {
         CallbackContext {

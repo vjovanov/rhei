@@ -10,11 +10,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use super::{unique_temp_dir, TestDir};
+use super::{fixture_command, unique_temp_dir, write_python_agent, TestDir};
 
 /// A state machine whose only work is a program, so a run does real work with
 /// no agent binary in sight. The command is absolute because a test workspace
-/// lives wherever the temp directory is, not on any search path.
+/// lives wherever the temp directory is, not on any search path, and it is a
+/// list rather than a string so the engine execs it instead of handing it to a
+/// shell — which is also what keeps a Windows path's backslashes out of the
+/// YAML.
 pub fn program_machine(script: &Path) -> String {
     format!(
         r#"name: headless-e2e
@@ -24,7 +27,7 @@ states:
     initial: true
     description: Waiting to run
     program:
-      command: "{}"
+      command: {}
     program_timeout: 2m
   done:
     final: true
@@ -34,7 +37,7 @@ transitions:
     to: done
     exit_code: 0
 "#,
-        script.display()
+        fixture_command(script)
     )
 }
 
@@ -68,18 +71,19 @@ impl Workspace {
         // The marker line is how a test sees whether the detached-child
         // environment variable leaked into supervised work.
         // §FS-rhei-run-headless.1.2
-        let script = format!(
-            "#!/bin/sh\n\
-             echo \"starting $RHEI_TASK_ID\"\n\
-             echo \"headless-marker=${{RHEI_HEADLESS_CHILD:-unset}}\"\n\
-             sleep {work_seconds}\n\
-             mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-             echo \"finished $RHEI_TASK_ID\" > \"$RHEI_RESULT_PATH\"\n\
-             echo \"done $RHEI_TASK_ID\"\n"
+        let script_path = write_python_agent(
+            &root,
+            "work.py",
+            &format!(
+                r#"task = env("RHEI_TASK_ID")
+print("starting " + task, flush=True)
+print("headless-marker=" + env("RHEI_HEADLESS_CHILD", "unset"), flush=True)
+time.sleep({work_seconds})
+result("finished " + task + "\n")
+print("done " + task, flush=True)
+"#
+            ),
         );
-        let script_path = root.join("work.sh");
-        fs::write(&script_path, script).expect("program");
-        make_executable(&script_path);
         fs::write(root.join("states.yaml"), program_machine(&script_path)).expect("machine");
         Self { root, home }
     }
@@ -170,17 +174,6 @@ impl Drop for Workspace {
         self.stop_quietly();
     }
 }
-
-#[cfg(unix)]
-pub fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(path).expect("script metadata").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("script is executable");
-}
-
-#[cfg(not(unix))]
-pub fn make_executable(_path: &Path) {}
 
 pub fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()

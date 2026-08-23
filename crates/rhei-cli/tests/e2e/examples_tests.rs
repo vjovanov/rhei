@@ -12,138 +12,141 @@ fn copy_example_workspace(prefix: &str, example_path: &str) -> (TestDir, PathBuf
     (dir, workspace)
 }
 
-fn write_mock_example_agent(dir: &Path) -> String {
-    let script = dir.join("mock-example-agent.sh");
-    fs::write(
-        &script,
-        r#"#!/bin/sh
-set -eu
+fn write_mock_example_agent(dir: &Path) -> PathBuf {
+    write_python_agent(
+        dir,
+        "mock-example-agent.py",
+        r#"import shutil
+import subprocess
 
-workspace="${RHEI_PLAN_PATH:-.}"
-if [ -f "$workspace" ]; then
-  workspace="$(dirname "$workspace")"
-fi
-cd "$workspace"
+# The examples are driven from their workspace root: every relative path below
+# is the one the example's own state machine names.
+workspace = pathlib.Path(env('RHEI_PLAN_PATH', '.'))
+if workspace.is_file():
+    workspace = workspace.parent
+os.chdir(workspace)
 
-state="${RHEI_STATE:-}"
-task="${RHEI_TASK_ID:-unknown}"
-target_slug="${RHEI_TARGET_SLUG:-${RHEI_MODEL:-mock}}"
-machine="${RHEI_STATE_MACHINE_PATH:-}"
+state = env('RHEI_STATE')
+task = env('RHEI_TASK_ID', 'unknown')
+target_slug = env('RHEI_TARGET_SLUG', env('RHEI_MODEL', 'mock'))
+machine = env('RHEI_STATE_MACHINE_PATH')
+runtime = pathlib.Path('runtime')
 
-mkdir -p runtime/logs
-printf 'task=%s state=%s model=%s target=%s agent=%s\n' \
-  "$task" "$state" "${RHEI_MODEL:-}" "$target_slug" "${RHEI_AGENT:-}" \
-  >> runtime/logs/mock-agent.log
+append(
+    runtime / 'logs' / 'mock-agent.log',
+    'task={} state={} model={} target={} agent={}\n'.format(
+        task, state, env('RHEI_MODEL'), target_slug, env('RHEI_AGENT')
+    ),
+)
 
 # A worker records why the ticket ends where it does. Rhei hands the path to
 # every subprocess in RHEI_RESULT_PATH, and a `final: true` state is not entered
 # until it has content. §FS-rhei-states.3.3 §FS-rhei-agents.4
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nMock agent finished state %s for task %s.\n' "$state" "$task" \
-  > "$RHEI_RESULT_PATH"
+result('## Result\n\nMock agent finished state {} for task {}.\n'.format(state, task))
 
-case "$state" in
-  analyze)
-    if [ -n "$machine" ] && grep -q '^name: multi-model-analysis' "$machine"; then
-      mkdir -p runtime/analyses
-      printf '# Mock analysis\n\nstate=%s\ntarget=%s\n' "$state" "$target_slug" \
-        > "runtime/analyses/$target_slug.md"
-    else
-      mkdir -p runtime/analysis tasks
-      printf '# Mock dispatch findings\n\n- id: mock-work\n  title: Mock work item\n' \
-        > "runtime/analysis/$task-findings.md"
-      if [ ! -f tasks/02-mock-work.md ]; then
-        cat > tasks/02-mock-work.md <<EOF
-### Task mock-work: Mock dispatched work item
-**State:** address
-**Prior:** Task $task
+if state == 'analyze':
+    multi_model = bool(machine) and any(
+        line.startswith('name: multi-model-analysis')
+        for line in pathlib.Path(machine).read_text(encoding='utf-8').splitlines()
+    )
+    if multi_model:
+        write(
+            runtime / 'analyses' / (target_slug + '.md'),
+            '# Mock analysis\n\nstate={}\ntarget={}\n'.format(state, target_slug),
+        )
+    else:
+        write(
+            runtime / 'analysis' / (task + '-findings.md'),
+            '# Mock dispatch findings\n\n- id: mock-work\n  title: Mock work item\n',
+        )
+        tasks = pathlib.Path('tasks')
+        tasks.mkdir(parents=True, exist_ok=True)
+        if not (tasks / '02-mock-work.md').exists():
+            write(
+                tasks / '02-mock-work.md',
+                '### Task mock-work: Mock dispatched work item\n'
+                '**State:** address\n'
+                '**Prior:** Task {}\n'
+                '\n'
+                'Write the mock work result.\n'.format(task),
+            )
+        if not (tasks / '03-report.md').exists():
+            write(
+                tasks / '03-report.md',
+                '### Task report: Summarize the dispatched work\n'
+                '**State:** report\n'
+                '**Prior:** Task mock-work\n'
+                '\n'
+                'Summarize the mock work result.\n',
+            )
+elif state == 'address':
+    write(runtime / 'work' / (task + '.md'), '# Mock work result\n\ntask={}\n'.format(task))
+elif state == 'report':
+    write(runtime / 'report.md', '# Mock dispatch report\n')
+elif state == 'prepare-worktree':
+    # The one fixture that really does drive another program: this example is
+    # about `git worktree`, so the mock has to leave a checkout behind. `git` is
+    # exec'd directly, never handed to a shell.
+    worktree = pathlib.Path.cwd() / 'runtime' / 'worktrees' / task
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    (runtime / 'worktree-refs').mkdir(parents=True, exist_ok=True)
+    checkout = env('RHEI_CHECKOUT_ROOT', '.')
 
-Write the mock work result.
-EOF
-      fi
-      if [ ! -f tasks/03-report.md ]; then
-        cat > tasks/03-report.md <<'EOF'
-### Task report: Summarize the dispatched work
-**State:** report
-**Prior:** Task mock-work
+    def git(*args):
+        return subprocess.run(
+            ['git', '-C', checkout] + list(args),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-Summarize the mock work result.
-EOF
-      fi
-    fi
-    ;;
-  address)
-    mkdir -p runtime/work
-    printf '# Mock work result\n\ntask=%s\n' "$task" > "runtime/work/$task.md"
-    ;;
-  report)
-    mkdir -p runtime
-    printf '# Mock dispatch report\n' > runtime/report.md
-    ;;
-  prepare-worktree)
-    worktree_path="$PWD/runtime/worktrees/$task"
-    mkdir -p "$(dirname "$worktree_path")" runtime/worktree-refs
-    if git -C "${RHEI_CHECKOUT_ROOT:-.}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      rm -rf "$worktree_path"
-      git -C "${RHEI_CHECKOUT_ROOT:-.}" worktree prune >/dev/null 2>&1 || true
-      git -C "${RHEI_CHECKOUT_ROOT:-.}" worktree add --detach "$worktree_path" HEAD >/dev/null
-    else
-      mkdir -p "$worktree_path"
-    fi
-    {
-      printf 'task_id: %s\n' "$task"
-      printf 'path: %s\n' "$worktree_path"
-      printf 'branch: docs-pass/%s\n' "$task"
-      printf 'target_path: mock\n'
-    } > "runtime/worktree-refs/$task.yaml"
-    ;;
-  work)
-    mkdir -p runtime/summaries
-    printf '# Mock worktree change summary\n\ntask=%s\n' "$task" \
-      > "runtime/summaries/$task-work.md"
-    ;;
-  integrate)
-    mkdir -p runtime/summaries
-    printf '# Mock worktree summary\n\ntask=%s\nbranch=docs-pass/%s\n' "$task" "$task" \
-      > "runtime/summaries/$task-summary.md"
-    ;;
-  summarize)
-    mkdir -p runtime
-    printf '# Mock final analysis\n' > runtime/final-analysis.md
-    ;;
-  review)
-    mkdir -p runtime/reviews
-    n="$(find runtime/reviews -maxdepth 1 -name "task-$task-review-*.md" 2>/dev/null | wc -l | tr -d ' ')"
-    n=$((n + 1))
-    printf '# Mock review pass %s\n' "$n" > "runtime/reviews/task-$task-review-$n.md"
-    ;;
-  fix)
-    mkdir -p runtime/fixes
-    n="$(find runtime/fixes -maxdepth 1 -name "task-$task-fix-*.md" 2>/dev/null | wc -l | tr -d ' ')"
-    n=$((n + 1))
-    printf '# Mock fix pass %s\n' "$n" > "runtime/fixes/task-$task-fix-$n.md"
-    ;;
-  collect|judge|apply)
-    ;;
-esac
+    if git('rev-parse', '--is-inside-work-tree').returncode == 0:
+        shutil.rmtree(worktree, ignore_errors=True)
+        git('worktree', 'prune')
+        git('worktree', 'add', '--detach', str(worktree), 'HEAD')
+    else:
+        worktree.mkdir(parents=True, exist_ok=True)
+    write(
+        runtime / 'worktree-refs' / (task + '.yaml'),
+        'task_id: {}\npath: {}\nbranch: docs-pass/{}\ntarget_path: mock\n'.format(
+            task, worktree, task
+        ),
+    )
+elif state == 'work':
+    write(
+        runtime / 'summaries' / (task + '-work.md'),
+        '# Mock worktree change summary\n\ntask={}\n'.format(task),
+    )
+elif state == 'integrate':
+    write(
+        runtime / 'summaries' / (task + '-summary.md'),
+        '# Mock worktree summary\n\ntask={}\nbranch=docs-pass/{}\n'.format(task, task),
+    )
+elif state == 'summarize':
+    write(runtime / 'final-analysis.md', '# Mock final analysis\n')
+elif state in ('review', 'fix'):
+    folder = runtime / ('reviews' if state == 'review' else 'fixes')
+    folder.mkdir(parents=True, exist_ok=True)
+    pass_number = len(list(folder.glob('task-{}-{}-*.md'.format(task, state)))) + 1
+    write(
+        folder / 'task-{}-{}-{}.md'.format(task, state, pass_number),
+        '# Mock {} pass {}\n'.format(state, pass_number),
+    )
 "#,
     )
-    .expect("write mock example agent");
-    script.display().to_string()
 }
 
-fn write_mock_agent_settings(workspace: &Path, agent_script: &str) {
+fn write_mock_agent_settings(workspace: &Path, agent_script: &Path) {
     let settings_dir = workspace.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     let profile = format!(
         r#"{{
-      "command": ["sh", {}],
+      "command": {},
       "prompt_flag": "--prompt",
       "model_flag": "--model",
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}"#,
-        serde_json::to_string(agent_script).expect("json string")
+        fixture_command(agent_script)
     );
     fs::write(
         settings_dir.join("settings.json"),
