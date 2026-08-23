@@ -756,7 +756,7 @@ fn write_snapshot_generation_atomic(
         match fs::rename(&tmp_dir, &generation_dir) {
             Ok(()) => {
                 if produced_by == SnapshotProducedBy::Orchestrator {
-                    replace_current_symlink_with_nonce(
+                    replace_current_pointer(
                         &identity_dir,
                         &format!("g{generation}"),
                         &nonce,
@@ -815,35 +815,4 @@ fn next_snapshot_generation(identity_dir: &Path) -> MietteResult<u64> {
         }
     }
     Ok(generation)
-}
-
-#[cfg(unix)]
-fn replace_current_symlink_with_nonce(
-    identity_dir: &Path,
-    target: &str,
-    nonce: &str,
-) -> MietteResult<()> {
-    use std::os::unix::fs::symlink;
-    let tmp = identity_dir.join(format!("current.tmp-{nonce}"));
-    let current = identity_dir.join("current");
-    if tmp.exists() || tmp.is_symlink() {
-        fs::remove_file(&tmp).map_err(|err| {
-            file_io_report(&tmp, "failed to remove stale current tmp pointer", err)
-        })?;
-    }
-    symlink(target, &tmp)
-        .map_err(|err| file_io_report(&tmp, "failed to write current tmp pointer", err))?;
-    fs::rename(&tmp, &current)
-        .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
-}
-
-#[cfg(not(unix))]
-fn replace_current_symlink_with_nonce(
-    identity_dir: &Path,
-    target: &str,
-    _nonce: &str,
-) -> MietteResult<()> {
-    let current = identity_dir.join("current");
-    fs::write(&current, target)
-        .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
 }

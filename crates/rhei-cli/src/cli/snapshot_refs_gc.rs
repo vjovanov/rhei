@@ -475,7 +475,8 @@ fn refresh_current_links(
                     "invalid snapshot generation path '{}'", newest.path.display()
                 )
             })?;
-            replace_current_symlink(&identity_dir, target)?;
+            // The gc rewrites one identity at a time and never races itself.
+            replace_current_pointer(&identity_dir, target, "rhei-gc")?;
         } else if current.exists() || current.is_symlink() {
             fs::remove_file(&current).map_err(|err| {
                 file_io_report(&current, "failed to remove stale current pointer", err)
@@ -493,27 +494,4 @@ fn read_snapshot_records_for_identity(
         .into_iter()
         .filter(|record| record.identity() == *identity)
         .collect())
-}
-
-#[cfg(unix)]
-fn replace_current_symlink(identity_dir: &Path, target: &str) -> MietteResult<()> {
-    use std::os::unix::fs::symlink;
-    let tmp = identity_dir.join("current.tmp-rhei-gc");
-    let current = identity_dir.join("current");
-    if tmp.exists() || tmp.is_symlink() {
-        fs::remove_file(&tmp).map_err(|err| {
-            file_io_report(&tmp, "failed to remove stale current tmp pointer", err)
-        })?;
-    }
-    symlink(target, &tmp)
-        .map_err(|err| file_io_report(&tmp, "failed to write current tmp pointer", err))?;
-    fs::rename(&tmp, &current)
-        .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
-}
-
-#[cfg(not(unix))]
-fn replace_current_symlink(identity_dir: &Path, target: &str) -> MietteResult<()> {
-    let current = identity_dir.join("current");
-    fs::write(&current, target)
-        .map_err(|err| file_io_report(&current, "failed to update current pointer", err))
 }
