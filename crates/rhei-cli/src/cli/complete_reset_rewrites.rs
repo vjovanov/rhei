@@ -60,7 +60,7 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
         help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
-    tmp.persist(path).map_err(|err| miette!(
+    persist_locked(tmp, path, Some(&file)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
@@ -110,7 +110,7 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
         help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
-    tmp.persist(path).map_err(|err| miette!(
+    persist_locked(tmp, path, Some(&file)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;

@@ -63,3 +63,34 @@ fn lock_is_contended(err: &std::io::Error) -> bool {
         _ => false,
     }
 }
+
+/// Rename a temp file over `path`, which this process may be holding the lock
+/// on through `locked`.
+///
+/// A plan rewrite locks the file it is about to replace, and on Windows those
+/// two things are in conflict: a byte-range lock is mandatory, and the
+/// filesystem refuses to replace a file that carries one — `rhei complete`,
+/// `rhei transition`, `rhei reset`, and a dashboard gate choice all failed with
+/// "Access is denied" on their own write.
+///
+/// So a refused replace drops the lock and tries once more. Nothing is lost by
+/// dropping it there: the lock lives on the file object, the replace hands
+/// `path` to a *different* object, and every caller's own `unlock` after this
+/// point is already releasing an orphan. Unix never reaches the retry — its
+/// advisory lock does not refuse the rename — so the window this opens exists
+/// only where the alternative is not writing at all.
+fn persist_locked(
+    tmp: tempfile::NamedTempFile,
+    path: &Path,
+    locked: Option<&fs::File>,
+) -> Result<(), tempfile::PersistError> {
+    let refused = match tmp.persist(path) {
+        Ok(_) => return Ok(()),
+        Err(refused) => refused,
+    };
+    let Some(handle) = locked else {
+        return Err(refused);
+    };
+    let _ = fs2::FileExt::unlock(handle);
+    refused.file.persist(path).map(|_| ())
+}

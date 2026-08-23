@@ -255,6 +255,18 @@ fn unix_to_utc_components(secs: u64) -> (i32, u32, u32, u32, u32, u32) {
 
 /// Write `content` atomically to `path` via a same-directory temp file.
 fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
+    write_file_atomic_locked(path, content, None)
+}
+
+/// `write_file_atomic` for a destination this process holds the lock on.
+///
+/// The handle is what lets the replace succeed where a lock refuses one; see
+/// `persist_locked`.
+fn write_file_atomic_locked(
+    path: &Path,
+    content: &str,
+    locked: Option<&fs::File>,
+) -> MietteResult<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
         .map_err(|err| miette!(
@@ -265,7 +277,7 @@ fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
         help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
-    tmp.persist(path).map_err(|err| miette!(
+    persist_locked(tmp, path, locked).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;

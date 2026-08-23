@@ -234,7 +234,7 @@ fn write_task_assignee(
             help = temp_write_help(),
             "failed to write temp file: {err}"
         ))?;
-    tmp.persist(task_file).map_err(|err| miette!(
+    persist_locked(tmp, task_file, Some(&handle)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
