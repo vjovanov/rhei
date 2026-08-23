@@ -79,11 +79,15 @@ The memory is whatever the project already writes; this spec adds no store.
 | Published outputs | `runtime/exports/<task-id>/<name>.md` (§FS-rhei-plan-language.3.12) | the producing task |
 | Direction from above | `runtime/supervise/<task-id>[/<state>].md` (§FS-rhei-supervision.5.2) | supervisors |
 | Same-task state handoffs | declared `outputs:` of an earlier state (§FS-rhei-states.3.2) | the earlier state |
-| Raw transcripts | `runtime/logs/task-…log` (§FS-rhei-agents.8.1) | `rhei run` |
+| Raw transcripts | `runtime/logs/task-…log` under the root `rhei run` was started from (§FS-rhei-agents.8) | `rhei run` |
 
 Each path is relative to the **execution root** of the rhei that owns the
 task (§AR-rhei-panta.5): the workspace directory of a Directory Workspace rhei,
-the project directory for single-file rheis.
+the project directory for single-file rheis. Transcripts are the exception:
+one `rhei run` writes one log tree, under the root it was started from, so in a
+Panta the transcripts of every member rhei sit together at the project root and
+not under the member. A prompt therefore names that directory outright (§3.4)
+rather than describing it as a path under something else.
 
 ## 3. The Sections
 
@@ -239,7 +243,8 @@ Two fixed sub-sections follow the existing authority text and transition list.
   - `{rhei-id}` — `{execution root}`
 - Under each execution root: `runtime/results/<task-id>.md` (results),
   `runtime/exports/<task-id>/<name>.md` (exports), `runtime/supervise/<task-id>[/<state>].md` (briefs),
-  `runtime/state-transitions.log` (order of events), `runtime/logs/` (agent transcripts)
+  `runtime/state-transitions.log` (order of events)
+- Agent transcripts: `{logs directory of this run}`
 - Read-only commands, always safe: `rhei list [--rhei <id>] [--terminal] [--has-prior <id>] [--parent <id>]`,
   `rhei render <plan> --format json --pretty`
 
@@ -254,7 +259,10 @@ What you write is what the next agent and the human see.
 every execution root in the project, so the results of a rhei the prompt does
 not list are one path away. A rhei whose execution root holds no plan document
 — the synthetic `basin`, whose manifest is never authored (§FS-rhei-panta.4) —
-omits the `— plan …` clause and names this task's file alone. Paths are rendered relative to `RHEI_ROOT`, or
+omits the `— plan …` clause and names this task's file alone. `Agent transcripts`
+names the resolved `runtime/logs/` directory of this run — the one `Previous
+log:` resolves against (§3.3) — because that tree belongs to the run and not to
+a rhei (§2). Paths are rendered relative to `RHEI_ROOT`, or
 absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
 `{output.<name>.path}` follows (§FS-rhei-states.4). `rhei next`, which exports
 no `RHEI_ROOT`, renders every such path absolute. `Leaving a trail`
@@ -273,6 +281,9 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 2. For every rhei `R` in `G`: its execution root `root(R)` and, under it, the
    ledger `L(R)` and the `runtime/` tree.
 3. The owning rhei `R₀ = rhei(task)`.
+4. The `runtime/` directory of the invoking run — the one it writes `logs/`
+   under (§FS-rhei-agents.8), which is the root the run was started from and
+   need not be `root(R₀)`.
 
 ### 4.2. Position
 
