@@ -1,10 +1,11 @@
-    /// An agent that succeeds having only counted itself, in a file that
-    /// survives between invocations: the count is how the reschedule tests see
-    /// how many times the agent was spawned.
+    /// An agent that succeeds having only recorded that it ran, in a file that
+    /// survives between invocations: one line per spawn is how the reschedule
+    /// tests see how many times the agent was spawned.
     ///
-    /// A missing or empty count file reads as zero, the way the file does on
-    /// the very first invocation. The path is JSON-encoded, which is also a
-    /// Python string literal, so a backslash in it cannot escape the fixture.
+    /// A line appended, not a counter read and written back: a fan-out state
+    /// spawns its invocations concurrently, and read-modify-write loses one of
+    /// them. The path is JSON-encoded, which is also a Python string literal,
+    /// so a backslash in it cannot escape the fixture.
     fn write_counting_success_agent(dir: &Path, count_file: &Path) -> Vec<String> {
         python_fixture_command(
             dir,
@@ -13,11 +14,8 @@
                 r#"import pathlib
 
 count_file = pathlib.Path({path})
-try:
-    count = int(count_file.read_text().strip())
-except (OSError, ValueError):
-    count = 0
-count_file.write_text(str(count + 1) + '\n')
+with count_file.open('a', encoding='utf-8', newline='') as handle:
+    handle.write('spawned\n')
 "#,
                 path = serde_json::to_string(count_file.to_string_lossy().as_ref()).expect("json")
             ),
@@ -87,8 +85,8 @@ count_file.write_text(str(count + 1) + '\n')
     #[test]
     fn missing_outputs_reschedule_single_invocation_spawns_once_and_keeps_state() {
         let (dir, count_file) = missing_outputs_reschedule_workspace(false);
-        let count = fs::read_to_string(count_file).expect("spawn count");
-        assert_eq!(count.trim(), "1");
+        let spawns = fs::read_to_string(count_file).expect("spawn count");
+        assert_eq!(spawns.lines().count(), 1, "one invocation, one spawn: {spawns:?}");
         let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
         assert!(plan.contains("**State:** pending"));
     }
@@ -96,8 +94,8 @@ count_file.write_text(str(count + 1) + '\n')
     #[test]
     fn missing_outputs_reschedule_fanout_spawns_each_target_once_and_keeps_state() {
         let (dir, count_file) = missing_outputs_reschedule_workspace(true);
-        let count = fs::read_to_string(count_file).expect("spawn count");
-        assert_eq!(count.trim(), "2");
+        let spawns = fs::read_to_string(count_file).expect("spawn count");
+        assert_eq!(spawns.lines().count(), 2, "one spawn per declared target: {spawns:?}");
         let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
         assert!(plan.contains("**State:** pending"));
     }
