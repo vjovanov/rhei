@@ -33,6 +33,7 @@ struct NewWrite {
 }
 
 fn new_command(options: &NewOptions) -> MietteResult<()> {
+    reject_unusable_title(&options.title)?;
     reject_mode_confusion(options)?;
     let description = resolve_new_description(options)?;
     // A member rhei widens to the project it belongs to, exactly as every
@@ -60,6 +61,36 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     }
     apply_new_write(&target, &write, options.keep_on_error)?;
     report_new_write(&write, options.json);
+    Ok(())
+}
+
+/// Refuse a `TITLE` that cannot become a heading.
+///
+/// The title is written into a `# Rhei:` or `### Task 4:` line, so an empty one
+/// produces a heading with nothing after the colon and an embedded newline
+/// produces two lines where the parser expects one. Both come back as a parse
+/// error with a code frame pointing into a file that the rollback has since
+/// removed — the failure a description check exists to prevent, one argument
+/// over.
+// §FS-rhei-new.3.4
+fn reject_unusable_title(title: &str) -> MietteResult<()> {
+    if title.trim().is_empty() {
+        return Err(miette!(
+help = "give the thing a name: rhei new \"Rotate signing keys\" --under auth.",
+
+            "TITLE is empty: `rhei new` writes it into the heading it creates, and a heading \
+             with nothing after the colon is not a node the plan language can read"
+        ));
+    }
+    if title.contains('\n') || title.contains('\r') {
+        return Err(miette!(
+help = "keep the title to one line and put the rest in --description, which is written under the heading as prose.",
+
+            "TITLE runs over more than one line: a node's title is the rest of its heading \
+             line, so the second line would be read as plan content rather than as part of \
+             the title"
+        ));
+    }
     Ok(())
 }
 
@@ -132,6 +163,10 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
     // a difference rather than as a verdict on the whole project.
     // §FS-rhei-new.5.2
     let inherited = create_validation_errors(target);
+    // The ids the project already holds, so a write that made one of them stop
+    // existing can be undone whatever splice produced the loss.
+    // §FS-rhei-new.5.1
+    let before = create_plan_ids(target);
 
     let previous = fs::read_to_string(&write.path).ok();
     let created_dirs: Vec<PathBuf> =
@@ -144,7 +179,7 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
     // Warnings are deliberately dropped: a rhei created seconds ago holding no
     // tickets is exactly what was asked for, and saying so here would make the
     // normal path noisier than the failing one. §FS-rhei-new.5.1
-    let Some(failure) = new_write_failure(target, write, &inherited) else {
+    let Some(failure) = new_write_failure(target, write, &inherited, before.as_ref()) else {
         report_inherited_validation_failure(&inherited);
         return Ok(());
     };

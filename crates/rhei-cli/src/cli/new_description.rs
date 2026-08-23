@@ -79,15 +79,18 @@ fn description_file_report(path: &Path, err: std::io::Error) -> Report {
 /// something they can act on.
 // §FS-rhei-new.3.4
 fn reject_structural_description(description: &str, flag: &str) -> MietteResult<()> {
-    let mut in_fence = false;
+    let mut fence_opened_at: Option<usize> = None;
     for (index, raw) in description.lines().enumerate() {
         if raw.trim_start().starts_with("```") {
-            in_fence = !in_fence;
+            fence_opened_at = match fence_opened_at {
+                Some(_) => None,
+                None => Some(index + 1),
+            };
             continue;
         }
         // Fenced lines are content, not structure — the parser reads them that
         // way too, so they stay accepted exactly as written.
-        if in_fence {
+        if fence_opened_at.is_some() {
             continue;
         }
         let Some(what) = structural_description_line(raw) else {
@@ -103,7 +106,31 @@ fn reject_structural_description(description: &str, flag: &str) -> MietteResult<
             raw.trim()
         ));
     }
+    if let Some(line) = fence_opened_at {
+        return Err(unbalanced_fence_report(flag, line));
+    }
     Ok(())
+}
+
+/// Refuse a description whose ``` fences do not balance.
+///
+/// An odd number of fences is the ordinary shape of a pasted issue body, and it
+/// is the most destructive thing a description can carry: the fence is written
+/// verbatim, so every node *after* the insertion point becomes fenced content
+/// and stops being a ticket. Named against the flag, like every other
+/// description check — "your fence is unclosed" is something the author can act
+/// on, where the whole-id-set guard behind the write is only the last line of
+/// defence.
+// §FS-rhei-new.3.4 §FS-rhei-new.5.1
+fn unbalanced_fence_report(flag: &str, opened_at: usize) -> Report {
+    miette!(
+help = "close the fence with a matching ``` line, or drop the opening one. A stray fence is usually a pasted issue body that was cut short.",
+
+        "the code fence opened on line {opened_at} of {flag} is never closed:\n\n`rhei new` \
+         writes the description into the plan as given, so an open fence would swallow every \
+         ticket after it — they would stop being plan nodes and become fenced text. Nothing \
+         was written."
+    )
 }
 
 /// The three ways to keep the line, all of which leave the author's words
@@ -129,6 +156,13 @@ fn structural_description_line(line: &str) -> Option<&'static str> {
             return Some("an ATX heading, which the plan language reads as a node, a chapter, \
                          or the rhei title");
         }
+    }
+    // A rhei description sits directly under `# Rhei: <title>`, where the
+    // parser looks for frontmatter: `---` there authors `structure:`.
+    // §FS-rhei-plan-language.1.1
+    if line == "---" {
+        return Some("the opening of a frontmatter block, which the plan language reads as \
+                     the rhei's `structure:` and metadata");
     }
     PLAN_METADATA_MARKERS
         .iter()

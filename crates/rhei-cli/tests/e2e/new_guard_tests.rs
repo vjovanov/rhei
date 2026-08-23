@@ -333,3 +333,76 @@ fn list_names_a_rhei_that_holds_no_tickets() {
         serde_json::from_str(json.stdout.trim()).expect("--json must emit an array");
     assert_eq!(value.as_array().expect("array").len(), 1, "got: {value}");
 }
+
+/// An unbalanced ``` fence is the shape a pasted issue body takes when it was
+/// cut short, and it is the most destructive thing a description can carry —
+/// every ticket after the insertion point stops being a plan node. Refused
+/// against the flag, naming the line the fence opened on.
+// §FS-rhei-new.3.4
+#[test]
+fn an_unclosed_fence_in_a_description_is_refused_and_loses_no_ticket() {
+    let dir = project_with_rhei("new-desc-fence");
+    for title in ["Alpha", "Beta", "Gamma"] {
+        assert_success(&new_run(&["new", title, "--under", "auth"], &dir));
+    }
+    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+
+    let issue = dir.join("issue.md");
+    fs::write(&issue, "Repro steps:\n\n```sh\nrhei run\n").expect("issue body");
+    let result = new_run(
+        &[
+            "new",
+            "From issue",
+            "--under",
+            "auth.1",
+            "--description-file",
+            issue.to_str().expect("path"),
+        ],
+        &dir,
+    );
+
+    let said = flattened_output(&result);
+    assert!(!result.status.success(), "got:\n{said}");
+    assert!(said.contains("code fence opened on line 3"), "got:\n{said}");
+    assert!(said.contains("never closed"), "got:\n{said}");
+    assert_eq!(
+        fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"),
+        before,
+        "nothing may be written, and no sibling may be swallowed"
+    );
+}
+
+/// §FS-rhei-new.3.4: a rhei's description is written directly under
+/// `# Rhei: <title>`, which is where the parser looks for frontmatter — so a
+/// `---` line there authors `structure:` rather than describing the rhei.
+#[test]
+fn a_frontmatter_opener_in_a_description_is_refused() {
+    let dir = empty_project("new-desc-frontmatter");
+    let body = dir.join("body.md");
+    fs::write(&body, "---\nstructure:\n  nodeKinds: [epic]\n---\n\nReal prose.\n")
+        .expect("description body");
+
+    let result =
+        new_run(&["new", "Billing", "--description-file", body.to_str().expect("path")], &dir);
+    let said = flattened_output(&result);
+    assert!(!result.status.success(), "got:\n{said}");
+    assert!(said.contains("frontmatter block"), "got:\n{said}");
+    assert!(!dir.join("billing.rhei.md").exists(), "nothing may be written");
+}
+
+/// §FS-rhei-new.3.4: `TITLE` becomes the rest of a heading line, so an empty or
+/// multi-line one is an argument error rather than a code frame in a file the
+/// rollback has already removed.
+#[test]
+fn an_unusable_title_is_refused_as_an_argument() {
+    let dir = project_with_rhei("new-title-guard");
+    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+
+    let empty = new_run(&["new", "   ", "--under", "auth"], &dir);
+    assert_failure(&empty, "TITLE is empty");
+
+    let multi = new_run(&["new", "First line\nsecond line", "--under", "auth"], &dir);
+    assert_failure(&multi, "more than one line");
+
+    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
+}

@@ -39,7 +39,14 @@ fn new_write_failure(
     target: &Path,
     write: &NewWrite,
     inherited: &[String],
+    before: Option<&BTreeSet<String>>,
 ) -> Option<CreateFailure> {
+    // First: it is the only check that does not need the project to load under
+    // its state machines, and a write that deleted work is undone either way.
+    // §FS-rhei-new.5.1
+    if let Some(failure) = vanished_ids_failure(target, before) {
+        return Some(failure);
+    }
     match validation_pass(target, None) {
         Ok(pass) => {
             let introduced = errors_introduced_over(inherited, pass.errors);
@@ -64,6 +71,60 @@ fn new_write_failure(
         }
     }
     verify_created_id(target, write).err()
+}
+
+/// Every id the project holds right now: its rheis, and every ticket in them.
+///
+/// Read leniently, because that is how the create read it: a rhei skipped
+/// before the write is skipped after it too, so its ids are absent from both
+/// sides and never look lost. `None` when the project does not load at all,
+/// which leaves no baseline to compare against — and no baseline is the honest
+/// answer, not an empty one.
+// §FS-rhei-new.5.1
+fn create_plan_ids(target: &Path) -> Option<BTreeSet<String>> {
+    let loaded = load_plan_leniently(target).ok()?;
+    let mut ids: BTreeSet<String> = loaded.rhei_ids.iter().cloned().collect();
+    fn walk(tasks: &[rhei_core::ast::Task], ids: &mut BTreeSet<String>) {
+        for task in tasks {
+            ids.insert(task.id.to_string());
+            walk(&task.children, ids);
+        }
+    }
+    walk(&loaded.rhei.tasks, &mut ids);
+    Some(ids)
+}
+
+/// Refuse a create that made an id the project already held stop existing.
+///
+/// The general guard behind §5.1's reload: checking that the *new* id reads
+/// back says nothing about the ones that were already there, and the ways a
+/// splice can delete them are open-ended — an unclosed ``` fence in a
+/// description swallows every node after the insertion point, and the project
+/// still parses and still validates. Comparing the whole id set does not need
+/// to know which bug produced the loss, which is the point of having it.
+// §FS-rhei-new.5.1
+fn vanished_ids_failure(
+    target: &Path,
+    before: Option<&BTreeSet<String>>,
+) -> Option<CreateFailure> {
+    let before = before?;
+    let after = create_plan_ids(target)?;
+    let vanished: Vec<&str> =
+        before.difference(&after).map(String::as_str).collect();
+    if vanished.is_empty() {
+        return None;
+    }
+    Some(CreateFailure {
+        report: miette!(
+help = "nothing in the plan was meant to change but the new block, so this is a splicing fault, not an authoring one. A description holding an unclosed ``` fence is the usual cause.",
+
+            "the create removed {} the project already held: {}\n\n`rhei new` only ever adds, \
+             so an id that stops reading back is work this write destroyed.",
+            if vanished.len() == 1 { "an id" } else { "ids" },
+            vanished.join(", ")
+        ),
+        reason: "it removed ids that were already in the project",
+    })
 }
 
 /// The errors in `after` that `inherited` does not account for.
