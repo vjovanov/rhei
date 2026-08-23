@@ -28,7 +28,7 @@ cargo test --workspace --all-targets --no-fail-fast
 <!-- BEGIN GRUND MANAGED BLOCK -->
 ## Grounding with grund (v7)
 
-This project uses [`grund`](https://github.com/vjovanov/grund): every spec, goal, decision, and end-to-end test has a stable ID `<KIND>-<slug>[.<section>]` (`KIND ∈ {GND, GOAL, FS, AR, DF, DA, ADR, E2E, RM}`), cited with the marker `§` — e.g. `<§>FS-user-login.3.1` (the `FS-user-login` here is a shape illustration, not a real ID in this repo, hence the `<§>` escape). Type `$$` in a grund-aware editor and it becomes `§`. Bare ID-shaped tokens are ignored — `[reference] strict = true` is set in `grund.toml`, so only `§`-prefixed citations are checked.
+This project uses [`grund`](https://github.com/vjovanov/grund): every spec, goal, decision, and end-to-end test has a stable ID `<KIND>-<slug>[.<section>]` (`KIND ∈ {GND, GOAL, REQ, FS, AR, DF, DA, ADR, E2E, RM}`), cited with the marker `§` — e.g. `<§>FS-user-login.3.1` (the `FS-user-login` here is a shape illustration, not a real ID in this repo, hence the `<§>` escape). Type `$$` in a grund-aware editor and it becomes `§`. Bare ID-shaped tokens are ignored — `[reference] strict = true` is set in `grund.toml`, so only `§`-prefixed citations are checked.
 
 ### Grounding from a citation
 
@@ -45,6 +45,7 @@ A `§<ID>` is a pointer to a fact, not a file path. Resolve it with `grund` and 
 
 - [GND](docs/grund.md): Reason for existence
 - [GOAL](docs/functional-spec/goals.md): Outcomes the project is trying to achieve
+- [REQ](docs/requirements): Cross-cutting requirements every feature is held to
 - [FS](docs/functional-spec): User-visible behavior and requirements
 - [AR](docs/architecture): System design and technical structure
 - [DF](docs/decisions/functional): Product behavior decisions and tradeoffs
