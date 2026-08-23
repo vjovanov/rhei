@@ -289,3 +289,40 @@ fn an_insert_adds_lines_and_removes_none() {
     let inserted = "#### Task 1.1: Nested\n**State:** pending\n\n### Task 2: Two";
     assert_eq!(after, before.replace("### Task 2: Two", inserted));
 }
+
+// ---------------------------------------------------------------------------
+// The on-ramp: a create is not answerable for the project it found — §FS-rhei-new.5.2
+// ---------------------------------------------------------------------------
+
+/// The exact two-step flow `rhei init` advertises, in a project that already
+/// carries a dangling `**Prior:**` somewhere else.
+///
+/// Both steps have to succeed. Diffing rendered error *strings* made step two
+/// fail, because the pre-existing error enumerated the project's rhei ids and
+/// step one had just added one to that list — a create blamed for rewording an
+/// error in a rhei it never touched.
+// §FS-rhei-new.5.2
+#[test]
+fn the_two_step_on_ramp_works_beside_a_broken_sibling() {
+    let dir = empty_project("new-on-ramp");
+    write_fixture_file(
+        &dir,
+        "legacy.rhei.md",
+        "# Rhei: Legacy\n\n## Tasks\n\n### Task 1: Old thing\n**State:** pending\n\
+         **Prior:** nosuch.1\n",
+    );
+
+    let rhei = new_run(&["new", "Billing"], &dir);
+    assert_success(&rhei);
+    assert!(rhei.stdout.contains("--under billing"), "step one must point at step two");
+
+    let ticket = new_run(&["new", "First ticket", "--under", "billing"], &dir);
+    assert_success(&ticket);
+    assert!(ticket.stdout.contains("Created ticket billing.1"), "got:\n{}", ticket.stdout);
+
+    // Both creates say the inherited failure is not theirs, and keep the write.
+    assert!(ticket.stderr.contains("already failing validation"), "got: {}", ticket.stderr);
+    assert!(fs::read_to_string(dir.join("billing.rhei.md"))
+        .expect("rhei file")
+        .contains("First ticket"));
+}

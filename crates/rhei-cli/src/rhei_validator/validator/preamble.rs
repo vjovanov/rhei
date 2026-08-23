@@ -21,12 +21,23 @@ pub struct ValidationReport {
     pub errors: Vec<String>,
     /// Non-fatal validation observations.
     pub warnings: Vec<String>,
+    /// Guidance that accompanies an error without being part of it.
+    ///
+    /// Anything an error message would otherwise enumerate from the *whole*
+    /// project — its rhei ids, the node kinds and depth limit its rheis merge
+    /// into one structure — belongs here. Those lists are the reason a create
+    /// elsewhere in the project changes the text of an error it never touched,
+    /// and a create decides what it introduced by comparing error strings.
+    /// Keeping the volatile half out of the error keeps the error's identity
+    /// stable, and the user still reads every word of it.
+    // §FS-rhei-new.5.2
+    pub help: Vec<String>,
 }
 
 impl ValidationReport {
     /// Construct an empty, successful report.
     pub fn ok() -> Self {
-        Self { errors: Vec::new(), warnings: Vec::new() }
+        Self { errors: Vec::new(), warnings: Vec::new(), help: Vec::new() }
     }
 
     /// Returns true if any errors are present.
@@ -38,6 +49,7 @@ impl ValidationReport {
     pub fn extend(&mut self, other: ValidationReport) {
         self.errors.extend(other.errors);
         self.warnings.extend(other.warnings);
+        self.help.extend(other.help);
     }
 }
 

@@ -558,9 +558,24 @@ fn file_io_report(path: &Path, action: &str, err: impl FileIoCause) -> Report {
 }
 
 /// Convert validation errors into a single CLI-facing diagnostic report.
-fn validation_report(input: &Path, state_machine: Option<&Path>, errors: &[String]) -> Report {
+///
+/// `guidance` carries what the errors deliberately do not say: the project-wide
+/// lists — its rhei ids, the node kinds and depth limit merged from every rhei
+/// — that a create somewhere else in the project can change. Keeping them in
+/// the `help` rather than in the error text is what lets a create tell the
+/// errors it introduced from the ones it inherited, while the reader still sees
+/// every word.
+// §FS-rhei-new.5.2
+fn validation_report(
+    input: &Path,
+    state_machine: Option<&Path>,
+    errors: &[String],
+    guidance: &[String],
+) -> Report {
+    let mut help = guidance.to_vec();
+    help.push("fix the errors above, then re-check with: rhei validate <plan>".to_string());
     miette!(
-        help = "fix the errors above, then re-check with: rhei validate <plan>",
+        help = help.join("\n"),
         "{}", render_validation_diagnostic(input, state_machine, errors)
     )
 }

@@ -223,7 +223,12 @@ fn run_command(
         .extend(validate_task_execution_override_settings_references(&loaded.rhei, &settings));
     report.errors.extend(validate_snapshot_plan_context(&loaded, &resolved));
     if report.has_errors() {
-        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
+        return Err(validation_report(
+            input,
+            resolved.default.path.as_deref(),
+            &report.errors,
+            &report.help,
+        ));
     }
     // A machine that warns is legal, so the run proceeds — but the operator
     // heard it only if they happened to validate first.

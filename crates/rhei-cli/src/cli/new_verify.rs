@@ -45,7 +45,12 @@ fn new_write_failure(
             let introduced = errors_introduced_over(inherited, pass.errors);
             if !introduced.is_empty() {
                 return Some(CreateFailure {
-                    report: validation_report(target, pass.state_machine.as_deref(), &introduced),
+                    report: validation_report(
+                        target,
+                        pass.state_machine.as_deref(),
+                        &introduced,
+                        &pass.help,
+                    ),
                     reason: "the project would not validate with it",
                 });
             }

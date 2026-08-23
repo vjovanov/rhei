@@ -44,7 +44,12 @@ fn next_command(
     // Validate the plan first.
     let report = rhei_validator::validate_with_machine_set(&loaded.rhei, &machines.set);
     if report.has_errors() {
-        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
+        return Err(validation_report(
+            input,
+            resolved.default.path.as_deref(),
+            &report.errors,
+            &report.help,
+        ));
     }
 
     // Find the target task to claim. §FS-rhei-panta.6: accept the qualified

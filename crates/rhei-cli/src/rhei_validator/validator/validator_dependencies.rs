@@ -43,10 +43,11 @@ fn validate_dependency_integrity(
                     let flavor = if structure.accepts_kind(kind) {
                         String::new()
                     } else {
-                        format!(
-                            " ('{kind}' is not a declared node kind; declared: {:?})",
-                            structure.node_kinds
-                        )
+                        // The declared set is merged from every rhei, so it
+                        // changes when an unrelated one is added: it is
+                        // guidance, not part of this error. §FS-rhei-new.5.2
+                        report.help.push(declared_node_kinds_help(structure));
+                        format!(" ('{kind}' is not a declared node kind)")
                     };
                     report.errors.push(format!(
                         "Task {} **Prior:** kind keyword '{kind}' does not match Task {}: \
@@ -60,21 +61,22 @@ fn validate_dependency_integrity(
                 // pasted task *title* takes — lead with that common mistake.
                 // §FS-rhei-plan-language.3.1
                 (None, Some(kind)) if !structure.accepts_kind(kind) => {
+                    report.help.push(declared_node_kinds_help(structure));
                     report.errors.push(format!(
                         "Task {} has an unresolvable **Prior:** reference: '{kind}' is not a \
-                         declared node kind (declared: {:?}) and no Task {} exists. If the \
-                         reference is a task title, use the task's id instead (`**Prior:** 1`, \
-                         `**Prior:** auth.2`)",
-                        task.id, structure.node_kinds, dep
+                         declared node kind and no Task {} exists. If the reference is a task \
+                         title, use the task's id instead (`**Prior:** 1`, `**Prior:** auth.2`)",
+                        task.id, dep
                     ));
                 }
                 (None, _) => {
-                    report.errors.push(format!(
-                        "Task {} depends on missing Task {}{}",
-                        task.id,
-                        dep,
-                        missing_prior_hint(&task.id, dep, index, rhei_ids)
-                    ));
+                    let (tail, guidance) = missing_prior_hint(&task.id, dep, index, rhei_ids);
+                    if let Some(guidance) = guidance {
+                        report.help.push(guidance);
+                    }
+                    report
+                        .errors
+                        .push(format!("Task {} depends on missing Task {}{tail}", task.id, dep));
                 }
                 _ => {}
             }
@@ -125,27 +127,38 @@ fn missing_prior_hint(
     dep: &TaskId,
     index: &HashMap<TaskId, &Task>,
     rhei_ids: &[String],
-) -> String {
+) -> (String, Option<String>) {
     let Some(TaskIdSegment::Named(candidate)) = dep.segments.first() else {
-        return String::new();
+        return (String::new(), None);
     };
     // A dep under a known rhei is a plain missing ticket and needs no explaining.
     if rhei_ids.iter().any(|id| id == candidate) {
-        return String::new();
+        return (String::new(), None);
     }
     let citing_rhei = match task.segments.first() {
         Some(TaskIdSegment::Named(name)) => name.as_str(),
-        _ => return String::new(),
+        _ => return (String::new(), None),
     };
-    let mut hint = format!(
-        ": no rhei named '{candidate}' in this project (rheis: {}), \
-         and rhei '{citing_rhei}' has no ticket '{dep}'",
-        rhei_ids.join(", ")
+    let tail = format!(
+        ": no rhei named '{candidate}' in this project, \
+         and rhei '{citing_rhei}' has no ticket '{dep}'"
     );
+    // The rhei list — and the nearest id in it — is what a create elsewhere
+    // changes, so both halves stay guidance rather than error text.
+    // §FS-rhei-new.5.2
+    let mut guidance =
+        format!("Task {task} **Prior:** '{dep}': this project's rheis are {}.", rhei_ids.join(", "));
     if let Some(corrected) = nearest_resolving_id(task, dep, candidate, index, rhei_ids) {
-        hint.push_str(&format!(". Did you mean '{corrected}'?"));
+        guidance.push_str(&format!(" Did you mean '{corrected}'?"));
     }
-    hint
+    (tail, Some(guidance))
+}
+
+/// The node kinds the merged project declares, as guidance rather than as part
+/// of an error: `rhei new --node-kinds` on any rhei changes the list.
+// §FS-rhei-plan-language.3.7 §FS-rhei-new.5.2
+fn declared_node_kinds_help(structure: &Structure) -> String {
+    format!("this plan structure declares nodeKinds {:?}.", structure.node_kinds)
 }
 
 /// Correct `dep`'s leading segment to the nearest rhei id, keeping the

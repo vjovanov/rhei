@@ -1,9 +1,17 @@
     #[test]
     fn validation_report_extend_merges_errors_and_warnings() {
         let mut base =
-            ValidationReport { errors: vec!["e1".to_string()], warnings: vec!["w1".to_string()] };
+            ValidationReport {
+                errors: vec!["e1".to_string()],
+                warnings: vec!["w1".to_string()],
+                help: Vec::new(),
+            };
         let other =
-            ValidationReport { errors: vec!["e2".to_string()], warnings: vec!["w2".to_string()] };
+            ValidationReport {
+                errors: vec!["e2".to_string()],
+                warnings: vec!["w2".to_string()],
+                help: Vec::new(),
+            };
 
         base.extend(other);
 

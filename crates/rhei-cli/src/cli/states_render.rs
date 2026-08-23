@@ -1082,6 +1082,10 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
 struct ValidationPass {
     errors: Vec<String>,
     warnings: Vec<String>,
+    /// Guidance the errors carry without owning: the project-global lists a
+    /// create elsewhere can change, kept out of the error text so the pre/post
+    /// diff stays stable. §FS-rhei-new.5.2
+    help: Vec<String>,
     /// The states file the pass resolved, for an error report to name.
     state_machine: Option<PathBuf>,
 }
@@ -1099,7 +1103,12 @@ fn validation_warnings_or_error(
 ) -> MietteResult<Vec<String>> {
     let pass = validation_pass(input, state_machine)?;
     if !pass.errors.is_empty() {
-        return Err(validation_report(input, pass.state_machine.as_deref(), &pass.errors));
+        return Err(validation_report(
+            input,
+            pass.state_machine.as_deref(),
+            &pass.errors,
+            &pass.help,
+        ));
     }
     Ok(pass.warnings)
 }
@@ -1162,9 +1171,11 @@ fn validation_pass(input: &Path, state_machine: Option<&Path>) -> MietteResult<V
     report.warnings.extend(empty_rhei_warnings(&loaded));
     report.warnings.extend(ignored_member_settings_warnings(input, &loaded));
 
+    report.help.dedup();
     Ok(ValidationPass {
         errors: report.errors,
         warnings: report.warnings,
+        help: report.help,
         state_machine: resolved.default.path.clone(),
     })
 }

@@ -231,11 +231,17 @@ fn validate_node_policy_against_structure(
         return;
     };
 
+    // A project's structure is merged from every rhei in it, so naming the
+    // merged set inside an error blames an unrelated create for changing it.
+    // §FS-rhei-new.5.2
     for kind in policy.by_type.keys() {
         if !structure.accepts_kind(kind) {
             report.errors.push(format!(
-                "node_policy.by_type references node kind '{}' but the plan structure declares nodeKinds {:?}",
-                kind, structure.node_kinds
+                "node_policy.by_type references node kind '{kind}', which the plan structure does not declare"
+            ));
+            report.help.push(format!(
+                "node_policy.by_type '{kind}': the plan structure declares nodeKinds {:?}.",
+                structure.node_kinds
             ));
         }
     }
@@ -244,16 +250,22 @@ fn validate_node_policy_against_structure(
         if let Some(node_type) = ov.match_.node_type.as_deref() {
             if !structure.accepts_kind(node_type) {
                 report.errors.push(format!(
-                    "node_policy.overrides[{idx}].match.type references node kind '{}' but the plan structure declares nodeKinds {:?}",
-                    node_type, structure.node_kinds
+                    "node_policy.overrides[{idx}].match.type references node kind '{node_type}', which the plan structure does not declare"
+                ));
+                report.help.push(format!(
+                    "node_policy.overrides[{idx}].match.type '{node_type}': the plan structure declares nodeKinds {:?}.",
+                    structure.node_kinds
                 ));
             }
         }
         if let Some(level) = ov.match_.level {
             if level == 0 || level > structure.max_levels {
                 report.errors.push(format!(
-                    "node_policy.overrides[{idx}].match.level is {}, but levels must be in 1..={} for this plan structure",
-                    level, structure.max_levels
+                    "node_policy.overrides[{idx}].match.level is {level}, which is outside the levels this plan structure allows"
+                ));
+                report.help.push(format!(
+                    "node_policy.overrides[{idx}].match.level: levels must be in 1..={} for this plan structure.",
+                    structure.max_levels
                 ));
             }
         }
