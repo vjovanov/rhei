@@ -169,8 +169,12 @@ fn task_state_is_terminal(
 /// one place where the anchor of a whole prompt is decided.
 // §FS-rhei-memory.3.4 §FS-rhei-states.4
 fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
+    // One spelling per prompt: a rhei root the plan was given as `/var/…` and
+    // a runtime directory the run resolved to `/private/var/…` are one place,
+    // and the map must not spell them as two. §FS-rhei-memory.1.2
+    let path = anchor_spelling(path, render_context.workspace_root);
     if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
-        return absolute_memory_path(path);
+        return absolute_memory_path(&path);
     }
     if render_context.checkout_root != render_context.workspace_root {
         return path.display().to_string();
@@ -179,6 +183,43 @@ fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> Stri
         Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
         Ok(relative) => relative.display().to_string(),
         Err(_) => path.display().to_string(),
+    }
+}
+
+/// `path` re-expressed under `root`'s own spelling when the two name places
+/// under one directory the filesystem spells two ways — `/var/…` against
+/// `/private/var/…` on macOS, or a path given relative to the cwd against the
+/// canonical root the run resolved. A path that is not under `root`, or that
+/// cannot be resolved, is returned as given.
+// §FS-rhei-memory.1.2
+fn anchor_spelling(path: &Path, root: &Path) -> PathBuf {
+    if path.starts_with(root) {
+        return path.to_path_buf();
+    }
+    let (Ok(canonical_root), Some(canonical_path)) = (root.canonicalize(), canonical_spelling(path))
+    else {
+        return path.to_path_buf();
+    };
+    match canonical_path.strip_prefix(&canonical_root) {
+        Ok(relative) => root.join(relative),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// The canonical spelling of a path that need not exist yet: its longest
+/// existing prefix resolved, the rest appended as written. A run's transcripts
+/// directory is named in a prompt before the first log is written to it.
+fn canonical_spelling(path: &Path) -> Option<PathBuf> {
+    let mut existing = path.to_path_buf();
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(canonical) = existing.canonicalize() {
+            return Some(rest.iter().rev().fold(canonical, |acc, part| acc.join(part)));
+        }
+        rest.push(existing.file_name()?.to_os_string());
+        if !existing.pop() {
+            return None;
+        }
     }
 }
 

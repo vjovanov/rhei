@@ -105,3 +105,23 @@
             "a relative target resolves against the owning rhei's root"
         );
     }
+
+    /// §FS-rhei-memory.1.2: a root reached through a symlink and a directory
+    /// the run resolved canonically are one place, and the prompt spells both
+    /// the root's way — including a directory that does not exist yet.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_is_spelled_the_way_its_root_is() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("alpha")).expect("real root");
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).expect("symlink");
+        let root = real.canonicalize().expect("canonical root");
+
+        assert_eq!(anchor_spelling(&link.join("alpha"), &root), root.join("alpha"));
+        assert_eq!(anchor_spelling(&link.join("runtime/logs"), &root), root.join("runtime/logs"));
+        assert_eq!(anchor_spelling(&root.join("alpha"), &root), root.join("alpha"));
+        let elsewhere = Path::new("/nowhere/else/at/all");
+        assert_eq!(anchor_spelling(elsewhere, &root), elsewhere.to_path_buf());
+    }
