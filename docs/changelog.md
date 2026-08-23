@@ -119,6 +119,7 @@
 
   `examples/subtree-supervision/` runs the whole chain with a committed mock
   agent and no credentials. §FS-rhei-supervision §DF-subtree-supervision
+  Issue #86. PR #87 §FS-rhei-supervision §DF-subtree-supervision
 
 - A new built-in template, **`supervised-delivery`**, is the workflow
   `execute_on:` was for: one supervising task that reads a spec, sends the
@@ -135,6 +136,7 @@
   fragments the reviewer states share. Run it with `--parallel 2` or more so the
   two reviews of a round overlap. The rendered example is
   `examples/supervised-delivery-example/`. §FS-rhei-supervision §FS-rhei-templates
+  PR #87 §FS-rhei-templates
 
 - `rhei instantiate`'s template environment documents `range()`, arithmetic, and
   `~`, which it already supported. `{% for k in range(1, rounds + 1) %}` is how
@@ -143,6 +145,7 @@
   are per-task metadata a counted `visits:` loop has nowhere to put. The same
   arithmetic sizes a state's budget from the inputs that shaped the plan.
   §FS-rhei-templates.5
+  PR #87 §FS-rhei-templates.5
 
 
 ## 2. [0.2.0] - 2026-08-22
