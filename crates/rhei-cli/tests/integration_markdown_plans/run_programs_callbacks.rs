@@ -56,6 +56,8 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture is the polled program here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_poll_self_loop_schedules_next_attempt_and_clears_on_exit() {
     let machine = r#"name: run-poll-test
@@ -102,15 +104,10 @@ exit 75
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let script_path = write_fixture_file(&dir, "poll.sh", script);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script_path).expect("stat poll").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms).expect("chmod poll");
-    }
-    #[cfg(not(unix))]
-    let _ = &script_path;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(&script_path).expect("stat poll").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("chmod poll");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -447,6 +444,8 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_executes_relative_callback_from_state_machine_directory() {
     let dir = unique_temp_dir("run-relative-callback");
@@ -482,15 +481,10 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
     let plan_path = write_fixture_file(&workspace_dir, "release-automation.rhei.md", plan);
     write_fixture_file(&machine_dir, "team-states.yaml", machine);
     let script_path = write_fixture_file(&machine_dir, "workflow.sh", script);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms).expect("chmod workflow");
-    }
-    #[cfg(not(unix))]
-    let _ = &script_path;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("chmod workflow");
 
     let result = run_run_command_in_dir(
         &workspace_dir,
@@ -522,6 +516,8 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_executes_all_models_callbacks_without_agent_configuration() {
     let dir = unique_temp_dir("run-all-models-callback");
@@ -563,15 +559,10 @@ printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let script_path = write_fixture_file(&dir, "workflow.sh", script);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms).expect("chmod workflow");
-    }
-    #[cfg(not(unix))]
-    let _ = &script_path;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&script_path, perms).expect("chmod workflow");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-agent"]);
 

@@ -14,10 +14,7 @@ and no longer.
 **`test`** runs on Linux, macOS, and Windows. Each platform installs the pinned
 Rust toolchain from `rust-toolchain.toml`, restores the cargo registry and
 `target` cache, and executes the Rust formatting, lint, and build gates. Linux
-and macOS also run the full Rust test suite. Windows runs every crate's unit
-tests and `rhei-core`'s integration tests; the CLI's e2e suite is excluded
-there because its fixtures drive `sh` mock agents (porting them is tracked
-separately):
+and macOS then run the whole Rust test suite in one command:
 
 ```bash
 cargo fmt --all -- --check
@@ -25,6 +22,23 @@ cargo clippy --workspace --all-targets -- -D warnings -W clippy::all
 cargo build --workspace --all-targets --locked
 cargo test --workspace --all-targets --locked --no-fail-fast
 ```
+
+Windows runs the same three gates and then three test steps rather than one,
+so a failure in the first still lets the others run and one red job reports
+everything there is to fix:
+
+```bash
+cargo test --workspace --lib --exclude rhei-api --locked --no-fail-fast
+cargo test -p rhei-plan --locked --no-fail-fast
+cargo test -p rhei-cli --test integration_markdown_plans --locked --no-fail-fast
+```
+
+One target is excluded there and one is not: the CLI's **e2e** target
+(`--test integration`) drives `sh` mock agents throughout and is Linux and
+macOS only, while the CLI's integration target above needs no shell and runs
+on all three. Inside it, the individual tests that do stand a shell script up
+as an agent, a polled program, or a callback are `#[cfg(unix)]` and named as
+such. Porting the e2e target is tracked separately.
 
 **`lint`** runs on Linux only. It runs `grund config validate` and
 `grund check .`, then the repository `.pre-commit-config.yaml` against all

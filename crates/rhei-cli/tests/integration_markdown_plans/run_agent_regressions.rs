@@ -4,10 +4,14 @@ fn write_run_agent_settings(dir: &Path, settings: &str) {
     fs::write(settings_dir.join("settings.json"), settings).expect("write settings");
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn canonical_path_text(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
     recorded
         .lines()
@@ -15,22 +19,23 @@ fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
         .unwrap_or_else(|| panic!("recorded output missing {prefix:?}: {recorded}"))
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn assert_recorded_path_eq(recorded: &str, expected: &Path) {
     assert_eq!(canonical_path_text(Path::new(recorded)), canonical_path_text(expected));
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn make_run_agent_script_executable(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(path).expect("stat agent script").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(path, perms).expect("chmod agent script");
-    }
-    #[cfg(not(unix))]
-    let _ = path;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(path).expect("stat agent script").permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms).expect("chmod agent script");
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn collect_run_agent_snapshot_manifests(dir: &Path) -> Vec<serde_json::Value> {
     fn visit(path: &Path, manifests: &mut Vec<serde_json::Value>) {
         for entry in fs::read_dir(path).unwrap_or_else(|_| panic!("read dir {}", path.display())) {
@@ -54,6 +59,8 @@ fn collect_run_agent_snapshot_manifests(dir: &Path) -> Vec<serde_json::Value> {
     manifests
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn assert_run_agent_snapshot(
     manifests: &[serde_json::Value],
     snapshot_name: &str,
@@ -70,6 +77,8 @@ fn assert_run_agent_snapshot(
     );
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 const CHECKOUT_ROOT_MACHINE: &str = r#"name: checkout-root-agent
 version: 1
 states:
@@ -83,6 +92,8 @@ transitions:
     to: completed
 "#;
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
 
 ## Tasks
@@ -91,6 +102,8 @@ const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
 **State:** review
 "#;
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn write_checkout_recording_script(dir: &Path) -> PathBuf {
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
@@ -110,6 +123,8 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     script_path
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn write_absolute_fake_agent_settings(dir: &Path, script_path: &Path) {
     let settings = format!(
         r#"{{
@@ -125,6 +140,8 @@ fn write_absolute_fake_agent_settings(dir: &Path, script_path: &Path) {
     write_run_agent_settings(dir, &settings);
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn write_stdin_fake_agent_settings(dir: &Path, script_path: &Path) {
     let settings = format!(
         r#"{{
@@ -141,6 +158,8 @@ fn write_stdin_fake_agent_settings(dir: &Path, script_path: &Path) {
     write_run_agent_settings(dir, &settings);
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn run_git(args: &[&str]) {
     let output = Command::new("git").args(args).output().expect("git should run");
     assert!(
@@ -152,6 +171,8 @@ fn run_git(args: &[&str]) {
     );
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn git_stdout(args: &[&str]) -> String {
     let output = Command::new("git").args(args).output().expect("git should run");
     assert!(
@@ -164,6 +185,8 @@ fn git_stdout(args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn init_git_repo(repo: &Path) {
     fs::create_dir_all(repo).expect("create repo");
     run_git(&["-C", repo.to_str().expect("repo path"), "init"]);
@@ -174,6 +197,8 @@ fn init_git_repo(repo: &Path) {
     run_git(&["-C", repo.to_str().expect("repo path"), "commit", "-m", "initial"]);
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     let root = unique_temp_dir("run-agent-git-checkout-root");
@@ -207,6 +232,8 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_fails_when_agent_commit_leaves_orchestrator_transition_uncommitted() {
     let root = unique_temp_dir("run-agent-commit-dirty-transition");
@@ -270,6 +297,8 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_renders_artifact_paths_at_rhei_root_when_checkout_root_differs() {
     let root = unique_temp_dir("run-agent-artifact-path-checkout-root");
@@ -334,6 +363,8 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     let root = unique_temp_dir("run-agent-cwd-checkout-root");
@@ -364,6 +395,8 @@ fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     let root = unique_temp_dir("run-agent-clear-stale-worktree-env");
@@ -396,6 +429,8 @@ fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     let root = unique_temp_dir("run-agent-task-worktree-root");
@@ -444,6 +479,8 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_spawns_agent_state_without_outputs() {
     let machine = r#"name: no-output-agent
@@ -511,6 +548,8 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_auto_advances_nested_agent_task_after_outputs_exist() {
     let machine = r#"name: nested-agent-output
@@ -709,6 +748,8 @@ transitions:
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_exit_zero_missing_outputs_emits_failure_snapshots_and_fails_run() {
     let machine = r#"name: agent-missing-output-snapshot
@@ -804,6 +845,8 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_exit_zero_without_transition_emits_always_snapshots() {
     let machine = r#"name: agent-no-transition-snapshot
@@ -876,6 +919,8 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_nonzero_exit_without_route_emits_failure_snapshot_before_abort() {
     let machine = r#"name: agent-error-snapshot
@@ -947,6 +992,8 @@ exit 7
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_agent_timeout_route_emits_timeout_snapshot_before_transition() {
     let machine = r#"name: agent-timeout-snapshot
@@ -1024,6 +1071,8 @@ wait
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn run_spawns_all_fanout_invocations_for_selected_task_despite_parallel_one() {
     let machine = r#"name: fanout-parallel-task-limit
