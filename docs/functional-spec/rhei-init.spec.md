@@ -139,7 +139,9 @@ The note:
 
 The Rhei (Panta) project for this repository lives in `panta/`. Plans are
 `*.rhei.md` files and workspace directories; ticket ids are
-project-qualified (`<rhei>.<id>`). Work tickets with `rhei list`,
+project-qualified (`<rhei>.<id>`). Add work with
+`rhei new "<title>" --under <rhei>`, and capture a ticket that has no
+rhei yet with `--under basin`. Work tickets with `rhei list`,
 `rhei next`, and `rhei complete`; validate edits with `rhei validate`.
 Orchestration (`rhei run`) is started by humans, never by agents.
 <!-- rhei:end -->
