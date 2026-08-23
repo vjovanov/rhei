@@ -42,13 +42,20 @@ order in which they finished.
 
 The prompt is a **pure function** of: the merged project graph, the `runtime/`
 tree of every execution root, the resolved state machines, the resolved
-settings, and the invocation identity (task, state, visit count, execution
-identity). Composition performs no summarization, ranking, or selection beyond
-the rules written in §4: a summary is a fixed slice of a file, an order is a
-stated order, a cap is a stated number, and a truncation leaves a stated
-overflow line. The same inputs produce the same bytes. Nothing that varies per
-run — a run id, a timestamp, a pid — appears in the prompt; those travel in the
-environment (§FS-rhei-agents.4).
+settings, the invocation identity (task, state, visit count, execution
+identity), and the set of invocations of the current `rhei run` still in flight
+when the prompt is composed (§4.3.5). Composition performs no summarization,
+ranking, or selection beyond the rules written in §4: a summary is a fixed
+slice of a file, an order is a stated order, a cap is a stated number, and a
+truncation leaves a stated overflow line. The same inputs produce the same
+bytes. Nothing that varies per run — a run id, a timestamp, a pid — appears in
+the prompt; those travel in the environment (§FS-rhei-agents.4).
+
+The in-flight set is the one input not derivable from disk: it is what the
+scheduler happens to have spawned and not yet reaped. Under `--parallel 1` it
+is empty or a single ticket and the prompt is reproducible; under
+`--parallel > 1` it depends on scheduling, so `### In Flight` is not
+reproducible there and a test must not pin its contents.
 
 ### 1.3. Bounded and Progressive
 
@@ -111,11 +118,15 @@ Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › {Kind} {ancestor-id}
 
 ### Rhei Context
 
-{content sections of the owning rhei, verbatim}
+    ```markdown
+    {content sections of the owning rhei, verbatim}
+    ```
 
 ### Project Context
 
-{content sections of index.panta.md, verbatim}
+    ```markdown
+    {content sections of index.panta.md, verbatim}
+    ```
 ```
 
 - The chain line names every ancestor, root first, each with its state. A
@@ -202,8 +213,11 @@ Result entries so far:
 Previous log: `runtime/logs/{log file of the previous visit of this state}`
 ```
 
-- The trail is this task's lines from the ledger, in order, with the current
-  state appended.
+- The trail is the state sequence of this task's ledger lines, in order — the
+  first line's `from`, then every line's `to` — with the state being entered
+  marked as this visit (§4.4.1). The engine has already written the line that
+  moved the task here, so that state is annotated in place rather than
+  repeated.
 - The result file is pasted because it is where every earlier verdict on this
   task landed: a worker's `--result` message, and the engine's own entries when
   an earlier visit timed out or exited without its required outputs
@@ -288,8 +302,8 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    order, each tagged `(rhei <R>, prior)`.
 3. `summary(T)` = the first non-blank line of the **last** `## Result` entry
    of `runtime/results/<T>.md` under `root(rhei(T))`, excluding the heading
-   line, cut to 120 columns with a trailing `…`; `(no result)` when the file
-   is missing or empty. If `T`'s result is pasted in full elsewhere in this
+   line, cut to the first 120 characters followed by `…` — characters, not
+   display columns; `(no result)` when the file is missing or empty. If `T`'s result is pasted in full elsewhere in this
    prompt, `see above` replaces the summary.
 4. Cap: 40 lines. Entries in `priors` are never dropped; entries in `own` are
    dropped **oldest first** until the cap holds, and the overflow line
@@ -306,12 +320,21 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    `— consumes <export>`; cap 30, overflow
    `… {n} more — rhei list --has-prior <task>`.
 7. Omit `## Plan History` entirely when `own ∪ priors` is empty and neither
-   sub-section renders.
+   sub-section renders. The preamble introduces the list, so it is emitted only
+   when the list has at least one entry: with nothing finished but somebody
+   working or waiting, `### In Flight` and `### Dependents` render under a bare
+   `## Plan History`.
 
 ### 4.4. Previous Visits
 
-1. `trail` = lines of `L(R₀)` for `task`, in order. Render when `trail` is
-   non-empty or `runtime/results/<task>.md` exists; otherwise omit the section.
+1. `trail` = the state sequence of `L(R₀)`'s lines for `task`: the first
+   line's `from`, then each line's `to`. Render when `trail` is non-empty or
+   `runtime/results/<task>.md` exists; otherwise omit the section. If the last
+   state of `trail` equals `state`, annotate that last state with
+   ` (this visit, visit <visit_count>)`; otherwise append
+   ` → <state> (this visit, visit <visit_count>)`. A self-loop leaves the state
+   in `trail` twice and both stay: the second is the previous visit, not this
+   one.
 2. Paste `runtime/results/<task>.md`, fenced; cap 100 lines, keeping the
    **last** 100 with the overflow line `… earlier entries omitted; read <path>`
    first.
@@ -339,7 +362,14 @@ Given an invocation `I = (task, state, visit_count, identity)`:
   the instructions, as it does for the supervision sections today
   (§FS-rhei-supervision.3.4); JSON output carries each as a string field named
   after the section: `position`, `plan_history`, `previous_visits`,
-  `navigation`.
+  `navigation`. Two differences follow from what that surface prints:
+  - `rhei next` renders no `## Rhei Commands`, so the two sub-sections of §3.4
+    would arrive with no `##` parent. On this surface they are wrapped in
+    `## Rhei Navigation`; the JSON field stays `navigation`.
+  - `rhei next` pastes neither `## Prior Task Results` nor `## Child Task
+    Results`, so `see above` would point at nothing: a task whose result is
+    pasted only under those sections shows its real summary here instead.
+    `## Checkpoints` is rendered on both surfaces and counts on both.
 - `rhei run --dry-run` keeps its `<prompt...>` placeholder (§FS-rhei-agents.9).
   There is no command yet that prints the full composed prompt without
   claiming a ticket; claim-mode `rhei next` output (§FS-rhei-next.3.2) is the
@@ -390,7 +420,7 @@ Result entries so far:
     agent timed out in state 'fix' after 30m
     ```
 
-Previous log: `runtime/logs/task-delivery.deliver.fix-1-fix-1.log`
+Previous log: `runtime/logs/task-delivery.deliver.fix-1-fix.log`
 ```
 
 The two reviews are `see above` because they are this task's direct priors and

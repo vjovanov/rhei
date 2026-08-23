@@ -349,11 +349,10 @@ Acceptance: every child lands its own result.
         context.metadata = Some(&metadata);
 
         let visits = render_previous_visits(&context).expect("visits");
+        // §FS-rhei-memory.4.4: the ledger already ends in `review` — the line
+        // that moved the task here — so that state is annotated, not repeated.
         assert!(
-            visits.contains(
-                "Trail for this task: pending \u{2192} review \u{2192} review \
-                 (this visit, visit 2).\n"
-            ),
+            visits.contains("Trail for this task: pending \u{2192} review (this visit, visit 2).\n"),
             "got:\n{visits}"
         );
         assert!(visits.contains("Result entries so far:\n\n```markdown\n"), "got:\n{visits}");
@@ -638,4 +637,65 @@ The decomposition for the whole subtree lives here.
 
         let history = render_plan_history(&context).expect("history");
         assert!(history.contains("- Bug plan.1.3: Fixed already \u{2014} completed"), "got:\n{history}");
+    }
+
+    /// The trail is the ledger's own state sequence. When it already ends in
+    /// the state being entered — the engine wrote the line that moved the task
+    /// here — that state is annotated in place; a self-loop still leaves the
+    /// state twice, because the earlier one is the earlier visit.
+    // §FS-rhei-memory.4.4
+    #[test]
+    fn a_trail_ending_in_this_state_is_annotated_not_repeated() {
+        let dir = memory_plan_dir(&[(
+            "runtime/state-transitions.log",
+            "plan.1.3 pending@review\nplan.1.3 review@review\n",
+        )]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.3").expect("task 1.3");
+        let mut context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "review");
+        let metadata = visit_metadata("plan.1.3", "review", 3);
+        context.metadata = Some(&metadata);
+
+        let visits = render_previous_visits(&context).expect("visits");
+        assert!(
+            visits.contains(
+                "Trail for this task: pending \u{2192} review \u{2192} review \
+                 (this visit, visit 3).\n"
+            ),
+            "got:\n{visits}"
+        );
+    }
+
+    /// The other branch: a task with a result file but no ledger line — an
+    /// imported plan, or one finished before the ledger existed — has a trail
+    /// the current state is appended to rather than folded into.
+    // §FS-rhei-memory.4.4
+    #[test]
+    fn a_trail_that_does_not_end_here_gets_this_state_appended() {
+        let dir = memory_plan_dir(&[
+            ("runtime/results/plan.1.3.md", "## Result\n\nImported verdict.\n"),
+            // A line for a *different* task: the ledger exists, this task is
+            // simply not in it.
+            ("runtime/state-transitions.log", "plan.1.1 pending@completed\n"),
+        ]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.3").expect("task 1.3");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "review");
+
+        let visits = render_previous_visits(&context).expect("visits");
+        assert!(
+            visits.contains("Trail for this task: review (this visit, visit 1).\n"),
+            "got:\n{visits}"
+        );
+        assert!(visits.contains("Imported verdict."), "got:\n{visits}");
     }
