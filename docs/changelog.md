@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Windows CI now runs the test suite it can: every crate's unit tests and
+  `rhei-core`'s integration tests, which together cover the parsers, the
+  validator, workspace and Panta loading, qualified ids, the transition ledger,
+  and every prompt renderer — the path-handling code where Windows differs
+  most. Until now the Windows job stopped after `cargo build`, so Windows
+  proved compilation and nothing about behaviour. The CLI's e2e suite, which
+  drives `sh` mock agents, is still Linux and macOS only. §AR-ci-release.1
+
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
   attribution, changelog). The Ubuntu job used to carry every repository gate
