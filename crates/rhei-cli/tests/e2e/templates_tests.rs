@@ -57,8 +57,6 @@ fn standalone_instantiation_notes_untracked_workspace_in_git_repo() {
         "ignored standalone workspace must not get the note; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-templates.6.3.1: the JSON entry carries every key an input
@@ -105,8 +103,6 @@ fn templates_json_carries_the_whole_input_schema() {
         "got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-templates.6.3: naming a template after reading the list answers
@@ -148,8 +144,6 @@ fn templates_with_a_name_shows_the_template_detail() {
         "unknown template should suggest the close name; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -201,8 +195,6 @@ inputs:
         "expected short template name only, without template path; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -237,8 +229,6 @@ description: Simple hello-world template
         "expected instantiate without template to list templates; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -278,8 +268,6 @@ description: Review code changes
         "expected close template suggestion; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -345,8 +333,6 @@ Say hello to {{target}}.
     assert!(rendered.contains("# Rhei: Hello World"));
     assert!(rendered.contains("### Task 1: Greet World"));
     assert!(rendered.contains("Say hello to World."));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // Report paths compare against `current_dir`, which resolves symlinks, so a
@@ -356,7 +342,8 @@ Say hello to {{target}}.
 #[test]
 fn instantiate_report_is_relative_under_a_symlinked_working_directory() {
     let real = unique_temp_dir("templates-symlinked-real");
-    let link = unique_temp_dir("templates-symlinked-link").join("workdir");
+    let link_root = unique_temp_dir("templates-symlinked-link");
+    let link = link_root.join("workdir");
     std::os::unix::fs::symlink(&real, &link).expect("symlink the working directory");
 
     let template_dir = link.join("hello-template");
@@ -407,8 +394,6 @@ inputs:
         "the absolute spelling should not appear; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(&real).expect("cleanup");
 }
 
 #[test]
@@ -506,8 +491,6 @@ Body for step 6.
         "expected stop reason in instantiate output; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -551,8 +534,6 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
         "expected hourly template instantiation summary; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -599,8 +580,6 @@ inputs:
 
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("# Rhei: Hello World"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -679,8 +658,6 @@ node_policy:
         "run arguments after -- must not be treated as template inputs; got stderr:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -726,8 +703,6 @@ inputs:
 
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("# Rhei: Hello World"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -801,8 +776,6 @@ inputs:
         parsed["mcp_servers"]["linear"]["env"]["LINEAR_WORKSPACE"], "acme-engineering",
         "instantiation variable should be substituted in settings.json"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -889,8 +862,6 @@ inputs:
         &dir,
     );
     assert_success(&good);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -955,8 +926,6 @@ inputs:
         result.stdout,
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-templates.1: built-in templates ship inside the binary, so a
@@ -1008,8 +977,6 @@ fn templates_ships_a_builtin_library_with_the_binary() {
     assert!(out.join("index.rhei.md").is_file(), "the workspace was rendered");
     assert!(out.join("states.yaml").is_file(), "the bundled state machine came along");
     assert!(out.join("tasks").is_dir(), "nested template directories are extracted too");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-templates.1: built-ins sit last in the search order, so a project
@@ -1047,8 +1014,6 @@ fn a_project_template_shadows_a_builtin_of_the_same_name() {
         1,
         "the shadowed built-in is not listed twice:\n{stdout}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A minimal template whose plan declares its own state machine, so placement
@@ -1144,8 +1109,6 @@ fn instantiate_defaults_into_the_enclosing_project_keeping_its_machine() {
     assert!(listed.status.success(), "list should succeed: {}", listed.stderr);
     assert!(listed.stdout.contains("audit.1"), "ticket should be listed:\n{}", listed.stdout);
     assert!(run_raw(&["validate"], &dir).status.success(), "project should validate");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Like `write_machine_template`, but the review state carries a mock agent
@@ -1263,8 +1226,6 @@ fn instantiate_composes_templates_with_different_machines_into_one_project() {
             .expect("read ticket after run");
         assert!(task.contains("**State:** done"), "{rhei}.1 should finish as done:\n{task}");
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-templates.4: a member rhei's settings resolve at the project root,
@@ -1304,6 +1265,4 @@ fn instantiate_hoists_template_settings_to_the_project_root() {
         !dir.join("audit/.agents/rhei/settings.json").exists(),
         "no dead copy may stay in the workspace, where nothing reads it"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

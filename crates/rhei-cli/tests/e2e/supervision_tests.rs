@@ -106,7 +106,7 @@ pub fn setup_supervision(
     plan: &str,
     machine: &str,
     script_extra: &str,
-) -> (PathBuf, PathBuf, PathBuf) {
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
@@ -294,8 +294,6 @@ fn a_descendant_terminal_supervisor_is_woken_between_its_children_and_finishes_a
     // §FS-rhei-supervision.3.3: leaving the supervising state removes the block.
     let plan = fs::read_to_string(&plan_path).expect("read plan");
     assert!(!plan.contains("supervision:"), "the block is gone once the supervisor left:\n{plan}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-supervision.2.1: `execute_on: descendant-transition` hears every hop, so a child
@@ -352,8 +350,6 @@ structure:
         second.contains("Findings from plan.1.1."),
         "the `review` state's declared output rides along; got:\n{second}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The plan and the machine printed in the spec's example validate as written.
@@ -400,6 +396,4 @@ fn the_specs_own_example_validates_as_printed() {
         result.stdout,
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

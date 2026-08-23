@@ -38,13 +38,11 @@ Metadata lives here.
     let task_raw = fs::read_to_string(dir.join("tasks/01-review.md")).expect("read task file");
     let tasks = rhei_core::parser::parse_workspace_tasks(&task_raw).expect("parse task file");
     assert_eq!(tasks[0].state, "agent-review");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn workspace_run_advances_tasks_to_completion() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-run",
         "# Rhei: Run Test\n",
         &[
@@ -78,13 +76,11 @@ fn workspace_run_advances_tasks_to_completion() {
     }
 
     assert!(stdout.contains("Run complete"));
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn workspace_reset_restores_initial_states_and_removes_runtime() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-reset",
         "# Rhei: Reset Test\n",
         &[
@@ -127,8 +123,6 @@ fn workspace_reset_restores_initial_states_and_removes_runtime() {
     assert_eq!(loaded.rhei.tasks[0].children[0].state.as_str(), "pending");
     assert_eq!(loaded.rhei.tasks[1].state.as_str(), "pending");
     assert!(!ws.join("runtime").exists(), "runtime directory should be removed");
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]

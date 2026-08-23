@@ -137,8 +137,6 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
     assert!(second.contains("## Prior Task Results"), "got:\n{second}");
     // §FS-rhei-memory.4.5: and that pasted body is fenced.
     assert!(second.contains("### Task plan.1\n\n```markdown\n## Result"), "got:\n{second}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-memory.5: `rhei next` renders the same sections from the same
@@ -212,8 +210,6 @@ fn rhei_next_mirrors_the_memory_sections_in_text_and_json() {
     );
     // Task 2 has never been visited, so the section — and its field — is absent.
     assert!(payload.get("previous_visits").is_none(), "got: {payload}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A counted `review` loop, so a ticket's `**State:**` carries a `-<visit>`
@@ -280,6 +276,4 @@ fn rhei_next_prints_one_spelling_of_the_state() {
         serde_json::from_str(&json.stdout).expect("next --json parses");
     assert_eq!(payload["state"], "review-3", "got: {payload}");
     assert_eq!(payload["from_state"], "review-3", "got: {payload}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

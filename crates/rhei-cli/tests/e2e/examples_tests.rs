@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
-fn copy_example_workspace(prefix: &str, example_path: &str) -> (PathBuf, PathBuf) {
+fn copy_example_workspace(prefix: &str, example_path: &str) -> (TestDir, PathBuf) {
     let dir = unique_scratchpad_dir(prefix);
     let src = repo_root().join(example_path);
     let leaf = Path::new(example_path).file_name().expect("example path has leaf");
@@ -177,7 +177,7 @@ fn run_example_with_mock_agents(
     example_path: &str,
     state_machine_name: &str,
     args: &[&str],
-) -> (PathBuf, PathBuf, PathBuf, CliRun) {
+) -> (TestDir, PathBuf, PathBuf, CliRun) {
     let (dir, workspace) = copy_example_workspace(prefix, example_path);
     let agent = write_mock_example_agent(&dir);
     write_mock_agent_settings(&workspace, &agent);
@@ -188,7 +188,7 @@ fn run_example_with_mock_agents(
 
 #[test]
 fn example_agent_discussion_runs_with_mock_agents() {
-    let (dir, workspace, machine_path, result) = run_example_with_mock_agents(
+    let (_dir, workspace, machine_path, result) = run_example_with_mock_agents(
         "example-agent-discussion",
         "examples/agent-discussion",
         "discussion-states.yaml",
@@ -210,8 +210,6 @@ fn example_agent_discussion_runs_with_mock_agents() {
     );
     assert!(workspace.join("runtime/discussion/decision.md").exists());
     assert!(workspace.join("runtime/discussion/applied.md").exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The supervision example runs the whole §7 chain with its own committed mock.
@@ -223,7 +221,7 @@ fn example_agent_discussion_runs_with_mock_agents() {
 // §FS-rhei-supervision.7
 #[test]
 fn example_subtree_supervision_runs_its_supervisor_between_its_children() {
-    let (dir, workspace) =
+    let (_dir, workspace) =
         copy_example_workspace("example-subtree-supervision", "examples/subtree-supervision");
     let machine_path = workspace.join("states.yaml");
     let result = run_cli("run", &workspace, &machine_path, &["--no-tui"]);
@@ -257,13 +255,11 @@ fn example_subtree_supervision_runs_its_supervisor_between_its_children() {
             brief.display()
         );
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn example_analyze_and_dispatch_runs_with_mock_agents() {
-    let (dir, workspace, machine_path, result) = run_example_with_mock_agents(
+    let (_dir, workspace, machine_path, result) = run_example_with_mock_agents(
         "example-analyze-dispatch",
         "examples/analyze-and-dispatch-example",
         "states.yaml",
@@ -273,13 +269,11 @@ fn example_analyze_and_dispatch_runs_with_mock_agents() {
     assert_all_tasks_in_state(&workspace, &machine_path, "completed");
     assert!(workspace.join("tasks/02-mock-work.md").exists());
     assert!(workspace.join("runtime/report.md").exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn example_parallel_worktrees_runs_with_mock_agents() {
-    let (dir, workspace, machine_path, result) = run_example_with_mock_agents(
+    let (_dir, workspace, machine_path, result) = run_example_with_mock_agents(
         "example-parallel-worktrees",
         "examples/parallel-worktrees-example",
         "states.yaml",
@@ -297,13 +291,11 @@ fn example_parallel_worktrees_runs_with_mock_agents() {
     assert!(workspace
         .join("runtime/summaries/parallel-worktrees-example.validator-summary.md")
         .exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn example_multi_model_analysis_runs_with_mock_agents() {
-    let (dir, workspace, machine_path, result) = run_example_with_mock_agents(
+    let (_dir, workspace, machine_path, result) = run_example_with_mock_agents(
         "example-multi-model-analysis",
         "examples/multi-model-analysis-example",
         "states.yaml",
@@ -319,13 +311,11 @@ fn example_multi_model_analysis_runs_with_mock_agents() {
         .join("runtime/analyses/gemini-yolo-google-gemini-3.1-pro-preview.md")
         .exists());
     assert!(workspace.join("runtime/analyses/codex-yolo-openai-gpt-5-codex.md").exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn example_spec_review_runs_with_mock_agents() {
-    let (dir, workspace, machine_path, result) = run_example_with_mock_agents(
+    let (_dir, workspace, machine_path, result) = run_example_with_mock_agents(
         "example-spec-review",
         "examples/spec-review-example",
         "states.yaml",
@@ -338,8 +328,6 @@ fn example_spec_review_runs_with_mock_agents() {
     assert!(workspace.join("runtime/reviews/task-spec-review-example.review-review-2.md").exists());
     assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-1.md").exists());
     assert!(workspace.join("runtime/fixes/task-spec-review-example.review-fix-2.md").exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The bundled UI fixture, instantiated and run end to end with its own mock
@@ -411,6 +399,4 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         .collect();
     names.sort();
     assert_eq!(names.len(), 2, "one fragment per review target; got {names:?}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

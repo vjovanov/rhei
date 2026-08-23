@@ -29,6 +29,13 @@ mod terminal_result_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;
 
+// Shared with the `integration_markdown_plans` harness, which cannot see this
+// module tree and `include!`s the same file.
+#[path = "../support/test_dir.rs"]
+mod test_dir;
+
+pub use test_dir::TestDir;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -142,24 +149,20 @@ pub struct CliRun {
     pub stderr: String,
 }
 
-pub fn unique_temp_dir(prefix: &str) -> PathBuf {
+pub fn unique_temp_dir(prefix: &str) -> TestDir {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after unix epoch")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("rhei-integ-{prefix}-{nanos}"));
-    fs::create_dir_all(&dir).expect("temporary directory should be created");
-    dir
+    TestDir::create(std::env::temp_dir().join(format!("rhei-integ-{prefix}-{nanos}")))
 }
 
-pub fn unique_scratchpad_dir(prefix: &str) -> PathBuf {
+pub fn unique_scratchpad_dir(prefix: &str) -> TestDir {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after unix epoch")
         .as_nanos();
-    let dir = repo_root().join("scratchpad").join(format!("rhei-integ-{prefix}-{nanos}"));
-    fs::create_dir_all(&dir).expect("scratchpad directory should be created");
-    dir
+    TestDir::create(repo_root().join("scratchpad").join(format!("rhei-integ-{prefix}-{nanos}")))
 }
 
 pub fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
@@ -169,19 +172,21 @@ pub fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
 }
 
 /// Set up a single-file test: returns (temp_dir, plan_path, machine_path).
-pub fn setup_single_file(prefix: &str, plan: &str) -> (PathBuf, PathBuf, PathBuf) {
+pub fn setup_single_file(prefix: &str, plan: &str) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
     (dir, plan_path, machine_path)
 }
 
-/// Set up a directory workspace. Returns (workspace_root, machine_path).
+/// Set up a directory workspace. Returns (temp_dir, workspace_root,
+/// machine_path); the workspace lives inside the temp directory, so the first
+/// element is what has to stay bound for the tree to outlive the setup call.
 pub fn create_workspace(
     prefix: &str,
     index: &str,
     task_files: &[(&str, &str)],
-) -> (PathBuf, PathBuf) {
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let ws = dir.join("workspace");
     let tasks_dir = ws.join("tasks");
@@ -191,7 +196,7 @@ pub fn create_workspace(
         fs::write(tasks_dir.join(name), content).expect("write task file");
     }
     let machine_path = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
-    (ws, machine_path)
+    (dir, ws, machine_path)
 }
 
 pub fn fixture_path(name: &str) -> PathBuf {
@@ -227,7 +232,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) {
     }
 }
 
-pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (PathBuf, PathBuf, PathBuf) {
+pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_scratchpad_dir(prefix);
     let workspace_path = dir.join(fixture_name);
     copy_dir_recursive(&fixture_path(fixture_name), &workspace_path);

@@ -213,8 +213,6 @@ fn the_default_instantiation_validates_clean_and_holds_every_child() {
         "the self-loop is the release edge; got:\n{}",
         dry.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The whole pipeline under mock agents: one round of everything, `--parallel 2`
@@ -329,8 +327,6 @@ fn the_supervisor_sends_every_step_and_finishes_after_the_last_one() {
         first.contains("## This is not your first visit"),
         "the last visit knows it is not the first; got:\n{first}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The `snapshot:` block that carries a supervisor's session between visits is
@@ -373,6 +369,5 @@ fn the_snapshot_block_appears_only_for_a_session_capable_supervisor() {
         "each visit continues the last one; got:\n{session_machine}"
     );
 
-    fs::remove_dir_all(dir).expect("cleanup");
     fs::remove_dir_all(session_dir).expect("cleanup");
 }

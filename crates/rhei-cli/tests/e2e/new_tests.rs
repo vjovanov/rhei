@@ -48,7 +48,7 @@ fn new_run_with_stdin(args: &[&str], cwd: &std::path::Path, stdin: &str) -> CliR
 }
 
 /// A project directory with `index.panta.md` and nothing else.
-pub fn empty_project(prefix: &str) -> std::path::PathBuf {
+pub fn empty_project(prefix: &str) -> TestDir {
     let dir = unique_temp_dir(prefix);
     write_fixture_file(&dir, "index.panta.md", "# Panta: Test\n");
     dir
@@ -196,7 +196,7 @@ fn refuses_to_create_a_rhei_outside_a_project() {
 // Creating a ticket — §FS-rhei-new.3
 // ---------------------------------------------------------------------------
 
-pub fn project_with_rhei(prefix: &str) -> std::path::PathBuf {
+pub fn project_with_rhei(prefix: &str) -> TestDir {
     let dir = empty_project(prefix);
     assert_success(&new_run(&["new", "Authentication", "--id", "auth"], &dir));
     dir

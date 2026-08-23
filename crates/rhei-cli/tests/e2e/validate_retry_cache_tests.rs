@@ -233,8 +233,6 @@ fi
     let result_txt = fs::read_to_string(dir.join("runtime/result.txt")).expect("result file");
     assert!(result_txt.contains("DONE"), "retry should complete the artifact; got: {result_txt:?}");
     assert!(dir.join("runtime/findings.md").exists(), "validator must write a findings artifact");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -276,6 +274,4 @@ printf '{"success": true, "nextState": "build"}\n'
     let warm =
         agent_log.lines().filter(|l| l.contains("resume=plan.1-build-fake-acme-model-a")).count();
     assert!(warm >= 1, "retries should resume the prior session; got:\n{agent_log}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -81,8 +81,6 @@ fn rhei_next_renders_every_memory_path_absolute() {
     unique.sort_unstable();
     unique.dedup();
     assert_eq!(unique.len(), 3, "each rhei has its own root; got:\n{map}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A plan named the way it is typed from the directory it lives in —
@@ -126,8 +124,6 @@ fn a_bare_relative_plan_name_still_has_a_root_on_rhei_next() {
         assert!(Path::new(root).is_absolute(), "`{root}` is not absolute; got:\n{map}");
         assert!(Path::new(root).exists(), "`{root}` does not exist; got:\n{map}");
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The same bare relative name under `rhei run`: `RHEI_ROOT` is the anchor
@@ -168,8 +164,6 @@ fn a_bare_relative_plan_name_exports_a_root_to_the_agent() {
         dir.join("runtime/prompts/plan.1-pending-1.md").exists(),
         "the agent wrote under the root it was given"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A mock agent that saves its prompt under the execution root it was handed
@@ -269,6 +263,4 @@ fn the_map_names_the_log_directory_the_run_writes() {
         !prompt.contains("`runtime/logs/` (agent transcripts)"),
         "the map no longer claims a per-root log tree; got:\n{prompt}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

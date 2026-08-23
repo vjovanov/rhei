@@ -71,8 +71,6 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
         !second.contains("### Task plan.1.2:"),
         "the supervisor's own cancel is not news for it; got:\n{second}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-supervision.2.2: a checkpoint reaches exactly one task — the
@@ -137,8 +135,6 @@ structure:
         !outer.contains("### Task plan.1.1.1:"),
         "an ancestor farther up sees nothing of the leaf; got:\n{outer}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-supervision.3.1: under `--parallel` a checkpoint is a drain —
@@ -171,8 +167,6 @@ fn a_checkpoint_drains_the_parallel_siblings_before_the_supervisor_runs() {
     let second = prompt_for(&dir, "plan.1", "supervising", 2);
     assert!(second.contains("### Task plan.1.1:"), "got:\n{second}");
     assert!(second.contains("### Task plan.1.2:"), "got:\n{second}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A checkpoint names one descendant exactly, and spells it the way
@@ -237,8 +231,6 @@ structure:
         !inputs.contains("Task plan.1.1.2 finished fix."),
         "the tail-colliding cousin's result is not the sibling's; got:\n{outer}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A supervisor that leaves for a human gate keeps its subtree held.
@@ -305,6 +297,4 @@ fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
         waiting.contains("| plan.1.1 |") && waiting.contains("held by supervisor Task plan.1"),
         "got:\n{waiting}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

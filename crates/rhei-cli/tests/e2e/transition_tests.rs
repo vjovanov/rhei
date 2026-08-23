@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn transition_single_file_full_advancement() {
-    let (dir, plan_path, machine_path) = setup_single_file("trans-full", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("trans-full", INDEPENDENT_PLAN);
 
     // Advance all 3 tasks: draft -> pending -> completed. The terminal hop
     // carries the result every `final: true` entry requires. §FS-rhei-states.3.3
@@ -23,13 +23,11 @@ fn transition_single_file_full_advancement() {
     }
 
     assert_all_tasks_in_state(&plan_path, &machine_path, "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn transition_cas_rejects_wrong_from() {
-    let (dir, plan_path, machine_path) = setup_single_file("trans-cas-wrong", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("trans-cas-wrong", INDEPENDENT_PLAN);
 
     // Task 1 is in draft, but we claim it's pending.
     let result = run_transition(&plan_path, &machine_path, "1", "pending", "completed");
@@ -43,13 +41,11 @@ fn transition_cas_rejects_wrong_from() {
 
     // File unchanged.
     assert_task_state(&plan_path, &machine_path, "1", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn transition_cas_rejects_after_concurrent_change() {
-    let (dir, plan_path, machine_path) = setup_single_file("trans-cas-stale", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("trans-cas-stale", INDEPENDENT_PLAN);
 
     // First transition succeeds.
     let r = run_transition(&plan_path, &machine_path, "1", "draft", "pending");
@@ -63,13 +59,11 @@ fn transition_cas_rejects_after_concurrent_change() {
 
     // Task stays at pending.
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn transition_workspace_updates_correct_file() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "trans-ws-correct",
         "# Rhei: Workspace Transition\n",
         &[
@@ -91,13 +85,11 @@ fn transition_workspace_updates_correct_file() {
     assert!(a.contains("**State:** draft"), "a.md should be untouched: {}", a);
     let c = fs::read_to_string(ws.join("tasks/c.md")).expect("read c.md");
     assert!(c.contains("**State:** draft"), "c.md should be untouched: {}", c);
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn transition_workspace_full_advancement() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "trans-ws-full",
         "# Rhei: Workspace Full\n",
         &[
@@ -121,13 +113,11 @@ fn transition_workspace_full_advancement() {
     }
 
     assert_all_tasks_in_state(&ws, &machine_path, "completed");
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn transition_wildcard_to_cancelled() {
-    let (dir, plan_path, machine_path) = setup_single_file("trans-wildcard", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("trans-wildcard", INDEPENDENT_PLAN);
 
     let result = run_transition_with_result(
         &plan_path,
@@ -143,13 +133,11 @@ fn transition_wildcard_to_cancelled() {
     // Other tasks unaffected.
     assert_task_state(&plan_path, &machine_path, "2", "draft");
     assert_task_state(&plan_path, &machine_path, "3", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn transition_disallowed_path_rejected() {
-    let (dir, plan_path, machine_path) = setup_single_file("trans-disallowed", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("trans-disallowed", INDEPENDENT_PLAN);
 
     // draft -> completed is not a declared transition.
     let result = run_transition(&plan_path, &machine_path, "1", "draft", "completed");
@@ -162,8 +150,6 @@ fn transition_disallowed_path_rejected() {
 
     // File unchanged.
     assert_task_state(&plan_path, &machine_path, "1", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -209,8 +195,6 @@ transitions:
         "Missing required input artifact: findings (runtime/findings/plan.1.md)",
     );
     assert_task_state(&plan_path, &machine_path, "1", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 const PARENT_TRANSITION_PLAN: &str = r#"# Rhei: Descendants First
@@ -252,8 +236,6 @@ fn transition_rejects_terminal_entry_on_a_parent_with_an_open_descendant() {
     // The refusal names what to run to find the open work.
     assert_stderr_contains(&result, "--non-terminal");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The declared-edge check comes first: an edge the machine never declared is
@@ -291,8 +273,6 @@ fn transition_reports_an_undeclared_edge_before_the_descendants_guard() {
         result.stderr
     );
     assert_task_state(&plan_path, &machine_path, "1", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// And the edge's own `condition:` comes first for the same reason: an edge
@@ -352,8 +332,6 @@ transitions:
         result.stderr
     );
     assert_task_state(&plan_path, &machine_path, "1", "fix");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Cancellation is a terminal entry too, so abandoning a parent while its
@@ -369,8 +347,6 @@ fn transition_rejects_cancelling_a_parent_with_an_open_descendant() {
     assert!(!result.status.success(), "cancelling a parent with an open child must be refused");
     assert_stderr_contains(&result, "cannot enter terminal state 'cancelled'");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Same edge, same command, once the subtree is closed: the guard is about
@@ -400,8 +376,6 @@ fn transition_allows_terminal_entry_once_the_subtree_is_closed() {
         "Integrated the subtree.",
     ));
     assert_task_state(&plan_path, &machine_path, "1", "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A cancel does not owe the abandoned step's `outputs:`.
@@ -474,8 +448,6 @@ transitions:
     );
     assert_success(&cancelled);
     assert_task_state(&plan_path, &machine_path, "1", "cancelled");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `cancelled` is a reserved name, `canceled` is the same name, and anything
@@ -527,7 +499,6 @@ transitions:
         );
         assert_success(&result);
         assert_task_state(&plan_path, &machine_path, "1", accepted);
-        fs::remove_dir_all(dir).expect("cleanup");
     }
 
     let dir = unique_temp_dir("trans-cancel-dropped");
@@ -541,5 +512,4 @@ transitions:
         &result,
         "A transition into the reserved `cancelled` state skips this check.",
     );
-    fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -58,8 +58,6 @@ fn init_creates_project_with_manifest_gitignore_and_agents_note() {
         .collect();
     let stderr = stderr.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(stderr.contains("already a Panta project"), "refusal should say why: {stderr}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -137,8 +135,6 @@ fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
         output.status.success() && stdout.contains("auth.1") && stdout.contains("billing.1"),
         "bare list should work after init: {stdout}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-init.4: a repository whose agent instructions live only in
@@ -183,8 +179,6 @@ fn init_writes_agent_note_into_claude_md_when_it_is_the_only_instruction_file() 
         1,
         "note must not duplicate: {claude}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-init.4: with both instruction files present, AGENTS.md stays the
@@ -206,8 +200,6 @@ fn init_prefers_agents_md_when_both_instruction_files_exist() {
     let claude = fs::read_to_string(dir.join("CLAUDE.md")).expect("claude untouched");
     assert!(agents.contains("<!-- rhei:begin -->"), "AGENTS.md should carry the note: {agents}");
     assert!(!claude.contains("<!-- rhei:begin -->"), "CLAUDE.md must stay untouched: {claude}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -234,8 +226,6 @@ fn init_no_agents_skips_note_and_bad_plans_surface_as_warning() {
         stderr.contains("does not load cleanly") && stderr.contains("My Plan"),
         "load error should surface as a warning: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -273,8 +263,6 @@ fn init_leaves_the_manifest_bare_over_rhei_declared_machines() {
     );
     let manifest = fs::read_to_string(dir.join("index.panta.md")).expect("manifest");
     assert!(!manifest.contains("**States:**"), "the manifest stays bare: {manifest}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -322,8 +310,6 @@ fn init_force_overwrites_manifest_without_duplicating_companions() {
         1,
         "project gitignore entries must not duplicate: {project_ignore}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -354,8 +340,6 @@ fn init_force_heals_a_mangled_agents_note() {
     assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
     assert_eq!(agents.matches("## Rhei").count(), 1, "one section: {agents}");
     assert!(!agents.contains("Old text."), "stale bodies removed: {agents}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -390,8 +374,6 @@ fn init_force_without_here_refuses_when_the_host_is_the_project() {
         run_init(&["--force", "--here", "--no-agents"]).status.success(),
         "--force --here re-initializes the host project"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -429,8 +411,6 @@ fn init_loads_a_mixed_declared_and_silent_machine_set_cleanly() {
         !String::from_utf8_lossy(&output.stderr).contains("does not load cleanly"),
         "a mixed declared/silent set loads cleanly"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -465,8 +445,6 @@ fn init_strips_an_orphaned_begin_marker_without_eating_user_content() {
     assert_eq!(agents.matches("<!-- rhei:begin -->").count(), 1, "one begin: {agents}");
     assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
     assert!(!agents.contains("Old text."), "stale note body removed: {agents}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -507,6 +485,4 @@ fn init_here_refuses_to_shadow_an_existing_panta_child_project() {
         !dir.join("index.panta.md").exists(),
         "the refused adoption must not write a host manifest"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

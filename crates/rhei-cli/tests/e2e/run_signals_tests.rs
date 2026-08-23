@@ -69,7 +69,7 @@ fn setup_supervised_workspace(
     prefix: &str,
     agent_body: &str,
     agent_timeout: &str,
-) -> (PathBuf, PathBuf, PathBuf) {
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let workspace = dir.join("workspace");
     let tasks_dir = workspace.join("tasks");
@@ -366,8 +366,6 @@ fn sigterm_to_the_run_ends_the_agent_and_its_grandchild() {
         !report.contains("mark the task cancelled"),
         "an interrupted ticket is not something to cancel, got:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `SIGINT` — what a foreground Ctrl+C and the TUI's re-raise both deliver —
@@ -393,8 +391,6 @@ fn sigint_to_the_run_interrupts_it_and_exits_130() {
     poll_until("the agent to be gone", TEST_PATIENCE, || !pid_is_alive(&agent));
     assert_task_state(&workspace, &machine_path, "1", "work");
     assert!(read_only_agent_log(&workspace).contains("interrupted: true"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A supervisor `SIGKILL`ed runs no code at all, so nothing it installed can
@@ -420,8 +416,6 @@ fn sigkill_to_the_run_still_ends_the_agent() {
     signal_pid(run.id(), "KILL");
     wait_for_exit(&mut run, TEST_PATIENCE);
     poll_until("the agent to die with its supervisor", TEST_PATIENCE, || !pid_is_alive(&agent));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A second interrupt means "now": the group is `SIGKILL`ed without waiting out
@@ -464,8 +458,6 @@ fn a_second_interrupt_skips_the_termination_grace() {
         stderr.contains("press Ctrl+C again to kill immediately"),
         "the notice should say a second signal is available, got:\n{stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A timeout signals the agent's **group**, so the MCP servers and shell tools
@@ -495,8 +487,6 @@ fn a_timeout_ends_the_agents_whole_group() {
     assert!(log.contains("agent timed out after"), "got:\n{log}");
     assert!(log.contains("timed_out: true"), "got:\n{log}");
     assert!(!log.contains("interrupted: true"), "a timeout is not an interruption, got:\n{log}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// An interrupted run must not start the work it had merely queued up.
@@ -591,8 +581,6 @@ transitions:
     for id in ["1", "2", "3", "4"] {
         assert_task_state(&plan_path, &machine_path, id, "work");
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A run interrupted while a *program* is in flight must not answer by
@@ -704,8 +692,6 @@ exec sleep 300
     // Neither ticket moved: the program was interrupted and the agent never ran.
     assert_task_state(&plan_path, &machine_path, "1", "build");
     assert_task_state(&plan_path, &machine_path, "2", "work");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A `rhei run` driving a real TUI must end when it is signalled, not park on
@@ -802,8 +788,6 @@ fn an_external_signal_ends_a_tui_run_instead_of_parking_it() {
         "the report should name the interruption, got:\n{report}"
     );
     assert_task_state(&workspace, &machine_path, "1", "work");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Ctrl+C on the TUI's finished screen must leave the run its report.
@@ -890,8 +874,6 @@ fn ctrl_c_on_the_finished_tui_screen_still_writes_the_report() {
         "a run that finished before the key was pressed is not an interrupted run, got:\n{report}"
     );
     assert_task_state(&workspace, &machine_path, "1", "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A fake agent that plays two parts, one per ticket. Ticket 1 waits for the
@@ -927,7 +909,7 @@ esac
 ///
 /// `concurrent: true` plus `--parallel 2` is what puts both in flight at once.
 #[cfg(unix)]
-fn setup_lost_output_workspace(prefix: &str) -> (PathBuf, PathBuf, PathBuf) {
+fn setup_lost_output_workspace(prefix: &str) -> (TestDir, PathBuf, PathBuf) {
     let machine = r#"name: lost-output
 version: 1
 states:
@@ -1033,8 +1015,6 @@ fn a_closed_stdout_still_ends_the_groups_in_flight() {
     // Nothing transitioned the sleeper: it was terminated, not judged. The
     // talker did finish its state, which is what produced the failed print.
     assert_task_state(&workspace, &machine_path, "2", "work");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A terminal that goes away must end the run as quietly as a closed pipe does.
@@ -1123,8 +1103,6 @@ fn a_hung_up_terminal_ends_the_groups_the_way_a_closed_pipe_does() {
     poll_until("its grandchild to be gone", TEST_PATIENCE, || !pid_is_alive(&grandchild));
 
     assert_task_state(&workspace, &machine_path, "2", "work");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A one-ticket plan whose program ignores `SIGTERM` and outlives its deadline,
@@ -1225,8 +1203,6 @@ fn a_shutdown_inside_the_timeout_grace_is_an_interruption_not_a_timeout() {
         report.contains("Result: interrupted — re-run to continue"),
         "the report should name the interruption, got:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// One ticket fails the run while another is still in flight: the shape of
@@ -1279,7 +1255,7 @@ fn setup_program_workspace(
     prefix: &str,
     machine: &str,
     titles: &[&str],
-) -> (PathBuf, PathBuf, PathBuf) {
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let workspace = dir.join("workspace");
     let tasks_dir = workspace.join("tasks");
@@ -1353,8 +1329,6 @@ fn a_run_that_fails_on_its_own_does_not_report_an_interruption() {
         !report.contains("interrupted — re-run to continue"),
         "a failing run must not tell the operator to re-run, got:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// One ticket whose program fails, and nothing else in flight: the run leaves
@@ -1466,8 +1440,6 @@ fn a_failing_tui_run_leaves_its_screen_instead_of_parking_on_it() {
         stderr.contains("program exited with code 9"),
         "a failing run should still report its failure, got:\n{stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A freed slot must not be refilled once the run is interrupted.
@@ -1541,6 +1513,4 @@ transitions:
     for id in ["1", "2", "3", "4"] {
         assert_task_state(&workspace, &machine_path, id, "work");
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

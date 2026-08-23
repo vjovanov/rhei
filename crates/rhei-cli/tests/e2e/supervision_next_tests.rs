@@ -18,7 +18,7 @@ use super::*;
 fn rhei_next_reports_a_held_descendant_instead_of_claiming_it() {
     let plan = TWO_CHILD_PLAN
         .replace("**State:** supervising\n", "**State:** supervising\n**Assignee:** pi\n");
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-next-held",
         &plan,
         &supervision_machine("descendant-terminal", "completed"),
@@ -37,8 +37,6 @@ fn rhei_next_reports_a_held_descendant_instead_of_claiming_it() {
     // names who holds it and how to hand it back.
     assert_stderr_contains(&auto, "pi holds it");
     assert_stderr_contains(&auto, "rhei release");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A worker whose whole scope is held is told which ticket to work.
@@ -87,7 +85,7 @@ structure:
 #### Task 1.1: A
 **State:** fix
 "#;
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_supervision("supervision-held-next-step", plan, machine, "");
 
     let diagnosed = run_cli("next", &plan_path, &machine_path, &["--peek"]);
@@ -99,8 +97,6 @@ structure:
     // And the command it names is one that works.
     let worked = run_cli("next", &plan_path, &machine_path, &["--task", "plan.1", "--peek"]);
     assert_success(&worked);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei next` renders the same two supervision sections `rhei run` composes:
@@ -200,8 +196,6 @@ metadata:
         supervising.contains("Write the result only on the visit where every descendant is"),
         "got: {supervising}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// One `rhei next` screen spells a state one way, the child list included: a
@@ -237,7 +231,7 @@ metadata:
     // A counted `fix`, so the child's authored state carries a suffix.
     let machine = supervision_machine("descendant-terminal", "completed")
         .replace("  fix:\n    description: Fix\n", "  fix:\n    description: Fix\n    visits: 3\n");
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_supervision("supervision-next-spelling", plan, &machine, "");
 
     let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek"]);
@@ -252,8 +246,6 @@ metadata:
         peek.stdout.find("## Supervising This Subtree").expect("the supervising section");
     let navigation = peek.stdout.find("## Rhei Navigation").expect("the map");
     assert!(supervising < navigation, "the authority precedes the map; got:\n{}", peek.stdout);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A plan with no supervising state carries no supervision section and no
@@ -295,7 +287,7 @@ Body text.
 #### Task 1.1: A
 **State:** fix
 "#;
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_supervision("supervision-next-untouched", plan, machine, "");
 
     let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1.1", "--peek"]);
@@ -338,8 +330,6 @@ Body text.
     );
     assert!(payload.get("plan_history").is_none(), "got: {payload}");
     assert!(payload.get("previous_visits").is_none(), "got: {payload}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei next --task <descendant>` answers with the same three facts the bare
@@ -354,7 +344,7 @@ Body text.
 fn the_targeted_held_refusal_names_the_holder_and_rhei_release() {
     let plan = TWO_CHILD_PLAN
         .replace("**State:** supervising\n", "**State:** supervising\n**Assignee:** pi\n");
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-targeted-held",
         &plan,
         &supervision_machine("descendant-terminal", "completed"),
@@ -389,6 +379,4 @@ fn the_targeted_held_refusal_names_the_holder_and_rhei_release() {
         "`**Assignee:**` is CLI-owned:\n{}",
         claimed.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

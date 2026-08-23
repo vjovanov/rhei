@@ -67,8 +67,6 @@ transitions:
     assert_eq!(rhei.tasks[0].children[0].assignee, None);
     assert_eq!(rhei.tasks[1].assignee, None);
     assert!(!updated.contains("**Assignee:**"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // ── Directory Workspace tests ────────────────────────────────────────────────
@@ -127,8 +125,6 @@ transitions:
         untouched.contains("**State:** completed"),
         "a refused reset must not rewrite state:\n{untouched}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-reset.1.2: the damage preview precedes every destructive reset,
@@ -181,6 +177,4 @@ transitions:
         "preview must name the runtime tree it deletes:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

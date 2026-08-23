@@ -15,8 +15,6 @@ fn transition_fails_on_invalid_transition() {
         "should report transition not allowed; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -34,8 +32,6 @@ fn transition_fails_on_nonexistent_task() {
         "should report task not found; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -75,8 +71,6 @@ fn transition_works_with_named_task_id() {
     let build =
         rhei.tasks.iter().find(|t| t.id == TaskId::named("build")).expect("Task build exists");
     assert_eq!(build.state.as_str(), "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -108,8 +102,6 @@ fn transition_wildcard_from_allows_any_source() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task1 = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task1.state.as_str(), "cancelled");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -167,8 +159,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -226,8 +216,6 @@ transitions:
         "run output should not show the skipped disallowed state; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei complete` still refuses a parent with an open child — but the refusal
@@ -273,8 +261,6 @@ fn complete_rejects_parent_with_non_terminal_subtasks() {
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "pending");
     assert_eq!(task.children[0].state.as_str(), "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The plan file is the artifact humans read and review in a diff, so
@@ -320,8 +306,6 @@ Body of two.
         !updated.contains("\n\n\n"),
         "completion must not introduce doubled blank lines; got:\n{updated}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-complete.4: completing ahead of a prerequisite makes the ticket
@@ -368,8 +352,6 @@ fn complete_rejects_task_with_unsatisfied_prior() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
     assert_eq!(task.state.as_str(), "pending", "the rejected completion must not write state");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The guard must not fire once the prior is genuinely satisfied.
@@ -403,8 +385,6 @@ fn complete_accepts_task_once_prior_is_terminal() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(2)).expect("Task 2 exists");
     assert_eq!(task.state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -443,8 +423,6 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
         "expected result link in updated plan:\n{}",
         updated
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -522,8 +500,6 @@ transitions:
         !dir.join("runtime/results/1.md").exists(),
         "completion result file should not be written"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // --- Callback execution integration tests ---

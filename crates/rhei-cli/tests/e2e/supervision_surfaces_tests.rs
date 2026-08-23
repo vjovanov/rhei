@@ -42,7 +42,7 @@ metadata:
 #### Task 1.1: Review parser
 **State:** review
 "#;
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-reset",
         plan,
         &supervision_machine("descendant-terminal", "completed"),
@@ -58,8 +58,6 @@ metadata:
     // carries no `tasks: {1: {}}` for the next reader to interpret.
     assert!(!after.contains("tasks:"), "got:\n{after}");
     assert!(!after.contains("metadata:"), "got:\n{after}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-supervision.1.2: the machine is rejected before anything runs when
@@ -121,8 +119,6 @@ fn execute_on_validation_rejects_and_warns_through_rhei_validate() {
         combined.contains("no way to finish"),
         "a supervisor with no terminal edge is warned about; got:\n{combined}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 /// The manual-worker loop of §3.4 runs to the end: claim, release, let a child
 /// finish, and claim the visit that child's checkpoint earned.
@@ -152,7 +148,7 @@ structure:
 **State:** fix
 **Prior:** Task 1.1
 "#;
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-manual-release",
         plan,
         &supervision_machine("descendant-terminal", "completed"),
@@ -205,8 +201,6 @@ structure:
         "got:\n{}",
         second.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei list --ready` returns exactly what `rhei run` would schedule and
@@ -232,7 +226,7 @@ structure:
 #### Task 1.1: A
 **State:** fix
 "#;
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-list-ready",
         held,
         &supervision_machine("descendant-terminal", "completed"),
@@ -266,8 +260,6 @@ structure:
     assert!(!ready.stdout.contains("Task plan.1:"), "got:\n{}", ready.stdout);
     let next = run_cli("next", &plan_path, &machine_path, &["--peek"]);
     assert!(!next.status.success(), "and `rhei next` refuses it too");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A machine whose supervisor cannot finish is legal, so `rhei run` runs it —
@@ -318,8 +310,6 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
         !report.contains("stalled in non-terminal state"),
         "the halt is nameable, so it must not fall back to the generic reading:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei release` on a supervisor says nothing about moving it back.
@@ -374,7 +364,7 @@ structure:
 **State:** review
 **Assignee:** pi
 "#;
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_supervision("supervision-release-note", plan, machine, "");
 
     let supervisor = run_cli("release", &plan_path, &machine_path, &["--task", "1", "--dry-run"]);
@@ -393,8 +383,6 @@ structure:
         "the note is right for an ordinary ticket:\n{}",
         child.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei states` says when a supervisor wakes, for every value it can carry.
@@ -461,8 +449,6 @@ structure:
             .expect("the supervising state");
         assert_eq!(supervising["execute_on"], value, "scripts keep the value itself: {payload}");
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A dry run says what the barrier is doing and which edge undoes it.
@@ -474,7 +460,7 @@ structure:
 // §FS-rhei-supervision.3.4 §FS-rhei-run.4
 #[test]
 fn a_dry_run_names_the_barrier_and_the_release_edge() {
-    let (dir, plan_path, machine_path) = setup_supervision(
+    let (_dir, plan_path, machine_path) = setup_supervision(
         "supervision-dry-run",
         REVIEW_FIX_PLAN,
         &supervision_machine("descendant-terminal", "completed"),
@@ -496,6 +482,4 @@ fn a_dry_run_names_the_barrier_and_the_release_edge() {
         "got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

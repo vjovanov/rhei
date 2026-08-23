@@ -228,8 +228,6 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &repo);
     assert!(plan_dir.join("runtime/logs/task-plan.1-review.log").exists());
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -293,8 +291,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
         "HEAD:.agents/scratchpad/review/plan.rhei.md",
     ]);
     assert!(head_plan.contains("**State:** review"), "{head_plan}");
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -359,8 +355,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
         !repo.join("runtime/reports/plan.1.md").exists(),
         "agent should not write checkout-root runtime artifacts"
     );
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -391,8 +385,6 @@ fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &cwd);
     assert_recorded_path_eq(recorded_value(&recorded, "rhei="), &plan_dir);
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &cwd);
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -425,8 +417,6 @@ fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     // §FS-rhei-agents.4: RHEI_WORKTREE_ROOT is unset unless a task worktree ref applies.
     assert!(recorded.contains("worktree=\n"), "{recorded}");
     assert!(!recorded.contains("/stale/worktree"), "{recorded}");
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -475,8 +465,6 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     assert_recorded_path_eq(recorded.lines().next().expect("recorded cwd"), &worktree);
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &worktree);
     assert_recorded_path_eq(recorded_value(&recorded, "worktree="), &worktree);
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -544,8 +532,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -620,8 +606,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     let rhei = parse(&updated).expect("parse plan");
     assert_eq!(rhei.tasks[0].state.as_str(), "waiting");
     assert_eq!(rhei.tasks[0].children[0].state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -678,8 +662,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "review");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -744,8 +726,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "build");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -841,8 +821,6 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "build");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -915,8 +893,6 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     let manifests = collect_run_agent_snapshot_manifests(&dir);
     assert_run_agent_snapshot(&manifests, "_state", "success");
     assert_run_agent_snapshot(&manifests, "always", "success");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -988,8 +964,6 @@ exit 7
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "work");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -1067,8 +1041,6 @@ wait
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "timed_out");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -1160,6 +1132,4 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

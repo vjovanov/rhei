@@ -118,7 +118,7 @@ fn assert_finished_trail(trail: &TerminalTrail, expected_result: &str, driver: &
     );
 }
 
-fn setup_terminal_result_case(prefix: &str) -> (PathBuf, PathBuf, PathBuf) {
+fn setup_terminal_result_case(prefix: &str) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", ONE_TASK_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", AGENT_TERMINAL_MACHINE);
@@ -228,8 +228,6 @@ fn transition_into_a_terminal_state_without_a_result_is_refused() {
     );
     let plan = fs::read_to_string(&plan_path).expect("read plan");
     assert!(plan.contains("**Assignee:** worker-1"), "the claim survives a refusal");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A result already on disk is the other way the obligation is met, so a bare
@@ -245,8 +243,6 @@ fn a_result_already_on_disk_satisfies_a_bare_transition() {
 
     assert_success(&run_transition(&plan_path, &machine_path, "1", "pending", "completed"));
     assert_task_state(&plan_path, &machine_path, "1", "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// An existence-only contract would let an empty file stand in for an answer,
@@ -267,8 +263,6 @@ fn a_whitespace_only_result_file_counts_as_no_result() {
     );
     assert_stderr_contains(&result, "without a result");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A `nextState` redirect is re-checked against the effective target, so a
@@ -328,8 +322,6 @@ transitions:
         recorded.contains(RESULT_MESSAGE),
         "the redirect records the message; got:\n{recorded}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// An agent that exits `0` on an edge that finishes the ticket, without writing
@@ -378,8 +370,6 @@ fn run_treats_a_missing_result_as_a_missing_required_output() {
         !report.contains("inspect logs or mark the task cancelled"),
         "a named halt must not fall back to the generic advice; got:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The engine ended this work, so the engine says why: the exit code lands in
@@ -422,8 +412,6 @@ transitions:
         recorded.contains("exited 3") && recorded.contains("build"),
         "the failure route records the exit code and the state; got:\n{recorded}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Callback-only advancement has no subprocess that could know better, so the
@@ -447,15 +435,13 @@ fn callback_only_advancement_records_that_no_worker_ran() {
         recorded.contains("'pending'"),
         "the engine names the state it advanced from; got:\n{recorded}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Taking `--result` and ignoring an empty value would write exactly the blank
 /// result the obligation refuses. §FS-rhei-transition-cmd.2 §FS-rhei-complete.4
 #[test]
 fn a_blank_result_message_is_rejected_on_both_verbs() {
-    let (dir, plan_path, machine_path) = setup_terminal_result_case("terminal-result-blank-flag");
+    let (_dir, plan_path, machine_path) = setup_terminal_result_case("terminal-result-blank-flag");
 
     let completed =
         run_cli("complete", &plan_path, &machine_path, &["--task", "1", "--result", "   "]);
@@ -480,8 +466,6 @@ fn a_blank_result_message_is_rejected_on_both_verbs() {
     assert_stderr_contains(&transitioned, "--result carries no message");
 
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei complete` whose `on_leave` redirects to a **non-terminal** state: the
@@ -542,8 +526,6 @@ transitions:
     // And it pre-satisfies the obligation at the real terminal edge.
     assert_success(&run_transition(&plan_path, &machine_path, "1", "review", "completed"));
     assert_task_state(&plan_path, &machine_path, "1", "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei next`'s auto-advance out of a setup-only initial state never *declares*
@@ -597,8 +579,6 @@ transitions:
         !dir.join("runtime/results/plan.1.md").exists(),
         "a refused claim must not create the result file"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A fanned-out state gives every invocation its own result fragment, and `run`
@@ -697,8 +677,6 @@ fn a_fanned_out_terminal_edge_keeps_every_invocation_s_account() {
         merged.find("mock-mock-alpha") < merged.find("mock-mock-beta"),
         "entries follow declared invocation order; got:\n{merged}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The completion condition is per invocation, so a fan-out worker that writes
@@ -736,8 +714,6 @@ fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_conditio
         !dir.join("runtime/results/plan.1.md").exists(),
         "nothing is merged when the state did not finish"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The same fan-out state, but the terminal state demands an `inputs:` artifact
@@ -806,8 +782,6 @@ fn a_refused_fan_out_move_merges_the_fragments_exactly_once_per_attempt() {
     let second = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
     assert!(!second.status.success(), "still refused");
     entries("second pass");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Two fanned-out states over the same targets. Keyed by identity alone, every
@@ -882,8 +856,6 @@ fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
             "{identity}: `review`'s fragment stays where `review` put it"
         );
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// One invocation finishing is not the state finishing. With a sibling still
@@ -918,8 +890,6 @@ fn a_slow_fan_out_sibling_does_not_raise_a_false_alarm() {
         merged.contains("alpha reviewed it.") && merged.contains("beta reviewed it."),
         "both accounts survive; got:\n{merged}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei run` spawns a program once per ticket, whatever the state declares, so
@@ -968,8 +938,6 @@ fn a_program_state_with_declared_targets_writes_the_ticket_result() {
         !dir.join("runtime/results/plan.1").exists(),
         "a program state files no per-invocation fragments"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A program is a worker: when it exits 0 owing the ticket's result, the run
@@ -1032,8 +1000,6 @@ fn a_program_that_owes_the_result_is_reported_as_missing_outputs() {
             report.contains("plan.rhei.md --task plan.1 --from probe"),
             "--parallel {parallel}: the suggested command carries the plan; got:\n{report}"
         );
-
-        fs::remove_dir_all(dir).expect("cleanup");
     }
 }
 
@@ -1101,8 +1067,6 @@ fn a_sequential_stall_does_not_end_the_run() {
         report.contains("| plan.2 | work | worker exited 0 without result ("),
         "the stalled ticket is reported by the artifact it owes; got:\n{report}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 const THREE_WORKER_PLAN: &str = r#"# Rhei: Three Workers
@@ -1146,6 +1110,4 @@ fn a_sequential_stall_leaves_its_siblings_claimable() {
     assert_task_state(&plan_path, &machine_path, "1", "completed");
     assert_task_state(&plan_path, &machine_path, "2", "work");
     assert_task_state(&plan_path, &machine_path, "3", "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

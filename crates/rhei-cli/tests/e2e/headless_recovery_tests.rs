@@ -299,7 +299,9 @@ fn a_json_dry_run_puts_records_on_stdout_and_writes_no_event_log() {
 /// `agent_output` traffic to inline. The program-driven fixture next door never
 /// produces any: only an agent's stdout becomes `agent_output` records.
 #[cfg(unix)]
-fn chatty_agent_workspace(prefix: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+fn chatty_agent_workspace(
+    prefix: &str,
+) -> (super::TestDir, std::path::PathBuf, std::path::PathBuf) {
     use super::{unique_temp_dir, write_fixture_file};
 
     let dir = unique_temp_dir(prefix);
@@ -336,7 +338,7 @@ fn chatty_agent_workspace(prefix: &str) -> (std::path::PathBuf, std::path::PathB
          final: true\n    description: Done\ntransitions:\n  - from: work\n    \
          to: completed\n",
     );
-    (workspace, machine)
+    (dir, workspace, machine)
 }
 
 /// Inlined agent output must not renumber the structural records, or `--since`
@@ -345,7 +347,7 @@ fn chatty_agent_workspace(prefix: &str) -> (std::path::PathBuf, std::path::PathB
 #[cfg(unix)]
 #[test]
 fn inlined_agent_output_leaves_the_structural_sequence_alone() {
-    let (workspace, machine) = chatty_agent_workspace("headless-agent-output");
+    let (_dir, workspace, machine) = chatty_agent_workspace("headless-agent-output");
     let home = workspace.join(".home");
     fs::create_dir_all(home.join("state")).expect("isolated home");
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_rhei"))

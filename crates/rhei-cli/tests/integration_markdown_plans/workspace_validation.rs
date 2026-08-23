@@ -28,8 +28,6 @@ fn diagnostics_never_break_a_file_path_across_lines() {
         "the path must appear intact on one line so it stays copy-pasteable.\n\
          wanted: {wanted}\ngot:\n{stderr}"
     );
-
-    fs::remove_dir_all(root).expect("cleanup");
 }
 
 /// §FS-rhei-plan-language.1.2: one freshly created workspace directory used to
@@ -71,8 +69,6 @@ fn empty_workspace_rhei_does_not_break_the_project_and_is_warned_about() {
         combined.contains("rhei 'growth' holds no tickets"),
         "validate must name the empty rhei so a mistyped `tasks/` is not silent, got:\n{combined}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// The duplicate-id diagnostic used to be masked by the empty-workspace error,
@@ -95,13 +91,11 @@ fn duplicate_rhei_id_is_reported_even_when_one_side_is_empty() {
         "expected the collision to surface, got:\n{}",
         error.message
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
 fn workspace_loads_and_validates_correctly() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-valid",
         "# Rhei: Workspace Test\n\n## Context\nSome context here.\n",
         &[
@@ -142,13 +136,11 @@ fn workspace_loads_and_validates_correctly() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Validation succeeded"));
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn workspace_validate_accumulates_parse_errors_across_task_files() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-parse-errors",
         "# Rhei: Workspace Parse Errors\n",
         &[
@@ -194,13 +186,11 @@ fn workspace_validate_accumulates_parse_errors_across_task_files() {
         !stderr.contains("VALIDATION ERROR"),
         "parse failures should not fall through to validation output, got:\n{stderr}"
     );
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn validate_and_list_accept_workspace_index_file_path() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-index-path",
         "# Rhei: Workspace Index Path\n\n## Context\nIndex addressed directly.\n",
         &[("alpha.md", "### Task 1: Alpha\n**State:** pending\n\nDescription.\n")],
@@ -247,13 +237,11 @@ fn validate_and_list_accept_workspace_index_file_path() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Task workspace.1: Alpha"));
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn workspace_discovers_task_files_recursively_and_skips_hidden_paths() {
-    let (ws, _machine_path) = create_workspace(
+    let (_dir, ws, _machine_path) = create_workspace(
         "ws-recursive",
         "# Rhei: Workspace Recursive\n\n## Context\nSome context here.\n",
         &[
@@ -272,8 +260,6 @@ fn workspace_discovers_task_files_recursively_and_skips_hidden_paths() {
     assert!(loaded.task_sources["2"].ends_with("group/beta.md"));
     assert!(!loaded.task_sources.contains_key("bad"));
     assert!(!loaded.task_sources.contains_key("bad2"));
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
@@ -305,8 +291,6 @@ fn validate_auto_discovers_workspace_root_state_machine_from_states_declaration(
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Validation succeeded"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -346,13 +330,11 @@ fn validate_reports_mismatched_auto_discovered_state_machine_name() {
         "expected discovered machine name in diagnostic, got:\n{}",
         stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn workspace_render_json_includes_all_tasks() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-render",
         "# Rhei: Render Test\n",
         &[
@@ -382,13 +364,11 @@ fn workspace_render_json_includes_all_tasks() {
     assert!(stdout.contains("\"title\": \"Render Test\""));
     assert!(stdout.contains("\"First\""));
     assert!(stdout.contains("\"Second\""));
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn workspace_duplicate_task_id_across_files_is_reported() {
-    let (ws, _machine_path) = create_workspace(
+    let (_dir, ws, _machine_path) = create_workspace(
         "ws-dup",
         "# Rhei: Dup Test\n",
         &[
@@ -404,8 +384,6 @@ fn workspace_duplicate_task_id_across_files_is_reported() {
         "error should mention duplicate: {}",
         err.message
     );
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
@@ -415,8 +393,6 @@ fn workspace_missing_index_is_not_detected_as_workspace() {
     fs::create_dir_all(ws.join("tasks")).expect("create dirs");
 
     assert!(!workspace::is_workspace(&ws));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -424,7 +400,7 @@ fn workspace_missing_index_is_not_detected_as_workspace() {
 /// loads, and validate warns so a mistyped `tasks/` is not mistaken for a
 /// deliberately empty one.
 fn workspace_empty_tasks_directory_loads_and_is_warned_about() {
-    let (ws, _machine_path) =
+    let (_dir, ws, _machine_path) =
         create_workspace("ws-empty", "# Rhei: Empty Test\n", &[], fixtures::TEST_STATE_MACHINE);
 
     let loaded = workspace::load_workspace(&ws).expect("an empty workspace is valid");
@@ -450,13 +426,11 @@ fn workspace_empty_tasks_directory_loads_and_is_warned_about() {
         combined.contains("holds no tickets"),
         "validate must name the emptiness rather than report a bare green, got:\n{combined}"
     );
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn workspace_transition_updates_correct_task_file() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "ws-transition",
         "# Rhei: Transition Test\n",
         &[
@@ -500,6 +474,4 @@ fn workspace_transition_updates_correct_task_file() {
     // Verify Task 2's file was NOT modified.
     let b_content = fs::read_to_string(ws.join("tasks/b.md")).expect("read b.md");
     assert!(b_content.contains("**State:** pending"), "b.md should be untouched: {}", b_content);
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }

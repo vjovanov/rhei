@@ -33,8 +33,6 @@ fn invalid_derived_rhei_id_error_states_rule_and_suggests_rename() {
             && compact.contains("Renamethefileto`My-Plan.rhei.md`"),
         "error should state the rule and suggest a rename: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -59,8 +57,6 @@ fn duplicate_rhei_id_error_names_both_sources() {
         "error should name both colliding sources and the fix: {}",
         err.message
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -84,8 +80,6 @@ fn implicit_panta_rejects_basin_named_single_file_rhei() {
         stderr.contains("`basin` is reserved") && stderr.contains("Rename"),
         "error should state the reservation and the fix: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -109,8 +103,6 @@ fn unknown_task_id_error_suggests_closest_qualified_ids() {
         stderr.contains("task 'cache' not found") && stderr.contains("plan.cache-key"),
         "error should suggest the closest qualified id: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -143,8 +135,6 @@ fn missing_input_artifact_error_names_pre_qualification_file() {
             && stderr.contains("pre-qualification artifact exists at 'runtime/1.md'"),
         "error should name the legacy file and the rename: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -195,8 +185,6 @@ fn ambiguous_rhei_local_shorthand_names_qualified_candidates() {
         String::from_utf8_lossy(&output.stdout).contains("auth.1"),
         "resolved ticket should be qualified in output"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// A parse error in a rhei inside a project keeps the code frame that file

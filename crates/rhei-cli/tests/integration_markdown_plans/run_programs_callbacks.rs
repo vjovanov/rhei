@@ -52,8 +52,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture is the polled program here: Unix-only. #91
@@ -125,8 +123,6 @@ exit 75
         !metadata.contains("pollNextAttemptAt") && !metadata.contains("stateVisits"),
         "poll metadata should be cleared after non-self-loop exit; got {metadata}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -176,8 +172,6 @@ transitions:
     assert_eq!(task.state.as_str(), "exhausted");
     let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
     assert_eq!(attempts.matches("attempt").count(), 1);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -227,8 +221,6 @@ transitions:
     assert_eq!(task.state.as_str(), "exhausted");
     let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
     assert_eq!(attempts.lines().count(), 3);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -283,8 +275,6 @@ transitions:
     assert_eq!(task.state.as_str(), "exhausted");
     let attempts = fs::read_to_string(dir.join("runtime/attempts.txt")).expect("read attempts");
     assert_eq!(attempts.lines().count(), 3);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -336,8 +326,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "failed-by-code");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -383,8 +371,6 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "timed-out");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -440,8 +426,6 @@ transitions:
     );
     let order = fs::read_to_string(dir.join("runtime/order.txt")).expect("read order");
     assert_eq!(order.lines().count(), 3);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
@@ -512,8 +496,6 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
         plan_path.canonicalize().expect("canonicalize plan path"),
         "callbacks should receive an absolute plan path",
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
@@ -586,8 +568,6 @@ printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.
     assert_eq!(models, "claude\ncodex\n");
     assert!(dir.join("runtime/claude-findings.md").exists(), "claude artifact should exist");
     assert!(dir.join("runtime/codex-findings.md").exists(), "codex artifact should exist");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -627,8 +607,6 @@ fn run_skips_already_completed_tasks() {
     // File should be unchanged.
     let contents = fs::read_to_string(&plan_path).expect("read plan");
     assert_eq!(contents, plan, "file should not be modified");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -678,6 +656,4 @@ transitions:
     let rhei = parse(&updated).expect("parse plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1");
     assert_eq!(task.state.as_str(), "completed", "task should be completed with --no-callbacks");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
