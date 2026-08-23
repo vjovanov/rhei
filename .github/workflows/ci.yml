@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Two jobs that run in parallel, so the wall clock is the slowest *test* job
+# rather than the test job plus every repository gate stacked on top of it.
+# Both stay inside this one workflow: the release helpers look the green run
+# up by workflow name. §AR-ci-release.1
 jobs:
   test:
     name: cargo test (${{ matrix.os }})
@@ -25,14 +29,6 @@ jobs:
           toolchain: 1.82.0
           components: clippy, rustfmt
 
-      - name: Install current stable Rust for tooling
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.x"
-
       - name: Cache cargo registry and target
         uses: actions/cache@v5
         continue-on-error: true
@@ -45,9 +41,68 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install grund
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings -W clippy::all
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets --locked
+
+      # Windows builds and lints only: the e2e fixtures drive `sh` mock agents
+      # and Unix file locks. Running the suite there is tracked in #91.
+      - name: cargo test
+        if: matrix.os != 'windows-latest'
+        run: cargo test --workspace --all-targets --locked --no-fail-fast
+
+  lint:
+    name: repository gates (grund, fissile, lychee, changelog, attribution)
+    runs-on: ubuntu-latest
+    env:
+      GRUND_VERSION: 0.9.0
+      LYCHEE_VERSION: 0.23.0
+      FISSILE_VERSION: 0.7.0
+      TOOLS_ROOT: ${{ github.workspace }}/.ci-tools
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install current stable Rust for tooling
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      # The gate binaries are compiled from source on a cache miss only. They
+      # live under their own root so the cache never touches rustup's proxies
+      # in ~/.cargo/bin; the key is the pinned versions, so bumping one rebuilds.
+      - name: Cache gate tool binaries
+        id: tools-cache
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ${{ env.TOOLS_ROOT }}
+          key: ${{ runner.os }}-gate-tools-grund-${{ env.GRUND_VERSION }}-lychee-${{ env.LYCHEE_VERSION }}-fissile-${{ env.FISSILE_VERSION }}
+
+      - name: Install gate tools
         shell: bash
-        run: cargo +stable install grund --version 0.9.0 --locked
+        run: |
+          set -euo pipefail
+          install_tool() {
+            local name="$1" version="$2"
+            if [ -x "$TOOLS_ROOT/bin/$name" ]; then
+              echo "$name $version: cached"
+            else
+              cargo +stable install "$name" --version "$version" --locked --root "$TOOLS_ROOT"
+            fi
+          }
+          install_tool grund "$GRUND_VERSION"
+          install_tool lychee "$LYCHEE_VERSION"
+          install_tool fissile "$FISSILE_VERSION"
+          echo "$TOOLS_ROOT/bin" >> "$GITHUB_PATH"
+          python -m pip install --quiet pre-commit
 
       - name: grund config validate
         run: grund config validate
@@ -55,31 +110,13 @@ jobs:
       - name: grund check
         run: grund check .
 
-      - name: cargo fmt --check
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings -W clippy::all
+      # The hook contract, minus the cargo hooks the test job already ran on
+      # three platforms: running them here again would run the suite twice.
+      - name: pre-commit (repository gates)
+        env:
+          SKIP: cargo-fmt-check,cargo-clippy,cargo-build,cargo-test
+        run: pre-commit run --all-files --show-diff-on-failure
 
       - name: changelog PR entry
         if: github.event_name == 'pull_request'
         run: python scripts/check_changelog_pr_entry.py --pr-number "${{ github.event.pull_request.number }}"
-
-      - name: Install pre-commit hook dependencies
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          python -m pip install pre-commit
-          cargo +stable install lychee --version 0.23.0 --locked
-          cargo +stable install fissile --version 0.7.0 --locked
-
-      - name: pre-commit
-        if: matrix.os == 'ubuntu-latest'
-        run: pre-commit run --all-files
-
-      - name: cargo build
-        run: cargo build --workspace --all-targets --locked
-
-      - name: cargo test
-        if: matrix.os != 'windows-latest'
-        run: cargo test --workspace --all-targets --locked --no-fail-fast

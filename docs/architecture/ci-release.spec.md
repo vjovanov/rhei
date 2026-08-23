@@ -7,13 +7,16 @@ pre-release and release workflows. §FS-rhei-distribution
 
 ## 1. Development CI
 
-The `CI` workflow runs on pushes and pull requests across Linux, macOS, and
-Windows. Each platform installs the pinned Rust toolchain from
-`rust-toolchain.toml`, runs `grund config validate`, runs `grund check .`, then
-executes the Rust formatting, lint, and build gates. Linux and macOS also run
-the full Rust test suite; Windows remains a compile and lint portability gate
-because several CLI fixtures intentionally exercise Unix shell and file-lock
-semantics:
+The `CI` workflow runs on pushes and pull requests as two jobs that run in
+parallel, so pull-request feedback takes as long as the slowest test platform
+and no longer.
+
+**`test`** runs on Linux, macOS, and Windows. Each platform installs the pinned
+Rust toolchain from `rust-toolchain.toml`, restores the cargo registry and
+`target` cache, and executes the Rust formatting, lint, and build gates. Linux
+and macOS also run the full Rust test suite; Windows remains a compile and lint
+portability gate because several CLI fixtures intentionally exercise Unix shell
+and file-lock semantics (running the suite there is tracked separately):
 
 ```bash
 cargo fmt --all -- --check
@@ -22,8 +25,18 @@ cargo build --workspace --all-targets --locked
 cargo test --workspace --all-targets --locked --no-fail-fast
 ```
 
-Linux also runs the repository `.pre-commit-config.yaml` against all files so
-the local hook contract is enforced remotely.
+**`lint`** runs on Linux only. It runs `grund config validate` and
+`grund check .`, then the repository `.pre-commit-config.yaml` against all
+files with the cargo hooks skipped — `test` has just run them on three
+platforms, and running the suite a second time on one of them bought nothing —
+so the remaining hook contract (fissile, lychee, attribution boilerplate) is
+enforced remotely, and on pull requests the changelog entry check. The gate
+binaries (`grund`, `lychee`, `fissile`) are installed from source only on a
+cache miss: they live under a root of their own keyed by their pinned versions,
+so a version bump rebuilds exactly that tool and nothing else.
+
+Both jobs stay inside the one `CI` workflow because the release helpers (§3)
+look the green run up by workflow name.
 
 ## 2. Local Hooks
 
