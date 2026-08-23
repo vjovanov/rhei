@@ -322,6 +322,23 @@ fn list_names_a_rhei_that_holds_no_tickets() {
     assert!(mixed.stdout.contains("Beta: (no tickets yet)"), "got: {}", mixed.stdout);
     assert!(!mixed.stdout.contains("(auth): (no tickets yet)"), "got: {}", mixed.stdout);
 
+    // `--rhei` is a filter, but an empty rhei has no answer for any filter:
+    // "no tasks match the given filters" reads as "your filters are wrong"
+    // about a rhei that simply holds nothing. §FS-rhei-list.4.1
+    let narrowed = new_run(&["list", "--rhei", "beta"], &dir);
+    assert_success(&narrowed);
+    assert!(
+        narrowed.stdout.contains("(rhei 'beta' holds no tickets yet)"),
+        "got: {}",
+        narrowed.stdout
+    );
+    let matching = new_run(&["list", "--rhei", "auth", "--state", "nonesuch-state"], &dir);
+    assert!(
+        !matching.status.success() || !matching.stdout.contains("holds no tickets"),
+        "a rhei that does hold tickets keeps the filter wording: {}",
+        matching.stdout
+    );
+
     // A filter asks a question about tickets, and JSON's shape is a contract.
     let filtered = new_run(&["list", "--state", "pending"], &dir);
     assert_success(&filtered);

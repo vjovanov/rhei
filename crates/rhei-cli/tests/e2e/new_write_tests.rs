@@ -328,6 +328,46 @@ fn the_two_step_on_ramp_works_beside_a_broken_sibling() {
 }
 
 // ---------------------------------------------------------------------------
+// `--dry-run` — §FS-rhei-new.5.4
+// ---------------------------------------------------------------------------
+
+/// A preview that reports success for a create that then hard-fails is the one
+/// answer this flag must never give, because it is the flag reached for
+/// *before* writing. So the write really happens, and is always rolled back.
+// §FS-rhei-new.5.4
+#[test]
+fn a_dry_run_reports_the_failure_the_real_create_would_hit() {
+    let dir = project_with_rhei("new-dry-run-truth");
+    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+
+    let result = new_run(
+        &["new", "Needs a ghost", "--under", "auth", "--prior", "auth.999", "--dry-run"],
+        &dir,
+    );
+    let said = flattened_output(&result);
+    assert!(!result.status.success(), "a dry run of a failing create must fail:\n{said}");
+    assert!(said.contains("this was a dry run"), "got:\n{said}");
+    assert!(said.contains("missing Task auth.999"), "got:\n{said}");
+    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
+
+    // A create that would work still previews, and still writes nothing.
+    let ok = new_run(&["new", "Fine", "--under", "auth", "--dry-run"], &dir);
+    assert_success(&ok);
+    assert!(ok.stdout.contains("Would create ticket auth.1"), "got:\n{}", ok.stdout);
+    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
+}
+
+/// A dry run of a *rhei* leaves no file and no directory behind either.
+// §FS-rhei-new.5.4
+#[test]
+fn a_dry_run_of_a_workspace_rhei_leaves_nothing_behind() {
+    let dir = empty_project("new-dry-run-dir");
+    let result = new_run(&["new", "Billing", "--dir", "--dry-run"], &dir);
+    assert_success(&result);
+    assert!(!dir.join("billing").exists(), "the workspace directory must be rolled back");
+}
+
+// ---------------------------------------------------------------------------
 // Task file names — §FS-rhei-new.3.1
 // ---------------------------------------------------------------------------
 

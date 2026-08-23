@@ -40,8 +40,8 @@ struct NewOptions {
     #[arg(long, value_name = "ID")]
     id: Option<String>,
     /// Body content: the ticket's description, or the rhei's lead paragraph.
-    /// Prose only — a heading or a `**Field:**` line would author plan
-    /// structure, so it is refused
+    /// Prose only — a heading, a `**Field:**` line, a bare `---`, or an
+    /// unclosed ``` fence would author plan structure, so each is refused
     #[arg(long, value_name = "TEXT")]
     description: Option<String>,
     /// Read the description from a file; `-` reads standard input
@@ -120,7 +120,8 @@ struct NewOptions {
     )]
     provides: Vec<String>,
     /// Export this ticket reads, as `<task-id>:<name>` (repeatable;
-    /// comma-separated list also accepted)
+    /// comma-separated list also accepted). Not a dependency: a consumer is
+    /// ready before its producer runs, so order it with --prior
     #[arg(
         long,
         value_name = "ID:NAME",
@@ -132,10 +133,12 @@ struct NewOptions {
     /// `rhei next` and `rhei run` skip it until `rhei release <id>`
     #[arg(long, value_name = "WHO", help_heading = "Creating a ticket")]
     assignee: Option<String>,
-    /// Per-ticket model override
+    /// Per-ticket model override; mutually exclusive with --target, which
+    /// names a whole execution identity
     #[arg(long, value_name = "MODEL", help_heading = "Creating a ticket")]
     model: Option<String>,
-    /// Per-ticket execution-identity override
+    /// Per-ticket execution-identity override; mutually exclusive with
+    /// --model, which the identity already carries
     #[arg(
         long,
         value_name = "TARGET",
@@ -143,13 +146,15 @@ struct NewOptions {
         help_heading = "Creating a ticket"
     )]
     target: Option<String>,
-    /// Print the target path and the markdown that would be written
+    /// Preview the create: it is written, validated, and then always rolled
+    /// back, so the preview reports what the real create would do
     #[arg(long)]
     dry_run: bool,
     /// Emit the created id, kind, path, and state as JSON
     #[arg(long)]
     json: bool,
-    /// Keep the write when validation fails, instead of rolling it back
+    /// Keep the write when validation fails, instead of rolling it back; no
+    /// effect under --dry-run, which always rolls back
     #[arg(long)]
     keep_on_error: bool,
 }

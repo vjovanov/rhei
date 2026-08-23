@@ -60,13 +60,7 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     // §FS-rhei-new.4
     let _destination_lock = lock_new_destination(&scope_lock, &write.path)?;
 
-    if options.dry_run {
-        report_new_dry_run(&write, options.json);
-        return Ok(());
-    }
-    apply_new_write(&target, &write, options.keep_on_error)?;
-    report_new_write(&write, options.json);
-    Ok(())
+    apply_new_write(&target, &write, options)
 }
 
 /// Refuse a `TITLE` that cannot become a heading.
@@ -159,18 +153,27 @@ fn report_new_widened(target: &PlanTarget) {
     );
 }
 
+/// A create that is on disk and has been judged, with everything an undo needs.
+struct AppliedWrite {
+    /// The destination's previous contents; `None` when it did not exist.
+    previous: Option<String>,
+    created_dirs: Vec<PathBuf>,
+    /// Errors the project was already carrying before the write.
+    inherited: Vec<String>,
+    /// Why the create has to be undone, when it does.
+    failure: Option<CreateFailure>,
+}
+
 /// Write the create, then decide whether it succeeded: the errors it added to
-/// the ones the project already had, and whether the new id reads back. The
-/// write is undone when it did not, unless `--keep-on-error`.
+/// the ones the project already had, whether any id it did not write went
+/// missing, and whether the new id reads back. Nothing is undone here — the
+/// caller decides that, because a dry run undoes a create that worked too.
 // §FS-rhei-new.5.1 §FS-rhei-new.5.2
-fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> MietteResult<()> {
-    // The pass runs before the write as well, so what follows it can be read as
+fn perform_new_write(target: &Path, write: &NewWrite) -> MietteResult<AppliedWrite> {
+    // Both passes run before the write as well, so what follows can be read as
     // a difference rather than as a verdict on the whole project.
-    // §FS-rhei-new.5.2
+    // §FS-rhei-new.5.1 §FS-rhei-new.5.2
     let inherited = create_validation_errors(target);
-    // The ids the project already holds, so a write that made one of them stop
-    // existing can be undone whatever splice produced the loss.
-    // §FS-rhei-new.5.1
     let before = create_plan_ids(target);
 
     let previous = fs::read_to_string(&write.path).ok();
@@ -181,21 +184,34 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
     }
     write_plan_file_atomically(&write.path, &write.contents)?;
 
+    let failure = new_write_failure(target, write, &inherited, before.as_ref());
+    Ok(AppliedWrite { previous, created_dirs, inherited, failure })
+}
+
+/// Write the create and keep it, or undo it and say why. `--dry-run` undoes it
+/// either way and reports what the real create would have done.
+// §FS-rhei-new.5.1 §FS-rhei-new.5.2 §FS-rhei-new.5.4
+fn apply_new_write(target: &Path, write: &NewWrite, options: &NewOptions) -> MietteResult<()> {
+    let applied = perform_new_write(target, write)?;
+    if options.dry_run {
+        return report_new_dry_run(write, applied, options.json);
+    }
     // Warnings are deliberately dropped: a rhei created seconds ago holding no
     // tickets is exactly what was asked for, and saying so here would make the
     // normal path noisier than the failing one. §FS-rhei-new.5.1
-    let Some(failure) = new_write_failure(target, write, &inherited, before.as_ref()) else {
-        report_inherited_validation_failure(&inherited);
+    let Some(failure) = applied.failure else {
+        report_inherited_validation_failure(&applied.inherited);
+        report_new_write(write, options.json);
         return Ok(());
     };
-    if keep_on_error {
+    if options.keep_on_error {
         eprintln!(
             "warning: kept {} — the project is left failing validation",
             display_path(&write.path)
         );
         return Err(failure.report);
     }
-    roll_back_new_write(&write.path, previous.as_deref(), &created_dirs);
+    roll_back_new_write(&write.path, applied.previous.as_deref(), &applied.created_dirs);
     // Say it before the validator's own report: a create that reports only a
     // validation error reads as though something half-landed. §FS-rhei-new.5.2
     eprintln!(
@@ -246,22 +262,44 @@ fn roll_back_new_write(path: &Path, previous: Option<&str>, created_dirs: &[Path
     }
 }
 
-/// Report a `--dry-run`. Under `--json` it is the same object the real create
-/// emits, plus the fact that nothing was written and the block that would have
-/// been: a flag that selects the output format keeps working under a flag that
-/// only selects whether the write happens.
+/// Undo the dry run's write and report what the real create would have done —
+/// including its failure, when it would have had one.
+///
+/// A preview that skipped the write could only report the flags back: every
+/// failure worth previewing (a `**Prior:**` naming nothing, a `--states` naming
+/// no machine, a splice the parser reads differently than the writer did) is
+/// visible only *after* the bytes are on disk and the project is reloaded. A
+/// `--dry-run` that says "would create" and is then refused for real is the one
+/// answer the flag must never give, because it is the flag reached for before
+/// writing.
+///
+/// Under `--json` success is the same object the real create emits, plus the
+/// fact that nothing was written and the block that would have been: a flag
+/// that selects the output format keeps working under a flag that only selects
+/// whether the write happens.
 // §FS-rhei-new.5.4
-fn report_new_dry_run(write: &NewWrite, json: bool) {
+fn report_new_dry_run(write: &NewWrite, applied: AppliedWrite, json: bool) -> MietteResult<()> {
+    roll_back_new_write(&write.path, applied.previous.as_deref(), &applied.created_dirs);
+    if let Some(failure) = applied.failure {
+        eprintln!(
+            "note: nothing was written — this was a dry run, and the real create would have \
+             been rolled back because {}.",
+            failure.reason
+        );
+        return Err(failure.report);
+    }
+    report_inherited_validation_failure(&applied.inherited);
     if json {
         let mut value = new_write_json(write);
         value["dry_run"] = serde_json::Value::Bool(true);
         value["markdown"] = serde_json::Value::String(write.preview.clone());
         println!("{value}");
-        return;
+        return Ok(());
     }
     println!("Would create {} {} at {}", write.kind, write.id, display_path(&write.path));
     println!();
     print!("{}", write.preview);
+    Ok(())
 }
 
 /// The facts `--json` reports, shared by the real create and the dry run so the

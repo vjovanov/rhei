@@ -60,12 +60,37 @@ fn report_empty_rheis(loaded: &LoadedPlan) {
         return;
     }
     for id in &loaded.rhei_ids {
-        let prefix = format!("{id}.");
-        if loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix)) {
+        if rhei_holds_tickets(loaded, id) {
             continue;
         }
         println!();
         println!("{}: (no tickets yet)", empty_rhei_heading(loaded, id));
+    }
+}
+
+/// True when any ticket in the merged graph belongs to rhei `id`.
+fn rhei_holds_tickets(loaded: &LoadedPlan, id: &str) -> bool {
+    let prefix = format!("{id}.");
+    loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix))
+}
+
+/// What to print when nothing matched: the rheis `--rhei` named, when every one
+/// of them is simply empty, and the generic filter line otherwise.
+///
+/// `--rhei` is a filter, so an empty rhei falls into "no tasks match the given
+/// filters" — which reads as "your filters are wrong" about a rhei that has no
+/// tickets for any filter to match. The distinction matters right after a
+/// create, when the rhei someone just made is exactly the one they are listing.
+// §FS-rhei-list.4.1 §FS-rhei-new.5.4
+fn empty_listing_line(loaded: &LoadedPlan, filters: &ListFilters) -> String {
+    let named: Vec<&str> = filters.rhei.iter().map(String::as_str).collect();
+    if named.is_empty() || named.iter().any(|id| rhei_holds_tickets(loaded, id)) {
+        return "(no tasks match the given filters)".to_string();
+    }
+    let quoted: Vec<String> = named.iter().map(|id| format!("'{id}'")).collect();
+    match quoted.len() {
+        1 => format!("(rhei {} holds no tickets yet)", quoted[0]),
+        _ => format!("(rheis {} hold no tickets yet)", quoted.join(", ")),
     }
 }
 
@@ -351,7 +376,7 @@ fn list_command(
     }
 
     if matches.is_empty() {
-        println!("(no tasks match the given filters)");
+        println!("{}", empty_listing_line(&loaded, &filters));
         if filters.none_active() {
             report_empty_rheis(&loaded);
         }
