@@ -1,4 +1,4 @@
-// FS-rhei-memory.3.4 driven end to end: the map at the end of every prompt —
+// The map at the end of every prompt, driven end to end (FS-rhei-memory.3.4) —
 // every path absolute on `rhei next`, a root for a bare relative plan name on
 // both surfaces, and the transcripts directory the run actually writes.
 //
