@@ -7,13 +7,17 @@
 
 // §AR-source-file-size.3 §FS-rhei-memory.3.4
 
-/// Where the artifacts are under any execution root, and which commands are
-/// safe to run while looking for them.
+/// Where the per-rhei artifacts are under any execution root.
 // §FS-rhei-memory.3.4
-const READING_THE_RHEI_TAIL: &str = "\
+const READING_THE_RHEI_ARTIFACTS: &str = "\
 - Under each execution root: `runtime/results/<task-id>.md` (results),
   `runtime/exports/<task-id>/<name>.md` (exports), `runtime/supervise/<task-id>[/<state>].md` (briefs),
-  `runtime/state-transitions.log` (order of events), `runtime/logs/` (agent transcripts)
+  `runtime/state-transitions.log` (order of events)
+";
+
+/// Which commands are safe to run while looking for any of it.
+// §FS-rhei-memory.3.4
+const READING_THE_RHEI_COMMANDS: &str = "\
 - Read-only commands, always safe: `rhei list [--rhei <id>] [--terminal] [--has-prior <id>] [--parent <id>]`,
   `rhei render <plan> --format json --pretty`
 ";
@@ -67,7 +71,15 @@ fn render_reading_the_rhei(render_context: &RuntimeTemplateContext<'_>) -> Strin
         let Some(other) = memory.rhei_roots.get(id) else { continue };
         out.push_str(&format!("  - `{id}` \u{2014} `{}`\n", memory_path(render_context, other)));
     }
-    out.push_str(READING_THE_RHEI_TAIL);
+    out.push_str(READING_THE_RHEI_ARTIFACTS);
+    // Transcripts are the one artifact that does not live per rhei: a run writes
+    // them under the root it was started from, the project and not the member.
+    // §FS-rhei-memory.3.4 §FS-rhei-agents.8
+    out.push_str(&format!(
+        "- Agent transcripts: `{}`\n",
+        memory_path(render_context, &memory.runtime_dir.join("logs"))
+    ));
+    out.push_str(READING_THE_RHEI_COMMANDS);
     out
 }
 

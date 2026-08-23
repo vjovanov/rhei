@@ -287,3 +287,84 @@ fn rhei_next_renders_every_memory_path_absolute() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A mock agent that saves its prompt under the execution root it was handed
+/// and writes the result the terminal state needs — and touches nothing under
+/// `runtime/logs/`, which is the tree this scenario is about.
+const LOG_MAP_AGENT: &str = r#"#!/bin/sh
+set -eu
+root="${RHEI_ROOT:?}"
+task="${RHEI_TASK_ID:?}"
+state="${RHEI_STATE:?}"
+visit="${RHEI_VISIT_COUNT:-1}"
+mkdir -p "$root/runtime/prompts"
+prompt=""
+while [ $# -gt 0 ]; do
+  if [ "$1" = "--prompt" ]; then shift; prompt="${1:-}"; fi
+  shift || true
+done
+printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state-$visit.md"
+mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
+printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
+"#;
+
+/// One `rhei run` writes one log tree, under the root it was started from — the
+/// project in a Panta, not the member — so the map names that directory rather
+/// than promising `runtime/logs/` under every execution root.
+// §FS-rhei-memory.2 §FS-rhei-memory.3.4
+#[test]
+fn the_map_names_the_log_directory_the_run_writes() {
+    let dir = unique_temp_dir("memory-log-map");
+    write_fixture_file(&dir, "index.panta.md", "# Panta: Two Roots\n");
+    let machine_path = write_fixture_file(&dir, "states.yaml", MEMORY_MACHINE);
+    let script = write_fixture_file(&dir, "mock-agent.sh", LOG_MAP_AGENT);
+    let settings_dir = dir.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("settings dir");
+    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "prompt_flag": "--prompt", "timeout": "30s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+    fs::create_dir_all(dir.join("alpha/tasks")).expect("member dirs");
+    fs::write(dir.join("alpha/index.rhei.md"), "# Rhei: Alpha\n").expect("write index");
+    fs::write(dir.join("alpha/tasks/t.md"), "### Task 1: Work alpha\n**State:** pending\n")
+        .expect("write task file");
+
+    let mut cmd = rhei_command(dir.join(".home"));
+    cmd.arg("--state-machine").arg(&machine_path).arg("run").arg(&dir);
+    cmd.args(["--no-callbacks", "--no-tui"]);
+    let output = cmd.output().expect("rhei run should run");
+    assert!(
+        output.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The results sit under the member's execution root …
+    assert!(dir.join("alpha/runtime/results/alpha.1.md").exists(), "the member owns its results");
+    // … and the transcripts do not: they are the run's, at the root it started
+    // from. §FS-rhei-agents.8
+    let logs = dir.join("runtime/logs");
+    assert!(logs.join("task-alpha.1-pending.log").exists(), "the run writes its logs here");
+    assert!(!dir.join("alpha/runtime/logs").exists(), "and nothing under the member");
+
+    let prompt = fs::read_to_string(dir.join("alpha/runtime/prompts/alpha.1-review-1.md"))
+        .expect("the review prompt was saved");
+    assert!(
+        prompt.contains(&format!("- Agent transcripts: `{}`\n", logs.display())),
+        "the map names the directory that exists; got:\n{prompt}"
+    );
+    assert!(
+        !prompt.contains("`runtime/logs/` (agent transcripts)"),
+        "the map no longer claims a per-root log tree; got:\n{prompt}"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
