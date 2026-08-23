@@ -28,7 +28,7 @@ The unhappy path: `ci-watch` exits with `1` → `analyze-and-fix` → `push-fix`
 → back to `ci-watch`. Either the new push turns CI green (`heal-done`), or
 the outer loop exhausts (`fix-exhausted`).
 
-## Status-check contract (`.rhei/gh-ci-status.sh`)
+## Status-check contract (`.rhei/gh-ci-status.py`)
 
 A small script on the consuming repo side is expected to encode the tri-state
 verdict via exit code:

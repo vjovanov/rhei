@@ -1,6 +1,7 @@
 """Mock transition callback for the canonical UI fixture.
 
-Python rather than a shell script, so the callbacks run wherever the CLI runs.
+Python rather than a shell script, so the callbacks run wherever `python3` is
+on `PATH`.
 `states.yaml` names it as `cli:python3 ./bin/mock-transition.py <command>`: a
 `cli:` callback goes to the platform's own shell (`sh -c`, `cmd /C`) with the
 state machine's directory as its cwd, so the relative path resolves on every
