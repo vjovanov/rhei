@@ -156,7 +156,7 @@ pub fn load_panta_project_lenient(dir: &Path) -> parser::Result<PantaProject> {
 
 fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaProject> {
     let manifest_path = dir.join(PANTA_INDEX_FILE);
-    let manifest_content = std::fs::read_to_string(&manifest_path).map_err(|e| {
+    let manifest_content = crate::source::read_to_string(&manifest_path).map_err(|e| {
         ParseError::new(format!("failed to read {}: {e}", manifest_path.display()), None)
     })?;
     let manifest = parser::parse_panta_manifest(&manifest_content)
@@ -420,7 +420,7 @@ fn load_rhei_entry(path: &Path) -> parser::Result<Workspace> {
     if let Some(ws_dir) = workspace_dir(path) {
         load_workspace(&ws_dir)
     } else {
-        let content = std::fs::read_to_string(path).map_err(|e| {
+        let content = crate::source::read_to_string(path).map_err(|e| {
             ParseError::new(format!("failed to read {}: {e}", path.display()), None)
         })?;
         let rhei = parser::parse(&content).map_err(|e| nested_parse_error(e, path))?;

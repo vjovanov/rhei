@@ -30,8 +30,8 @@
   too, so a Windows user can run them.
   §REQ-cross-platform.3 §REQ-cross-platform.4 §AR-ci-release.1 (PR #97)
 
-  Running the suite there found five things that were broken on Windows and are
-  now fixed. **The system shell**: a string-form `program:` and a `cli:`
+  Running the suite there found eight things that were broken on Windows and
+  are now fixed. **The system shell**: a string-form `program:` and a `cli:`
   callback both spawned `sh -c` unconditionally, though the spec has always said
   a string command runs under `/bin/sh -c` on Unix and `cmd /c` on Windows —
   where there is no `sh`, so both died looking for one before running a line of
@@ -49,7 +49,14 @@
   test pins. §REQ-cross-platform.2 **The N-API cdylib**: its manifest says
   `test = false`, but `--all-targets` selects the lib target explicitly and
   overrides that, and the harness that resulted found no Node and aborted the
-  whole job. (PR #97)
+  whole job. **`cmd /c` was handed an escaped argument**: a command line is not
+  an argument, and the escaping Rust applies to one turned every `\"` in a
+  callback into a character the program then read as part of its code.
+  **A canonicalized path leaked its `\\?\` prefix** into the run report, the
+  log lines, and the working directory of every callback — where `cmd.exe`
+  refuses to start, says so, and silently uses the Windows directory instead, so
+  a relative command in a callback ran somewhere else entirely.
+  §REQ-cross-platform.5 (PR #97)
 
   The test directories go with the tests now. Every end-to-end and integration
   test creates a directory of its own and removed it on its last line — a line

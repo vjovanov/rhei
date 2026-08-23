@@ -184,7 +184,7 @@ fn collect_task_roots(
 /// across files and missing structure.
 pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
     let index_path = dir.join(RHEI_INDEX_FILE);
-    let index_content = std::fs::read_to_string(&index_path).map_err(|e| {
+    let index_content = crate::source::read_to_string(&index_path).map_err(|e| {
         ParseError::new(format!("failed to read {}: {e}", index_path.display()), None)
     })?;
 
@@ -197,7 +197,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
 
     if tasks_dir.is_dir() {
         for path in discover_task_files(&tasks_dir)? {
-            let content = std::fs::read_to_string(&path).map_err(|e| {
+            let content = crate::source::read_to_string(&path).map_err(|e| {
                 ParseError::new(format!("failed to read {}: {e}", path.display()), None)
             })?;
 
@@ -238,7 +238,7 @@ pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
 /// re-reading the file costs nothing in the common case; a file that no longer
 /// reads simply yields no line rather than masking the duplicate itself.
 fn duplicate_heading_line(path: &Path, id_str: &str) -> Option<usize> {
-    let source = std::fs::read_to_string(path).ok()?;
+    let source = crate::source::read_to_string(path).ok()?;
     let mut found = None;
     for (index, line) in source.lines().enumerate() {
         let rest = line.trim_start_matches('#');

@@ -75,6 +75,8 @@ fn a_plain_run_still_writes_the_event_log_and_the_descriptor() {
 // §FS-rhei-run-headless.1: launching
 // ---------------------------------------------------------------------------
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn headless_launch_detaches_and_the_run_completes_on_its_own() {
     let ws = Workspace::new("headless-launch", 1);
@@ -105,6 +107,8 @@ fn headless_launch_detaches_and_the_run_completes_on_its_own() {
     );
 }
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn headless_json_prints_one_descriptor_object() {
     let ws = Workspace::new("headless-launch-json", 1);
@@ -120,6 +124,8 @@ fn headless_json_prints_one_descriptor_object() {
 
 /// Turning off a view the operator does not want must not also turn off the
 /// ability to intervene in the run. §FS-rhei-run-headless.4
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn no_dashboard_withholds_the_link_but_keeps_the_control_server() {
     let ws = Workspace::new("headless-nodash", 20);
@@ -138,6 +144,8 @@ fn no_dashboard_withholds_the_link_but_keeps_the_control_server() {
     );
 }
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn a_second_headless_run_fails_synchronously_and_names_the_live_one() {
     // The lock refusal must arrive as a launcher failure, not as an id for a
@@ -152,6 +160,8 @@ fn a_second_headless_run_fails_synchronously_and_names_the_live_one() {
     assert!(message.contains(&id), "the diagnostic names the run in the way: {message}");
 }
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn a_launch_that_cannot_start_reports_the_runs_own_diagnostic() {
     let ws = Workspace::new("headless-invalid", 0);
@@ -175,6 +185,8 @@ fn a_launch_that_cannot_start_reports_the_runs_own_diagnostic() {
 // §FS-rhei-run-headless.5: attaching
 // ---------------------------------------------------------------------------
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn attach_json_follows_a_run_it_did_not_start_and_exits_with_its_code() {
     let ws = Workspace::new("headless-attach", 1);
@@ -242,6 +254,8 @@ fn an_unknown_run_reference_points_at_the_run_list() {
 // §FS-rhei-run-headless.6: listing
 // ---------------------------------------------------------------------------
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn runs_lists_the_live_run_and_json_describes_it() {
     let ws = Workspace::new("headless-runs", 20);
@@ -275,6 +289,8 @@ fn an_empty_run_list_is_an_answer_not_a_failure() {
 // §FS-rhei-run-headless.7: stopping
 // ---------------------------------------------------------------------------
 
+// Unix-only: `--headless` needs a POSIX session to detach into, and says so
+// on every other platform. §FS-rhei-run-headless.1.3
 #[test]
 fn stop_interrupts_the_run_and_leaves_its_in_flight_ticket_alone() {
     let ws = Workspace::new("headless-stop", 30);

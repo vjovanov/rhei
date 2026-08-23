@@ -310,7 +310,7 @@ fn absolutize(path: &Path) -> PathBuf {
     } else {
         std::env::current_dir().map(|cwd| cwd.join(path)).unwrap_or_else(|_| path.to_path_buf())
     };
-    absolute.canonicalize().unwrap_or(absolute)
+    rhei_core::callback::canonical_path(&absolute).unwrap_or(absolute)
 }
 
 /// Publish a run's descriptor and its registry pointer.

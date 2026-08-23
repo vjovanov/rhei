@@ -44,7 +44,7 @@ pub(super) fn load_basin_rhei(
                 None,
             ));
         }
-        let content = std::fs::read_to_string(&path).map_err(|e| {
+        let content = crate::source::read_to_string(&path).map_err(|e| {
             ParseError::new(format!("failed to read {}: {e}", path.display()), None)
         })?;
         let parsed = parser::parse_workspace_tasks_with_structure(&content, structure)
