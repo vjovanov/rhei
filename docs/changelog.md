@@ -7,7 +7,7 @@
   distinct from the user-visible behaviour of one feature (`FS-`) and from an
   outcome the project pursues (`GOAL-`). Requirements cite goals; specs and
   architecture cite the requirement at the point they realize it. The
-  cross-platform rule is the first: §REQ-cross-platform.
+  cross-platform rule is the first: §REQ-cross-platform. (PR #98)
 
 - Rhei is a **cross-platform tool by requirement**, not by accident: Linux,
   macOS, and Windows are supported as one tool, every behaviour works and is
