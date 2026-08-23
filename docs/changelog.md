@@ -47,6 +47,21 @@
   backticks in it, which gave a body quoting a lot of inline code an absurd
   fence. §FS-rhei-memory.4.5
 
+  A **content section is now parsed verbatim** so `### Rhei Context` and
+  `### Project Context` can paste the plan writer's own bytes: its interior
+  blank lines survive, and a fenced body before `## Tasks` is no longer dropped
+  on the floor. The same text reaches every other surface that prints it, so
+  `rhei render --format json` and `--format github` and `rhei viz`'s `about`
+  field now carry those blank lines and fenced bodies too.
+  §FS-rhei-memory.4.2
+
+  Because those bytes are now visible to it, `rhei validate` **no longer checks
+  markdown links inside code**: a link in a fenced block or an inline code span
+  is an illustration of the format, not a reference to a file. This covers task
+  bodies as well as content sections — a plan that documents how to write a
+  task used to fail on the example links in its own instructions.
+  §FS-rhei-plan-language.3.6
+
 - `rhei templates --json` now carries the **whole** input schema for every
   input, not the subset the human table prints: `format`, `positional`,
   `items` (the element schema of an array), and `properties` (the field

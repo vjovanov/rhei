@@ -1,7 +1,104 @@
+/// The fence character and its run length, when a line is a code fence.
+///
+/// CommonMark: a fence is a run of at least three backticks or tildes; the
+/// opening one may carry an info string, the closing one may not, and the
+/// closing run must be at least as long as the opening one.
+// §FS-rhei-plan-language.3.6
+fn code_fence_run(line: &str) -> Option<(char, usize, bool)> {
+    let trimmed = line.trim_start();
+    let marker = trimmed.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let run = trimmed.chars().take_while(|character| *character == marker).count();
+    if run < 3 {
+        return None;
+    }
+    let bare = trimmed[run..].trim().is_empty();
+    Some((marker, run, bare))
+}
+
+/// One line with its inline code spans removed.
+///
+/// A span opens on a run of backticks and closes on the next run of the same
+/// length; a run that never closes is literal text and stays. Blanking the
+/// span rather than the line keeps a real link on the same line checkable.
+// §FS-rhei-plan-language.3.6
+fn strip_inline_code_spans(line: &str) -> String {
+    let characters: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut index = 0;
+    while index < characters.len() {
+        if characters[index] != '`' {
+            out.push(characters[index]);
+            index += 1;
+            continue;
+        }
+        let open = characters[index..].iter().take_while(|character| **character == '`').count();
+        let mut cursor = index + open;
+        let mut close = None;
+        while cursor < characters.len() {
+            if characters[cursor] != '`' {
+                cursor += 1;
+                continue;
+            }
+            let run =
+                characters[cursor..].iter().take_while(|character| **character == '`').count();
+            if run == open {
+                close = Some(cursor);
+                break;
+            }
+            cursor += run;
+        }
+        match close {
+            Some(end) => index = end + open,
+            None => {
+                out.extend(std::iter::repeat_n('`', open));
+                index += open;
+            }
+        }
+    }
+    out
+}
+
+/// `text` with every code region blanked and every other line left alone.
+///
+/// Line structure is preserved so a link written across two lines of prose is
+/// still one match. An unclosed fence swallows the rest of the body, which is
+/// what a markdown renderer does with it too.
+// §FS-rhei-plan-language.3.6
+fn markdown_prose(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut fence: Option<(char, usize)> = None;
+    for line in text.lines() {
+        match fence {
+            Some((marker, open)) => {
+                if let Some((character, run, bare)) = code_fence_run(line) {
+                    if character == marker && run >= open && bare {
+                        fence = None;
+                    }
+                }
+            }
+            None => match code_fence_run(line) {
+                Some((marker, run, _)) => fence = Some((marker, run)),
+                None => out.push_str(&strip_inline_code_spans(line)),
+            },
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Extract markdown links from a text block, returning `(display_text, target)` pairs.
+///
+/// A link inside a fenced code block or an inline code span is an illustration,
+/// not a reference, and is not returned: a plan that documents its own format
+/// carries example links, in a task body as in a content section.
+// §FS-rhei-plan-language.3.6
 fn extract_markdown_links(text: &str) -> Vec<(String, String)> {
     let re = Regex::new(r"\[([^\]]*)\]\(([^)]+)\)").expect("valid regex");
-    re.captures_iter(text).map(|cap| (cap[1].to_string(), cap[2].to_string())).collect()
+    let prose = markdown_prose(text);
+    re.captures_iter(&prose).map(|cap| (cap[1].to_string(), cap[2].to_string())).collect()
 }
 
 /// Collect all markdown links from every content field in the plan.

@@ -889,6 +889,13 @@ containing `index.rhei.md`, even when the link appears in a nested file under
 
 External URLs (`http://`, `https://`, `mailto:`), and fragment-only anchors (`#section`) are not checked. When a link contains a fragment (`file.md#section`), only the file portion is verified.
 
+A link inside a fenced code block — a run of three or more backticks or
+tildes, closed by a run of the same character at least as long — or inside an
+inline code span is an illustration of the format, not a reference to a file,
+and is not checked. A plan that documents how to write a task quotes links that
+were never meant to resolve, in a content section as in a task body. A fence
+that is never closed runs to the end of the text that opened it.
+
 For Directory Workspaces, implementations must not resolve `./` or `../`
 against the physical path of the task file that contains the link. This keeps
 links stable when tasks move between files or when task files are nested under
