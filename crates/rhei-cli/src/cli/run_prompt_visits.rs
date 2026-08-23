@@ -26,10 +26,13 @@ fn render_visit_trail(
         if entry_task != &task_id {
             continue;
         }
+        // A ledger line carrying a `-<visit>` suffix names the same state as
+        // the plain one; leaving it raw would both spell a state two ways and
+        // defeat the annotate-in-place rule below. §FS-rhei-memory.3.1
         if steps.is_empty() {
-            steps.push(from.clone());
+            steps.push(normalized_state_name(from, render_context.machine));
         }
-        steps.push(to.clone());
+        steps.push(normalized_state_name(to, render_context.machine));
     }
     let visit = render_visit_count(
         render_context.metadata,

@@ -164,3 +164,34 @@
         );
         assert!(visits.contains("Imported verdict."), "got:\n{visits}");
     }
+
+    /// §FS-rhei-memory.3.1 and §4.4.1: a ledger line carrying the `-<visit>`
+    /// suffix names the state the machine declares. Left raw it spelled one
+    /// state three ways and appended this visit instead of annotating it.
+    #[test]
+    fn a_suffixed_ledger_line_still_names_one_state() {
+        let dir = memory_plan_dir(&[(
+            "runtime/state-transitions.log",
+            "plan.1.3 pending@review\nplan.1.3 review@review-2\nplan.1.3 review-2@review-3\n",
+        )]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.3").expect("task 1.3");
+        let mut context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "review");
+        let metadata = visit_metadata("plan.1.3", "review", 3);
+        context.metadata = Some(&metadata);
+
+        let visits = render_previous_visits(&context).expect("visits");
+        assert!(
+            visits.contains(
+                "Trail for this task: pending \u{2192} review \u{2192} review \u{2192} review \
+                 (this visit, visit 3).\n"
+            ),
+            "got:\n{visits}"
+        );
+        assert!(!visits.contains("review-"), "no raw suffix survives; got:\n{visits}");
+    }
