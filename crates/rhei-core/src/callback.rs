@@ -122,11 +122,14 @@ pub trait CallbackExecutor {
 
 /// The platform's own shell, holding one command line.
 ///
-/// §FS-rhei-programs.1.1 says a string-form command runs under `/bin/sh -c` on
-/// Unix and `cmd /c` on Windows, and a `cli:` callback is the same kind of
-/// value — a command line, not an argument vector. Only the Unix half was ever
-/// spawned, so on Windows every string-form program and every `cli:` callback
-/// died looking for a program named `sh` before its own first instruction.
+/// A string-form command runs under `/bin/sh -c` on Unix and `cmd /c` on
+/// Windows, and a `cli:` callback is the same kind of value — a command line,
+/// not an argument vector — so it takes the same shell. Only the Unix half was
+/// ever spawned, so on Windows every string-form program and every `cli:`
+/// callback died looking for a program named `sh` before its first own
+/// instruction.
+
+// §FS-rhei-programs.1.1
 pub fn system_shell_command(command: &str) -> Command {
     let mut cmd = if cfg!(windows) {
         let mut cmd = Command::new("cmd");

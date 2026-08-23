@@ -29,6 +29,15 @@ jobs:
           toolchain: 1.82.0
           components: clippy, rustfmt
 
+      # The end-to-end suite stands its mock agents, programs, and callbacks up
+      # as Python scripts, which is what lets one test command run on all three
+      # platforms. Every runner image ships a Python already; pinning it here
+      # says the suite depends on one rather than leaving it to the image.
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
       - name: Cache cargo registry and target
         uses: actions/cache@v5
         continue-on-error: true
@@ -51,38 +60,8 @@ jobs:
         run: cargo build --workspace --all-targets --locked
 
       - name: cargo test
-        if: matrix.os != 'windows-latest'
+        timeout-minutes: 45
         run: cargo test --workspace --all-targets --locked --no-fail-fast
-
-      # Windows runs every test that needs no shell: the unit tests of every
-      # crate, rhei-core's integration tests, and the CLI's integration target.
-      # The CLI's *e2e* target drives `sh` mock agents throughout and is still
-      # excluded there; porting it is #91.
-      #
-      # Three steps rather than three lines in one, so a failure in the first
-      # still lets the rest run and one red job reports everything there is to
-      # fix. `rhei-core` is the directory; `rhei-plan` is the package name cargo
-      # answers to.
-      # `rhei-api` is excluded rather than left to its manifest's `test = false`:
-      # `--lib` selects targets explicitly, and an explicit selection overrides
-      # that flag. Its N-API shims resolve against a host Node process, so the
-      # empty harness aborts here.
-      - name: cargo test (unit)
-        if: matrix.os == 'windows-latest'
-        run: cargo test --workspace --lib --exclude rhei-api --locked --no-fail-fast
-
-      - name: cargo test (rhei-core)
-        if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
-        run: cargo test -p rhei-plan --locked --no-fail-fast
-
-      # The CLI's integration target: it spawns the built `rhei` and reads what
-      # it wrote, which is exactly the path handling Windows spells differently.
-      # The tests inside it that do stand a shell script up as an agent, a
-      # polled program, or a callback are `#[cfg(unix)]` and say so (#91).
-      - name: cargo test (CLI integration)
-        if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
-        timeout-minutes: 30
-        run: cargo test -p rhei-cli --test integration_markdown_plans --locked --no-fail-fast
 
   lint:
     name: repository gates (grund, fissile, lychee, changelog, attribution)
