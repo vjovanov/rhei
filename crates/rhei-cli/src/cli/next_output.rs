@@ -30,6 +30,12 @@ struct NextOutput<'a> {
     /// worker needs, or empty when this ticket does not supervise.
     // §FS-rhei-supervision.3.4
     supervising: &'a str,
+    /// The four mid-term memory sections, each empty when the run prompt would
+    /// not carry it either. §FS-rhei-memory.5
+    position: &'a str,
+    plan_history: &'a str,
+    previous_visits: &'a str,
+    navigation: &'a str,
     agent_id: Option<&'a str>,
     model_id: Option<&'a str>,
 }
@@ -85,6 +91,18 @@ fn print_next_output(output: NextOutput<'_>) {
         }
         if !output.supervising.is_empty() {
             obj["supervising"] = serde_json::json!(output.supervising.trim());
+        }
+        // §FS-rhei-memory.5: one string field per section, named after it and
+        // omitted when the section is empty, exactly as `checkpoints` is.
+        for (field, section) in [
+            ("position", output.position),
+            ("plan_history", output.plan_history),
+            ("previous_visits", output.previous_visits),
+            ("navigation", output.navigation),
+        ] {
+            if !section.is_empty() {
+                obj[field] = serde_json::json!(section.trim());
+            }
         }
         println!("{}", serde_json::to_string_pretty(&obj).expect("JSON serialization"));
     } else {
@@ -147,10 +165,18 @@ fn print_next_output(output: NextOutput<'_>) {
             println!("--- Instructions ({}) ---", output.to_state);
             println!("{}", output.instructions);
         }
-        // The run prompt's own sections, in its order, plus the notes it puts
-        // in `## Rhei Commands`. All empty without supervision, so an ordinary
-        // plan prints what it always did. §FS-rhei-supervision.3.4
-        for section in [output.checkpoints, output.supervisor_brief, output.supervising] {
+        // The run prompt's own sections, in its order. Every one is empty for a
+        // plan the run prompt would carry none of, so such a plan prints what it
+        // always did. §FS-rhei-supervision.3.4 §FS-rhei-memory.5
+        for section in [
+            output.position,
+            output.checkpoints,
+            output.supervisor_brief,
+            output.plan_history,
+            output.previous_visits,
+            output.navigation,
+            output.supervising,
+        ] {
             if !section.is_empty() {
                 print!("{section}");
             }

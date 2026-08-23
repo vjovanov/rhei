@@ -111,6 +111,9 @@ fn run_sequential_agent_invocation(
     // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
     let task_workspace_root = loaded.task_root(task_id_str, workspace_root);
     let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
+    // A sequential pass runs one invocation at a time, so nothing else of this
+    // run is in flight. §FS-rhei-memory.4.3
+    let memory = prompt_memory(&loaded, input, runtime_dir, BTreeSet::new());
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
         task_roots: Some(&loaded.task_roots),
@@ -131,6 +134,7 @@ fn run_sequential_agent_invocation(
         agent: Some(resolved.agent.id()),
         agent_mode: resolved.mode.as_deref(),
         tooling: Some(&tooling),
+        memory: Some(&memory),
     };
     // Same contract as the parallel scheduler: an uncomposable prompt
     // fails its own task, not the whole run. §FS-rhei-run.3

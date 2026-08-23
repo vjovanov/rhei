@@ -430,11 +430,23 @@ fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> Mi
 }
 
 fn resolved_agent_log_suffix(resolved: &ResolvedAgent, visit_count: Option<u64>) -> Option<String> {
-    let base = resolved
-        .target
-        .as_ref()
+    agent_log_suffix(resolved.target.as_ref(), resolved.model.as_deref(), visit_count)
+}
+
+/// The part of a log file name that follows `task-{task_id}-{state}`.
+///
+/// Split from the resolved-agent form so prompt composition can name the log of
+/// an *earlier* visit, where no `ResolvedAgent` for that visit exists — only
+/// the identity this one carries, which is the identity that wrote it.
+// §FS-rhei-agents.8.1 §FS-rhei-memory.4.4
+fn agent_log_suffix(
+    target: Option<&ExecutionTarget>,
+    model: Option<&str>,
+    visit_count: Option<u64>,
+) -> Option<String> {
+    let base = target
         .map(ExecutionTarget::slug)
-        .or_else(|| resolved.model.clone().filter(|value| !value.is_empty()));
+        .or_else(|| model.map(str::to_string).filter(|value| !value.is_empty()));
     let visit_suffix = visit_count.filter(|count| *count > 1).map(|count| count.to_string());
     match (base, visit_suffix) {
         (Some(base), Some(visit)) => Some(format!("{base}-{visit}")),

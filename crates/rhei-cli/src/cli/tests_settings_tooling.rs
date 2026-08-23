@@ -1056,6 +1056,7 @@ states:
             agent: Some("codex"),
             agent_mode: None,
             tooling: Some(&gate.tooling),
+            memory: None,
         };
         let prompt = compose_agent_prompt(&render_context).expect("prompt");
         assert!(prompt.contains("mcp=false skill=false"), "{prompt}");

@@ -277,6 +277,12 @@ When a state declares an `agent` field (or an agent is resolved from project/glo
 The `agent`, `model`, `model_provider`, and `model_name` fields are omitted
 from JSON output when no agent or model is configured.
 
+The mid-term memory sections `rhei run` composes travel the same way: the text
+output renders them after the instructions, and JSON carries each as a string
+field named after its section — `position`, `plan_history`,
+`previous_visits`, and `navigation` — present exactly when the run prompt
+would carry that section. §FS-rhei-memory.5
+
 In text output mode, the agent is shown after the state line:
 
 ```text
@@ -293,6 +299,7 @@ Agent: claude-code (impl-fast = anthropic/claude-sonnet-4-6)
 - [How Rhei Is Used](rhei-usage.spec.md) — roles and coordination patterns
 - [States Specification](rhei-states.spec.md) — state machine format
 - [Agents Specification](rhei-agents.spec.md) — agent configuration, invocation, and timeout
+- [Mid-Term Memory](rhei-memory.spec.md) — the prompt sections a manual worker gets too
 - [Transitions Specification](rhei-transitions.spec.md) — state transition system
 - [Transition Command](rhei-transition-cmd.spec.md) — `rhei transition` behavioral contract
 - [Complete Command](rhei-complete.spec.md) — `rhei complete` behavioral contract

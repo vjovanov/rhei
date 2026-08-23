@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+- Give a cold invocation the project's **mid-term memory**. Under `rhei run`
+  every agent starts knowing nothing but its prompt, so the prompt now
+  *reconstitutes* what the plan files, result files, exports, briefs, logs, and
+  the transition ledger already hold — by a fixed algorithm, at a bounded cost
+  in tokens. Four sections join the prompt: **`## Position`** (the chain from
+  the Panta through the rhei and every ancestor down to this ticket, its
+  siblings with the ones that wait on it marked, the parent's body in full, and
+  the standing content sections of the rhei and of the project),
+  **`## Plan History`** (every terminal task of the owning rhei and every
+  transitive prior, one line each, oldest first, plus `### In Flight` and
+  `### Dependents`), **`## Previous Visits`** (this task's own trail through the
+  ledger, every verdict recorded against it — the engine's timeout entries
+  included — and the path of the previous visit's log), and two sub-sections
+  inside `## Rhei Commands`: **`### Reading the rhei`**, the map naming every
+  rhei's execution root so no finished task in the project is unreachable, and
+  **`### Leaving a trail`**, what a result file and a task body are worth to
+  whoever reads them next.
+
+  Composition is a **pure function** of the merged graph, the `runtime/` trees,
+  the machines, the settings, and the invocation: no summarization, no ranking,
+  no selection. A summary is a fixed slice of a result file, an order is a
+  stated order, a cap is a stated number, and a truncation leaves a literal
+  overflow line naming the command or file that holds the rest. Nothing that
+  varies per run — a run id, a timestamp, a pid — appears anywhere, so the same
+  inputs compose the same bytes. Every section is omitted when it has nothing to
+  say, so a one-task plan under the built-in machine gains a few lines, not a
+  page, and a result already pasted in full under `## Prior Task Results`,
+  `## Child Task Results`, or `## Checkpoints` is referred to with `see above`
+  rather than repeated. §FS-rhei-memory
+
+  `rhei next` renders the same four sections from the same renderers — after the
+  instructions in text, and under `--json` as the string fields `position`,
+  `plan_history`, `previous_visits`, and `navigation`, each present exactly when
+  its section is. §FS-rhei-memory.5
+
+  Every pasted body in a prompt is now **fenced**, `## Prior Task Results`,
+  `## Consumed Exports`, and `## Handoff from …` included: a pasted `## Result`
+  used to outrank the heading it was pasted under, so everything after it read
+  as a new top-level section. The fence is one backtick longer than the longest
+  run the body contains — previously it was one longer than the *count* of
+  backticks in it, which gave a body quoting a lot of inline code an absurd
+  fence. §FS-rhei-memory.4.5
+
 - `rhei templates --json` now carries the **whole** input schema for every
   input, not the subset the human table prints: `format`, `positional`,
   `items` (the element schema of an array), and `properties` (the field

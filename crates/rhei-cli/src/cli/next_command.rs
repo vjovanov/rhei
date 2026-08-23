@@ -405,6 +405,13 @@ fn next_command(
         )?;
     }
     let tooling = resolve_tooling(machine, &final_state, &settings);
+    // A manual worker is handed the same memory `rhei run` composes; nothing of
+    // a run is in flight here. §FS-rhei-memory.5
+    let mut memory =
+        prompt_memory(&loaded, input, &workspace_root.join("runtime"), BTreeSet::new());
+    // §FS-rhei-memory.4.3: `rhei next` prints neither `## Prior Task Results`
+    // nor `## Child Task Results`, so a summary here has nothing to defer to.
+    memory.pastes_task_inputs = false;
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
         task_roots: Some(&loaded.task_roots),
@@ -425,6 +432,7 @@ fn next_command(
         agent: agent_id_str.as_deref(),
         agent_mode: resolved.as_ref().and_then(|r| r.mode.as_deref()),
         tooling: Some(&tooling),
+        memory: Some(&memory),
     };
     let instructions = resolve_runtime_template_text(
         state_instructions(machine, &final_state).as_str(),
@@ -436,6 +444,12 @@ fn next_command(
     // written, from the renderers the run prompt uses. §FS-rhei-supervision.3.4
     let checkpoints = render_supervision_checkpoints(&render_context)?;
     let supervisor_brief = render_supervisor_brief(&render_context)?;
+    // The mid-term memory sections, from the renderers the run prompt uses, in
+    // the run prompt's order. §FS-rhei-memory.5
+    let position = render_position(&render_context);
+    let plan_history = render_plan_history(&render_context)?;
+    let previous_visits = render_previous_visits(&render_context)?;
+    let navigation = render_rhei_navigation(&render_context);
     // What `rhei run` carries in `## Rhei Commands` and `## Result`, neither of
     // which `rhei next` renders. §FS-rhei-supervision.3.4
     let release_command = format!(
@@ -460,6 +474,10 @@ fn next_command(
         checkpoints: &checkpoints,
         supervisor_brief: &supervisor_brief,
         supervising: &supervising,
+        position: &position,
+        plan_history: &plan_history,
+        previous_visits: &previous_visits,
+        navigation: &navigation,
         agent_id: agent_id_str.as_deref(),
         model_id: model_id_str.as_deref(),
     });

@@ -59,6 +59,11 @@ include!("cli/run_helpers.rs");
 include!("cli/run_prompt_sections.rs");
 include!("cli/run_prompt_handoffs.rs");
 include!("cli/subtree_supervision_prompt.rs");
+include!("cli/run_prompt_memory.rs");
+include!("cli/run_prompt_position.rs");
+include!("cli/run_prompt_history.rs");
+include!("cli/run_prompt_visits.rs");
+include!("cli/run_prompt_navigation.rs");
 include!("cli/run_diag.rs");
 include!("cli/run_git_consistency.rs");
 include!("cli/supervised.rs");
@@ -138,4 +143,6 @@ mod tests {
     include!("cli/tests_run_registry.rs");
     include!("cli/tests_attach_support.rs");
     include!("cli/tests_new_verify.rs");
+    include!("cli/tests_prompt_memory.rs");
+    include!("cli/tests_prompt_memory_history.rs");
 }

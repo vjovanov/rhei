@@ -17,14 +17,15 @@
 /// one.
 // §FS-rhei-supervision.5.1
 fn fenced_markdown(body: &str) -> String {
-    let longest_run = body
-        .split('`')
-        .enumerate()
-        .fold((0usize, 0usize), |(longest, run), (index, _)| {
-            let run = if index == 0 { 0 } else { run + 1 };
-            (longest.max(run), run)
-        })
-        .0;
+    // The longest *consecutive* run, not the count of backticks: counting them
+    // all gave a body that merely quoted a lot of inline code an absurd fence.
+    // §FS-rhei-memory.4.5
+    let mut longest_run = 0usize;
+    let mut run = 0usize;
+    for ch in body.chars() {
+        run = if ch == '`' { run + 1 } else { 0 };
+        longest_run = longest_run.max(run);
+    }
     let fence = "`".repeat(longest_run.max(2) + 1);
     format!("{fence}markdown\n{body}\n{fence}")
 }
