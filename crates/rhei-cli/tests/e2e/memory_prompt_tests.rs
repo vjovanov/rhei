@@ -112,16 +112,17 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
         "the map follows the transition list; got:\n{first}"
     );
     assert!(first.contains("### Leaving a trail"), "got:\n{first}");
+    // §FS-rhei-memory.3.4: under `rhei run` the two sub-sections already have a
+    // `##` parent — `## Rhei Commands` — and get no second one.
+    assert!(!first.contains("## Rhei Navigation"), "got:\n{first}");
 
     // §FS-rhei-memory.3.3: the second state of the same ticket knows what
     // already happened to it.
     let reviewed = prompt_for(&dir, "plan.1", "review", 1);
-    // The ledger holds `pending@review`; the state being entered is appended
-    // because no line has been written for the visit that is starting.
+    // §FS-rhei-memory.4.4: the ledger holds `pending@review`, so it already
+    // ends in the state being entered — that state is annotated, not repeated.
     assert!(
-        reviewed.contains(
-            "Trail for this task: pending \u{2192} review \u{2192} review (this visit, visit 1).\n"
-        ),
+        reviewed.contains("Trail for this task: pending \u{2192} review (this visit, visit 1).\n"),
         "got:\n{reviewed}"
     );
     assert!(reviewed.contains("Task plan.1 finished pending."), "got:\n{reviewed}");
@@ -173,6 +174,13 @@ fn rhei_next_mirrors_the_memory_sections_in_text_and_json() {
             peek.stdout.find(section).unwrap_or_else(|| panic!("{section} in:\n{}", peek.stdout));
         assert!(at > instructions, "{section} follows the instructions; got:\n{}", peek.stdout);
     }
+    // §FS-rhei-memory.5: `rhei next` prints no `## Rhei Commands`, so the two
+    // sub-sections get a `##` parent of their own on this surface.
+    assert!(
+        peek.stdout.contains("\n## Rhei Navigation\n\n### Reading the rhei\n"),
+        "got:\n{}",
+        peek.stdout
+    );
     assert!(
         peek.stdout.contains(
             "- Task plan.1: Build the index \u{2014} completed \u{2014} Index built over 12k \
@@ -197,6 +205,10 @@ fn rhei_next_mirrors_the_memory_sections_in_text_and_json() {
     assert!(
         payload["navigation"].as_str().expect("navigation").contains("### Leaving a trail"),
         "got: {payload}"
+    );
+    assert!(
+        payload["navigation"].as_str().expect("navigation").starts_with("## Rhei Navigation"),
+        "the field carries the section as rendered; got: {payload}"
     );
     // Task 2 has never been visited, so the section — and its field — is absent.
     assert!(payload.get("previous_visits").is_none(), "got: {payload}");

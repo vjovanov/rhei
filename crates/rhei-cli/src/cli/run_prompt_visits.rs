@@ -10,8 +10,11 @@
 /// The states this task has been through, ending in the visit being composed.
 ///
 /// The ledger records each hop as `from@to`, so the trail is the first hop's
-/// source followed by every destination; the current state is appended because
-/// no line has been written for the visit that is starting.
+/// source followed by every destination. The visit that is starting has no
+/// ledger line yet: when the trail already ends in the state being entered —
+/// the engine wrote the line that moved the task here — that last state is
+/// annotated rather than repeated, which is what `pending → review → review`
+/// used to say about a task that had been through `review` exactly once.
 // §FS-rhei-memory.3.3 §FS-rhei-memory.4.4
 fn render_visit_trail(
     render_context: &RuntimeTemplateContext<'_>,
@@ -35,7 +38,13 @@ fn render_visit_trail(
         render_context.current_state_raw,
         render_context.machine,
     );
-    steps.push(format!("{} (this visit, visit {visit})", render_context.state_name));
+    let here = format!("{} (this visit, visit {visit})", render_context.state_name);
+    match steps.last_mut() {
+        // A self-loop leaves `fix` twice in the ledger, and both belong: the
+        // second is the visit before this one, not this one.
+        Some(last) if last.as_str() == render_context.state_name => *last = here,
+        _ => steps.push(here),
+    }
     format!("Trail for this task: {}.\n", steps.join(" \u{2192} "))
 }
 

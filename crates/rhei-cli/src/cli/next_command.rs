@@ -452,7 +452,15 @@ fn next_command(
     let position = render_position(&render_context);
     let plan_history = render_plan_history(&render_context)?;
     let previous_visits = render_previous_visits(&render_context)?;
+    // §FS-rhei-memory.5: `rhei next` prints no `## Rhei Commands`, so the two
+    // sub-sections would arrive with no `##` parent above them. They get their
+    // own on this surface; the JSON field is still `navigation`.
     let navigation = render_rhei_navigation(&render_context);
+    let navigation = if navigation.is_empty() {
+        String::new()
+    } else {
+        format!("\n## Rhei Navigation\n{navigation}")
+    };
     // What `rhei run` carries in `## Rhei Commands` and `## Result`, neither of
     // which `rhei next` renders. §FS-rhei-supervision.3.4
     let release_command = format!(

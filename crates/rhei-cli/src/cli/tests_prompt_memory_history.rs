@@ -422,6 +422,13 @@
             memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
 
         let history = render_plan_history(&context).expect("history");
+        // §FS-rhei-memory.4.3: nothing has finished, so the preamble that
+        // introduces the list would be a lie; the sub-section carries the
+        // section on its own.
+        assert!(
+            history.starts_with("\n## Plan History\n\n### Dependents\n"),
+            "got:\n{history}"
+        );
         let listed = history
             .lines()
             .filter(|line| line.starts_with("- Task ") && line.ends_with("\u{2014} prior"))
