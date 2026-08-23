@@ -70,6 +70,19 @@ pub fn is_workspace(path: &Path) -> bool {
     path.is_dir() && path.join(RHEI_INDEX_FILE).is_file()
 }
 
+/// The directory a plan path lives in, as a path that names a directory.
+///
+/// `Path::parent` answers `Some("")` for a bare relative filename —
+/// `plan.rhei.md` typed at the shell — and an empty path names nothing. Joins
+/// onto it keep working by accident (`"".join("runtime")` is `runtime`), so the
+/// emptiness surfaces only where the directory itself is printed or exported:
+/// a blank `RHEI_ROOT`, a blank execution root in the memory map. `.` is the
+/// same directory, spelled.
+// §FS-rhei-memory.3.4
+pub fn plan_parent_dir(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+}
+
 /// Resolve the workspace directory for `path`, accepting either:
 /// - a workspace directory (containing `index.rhei.md`), or
 /// - the `index.rhei.md` file itself, when its parent directory contains
@@ -82,10 +95,9 @@ pub fn workspace_dir(path: &Path) -> Option<PathBuf> {
         return Some(path.to_path_buf());
     }
     if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some(RHEI_INDEX_FILE) {
-        if let Some(parent) = path.parent() {
-            if parent.join("tasks").is_dir() {
-                return Some(parent.to_path_buf());
-            }
+        let parent = plan_parent_dir(path);
+        if parent.join("tasks").is_dir() {
+            return Some(parent.to_path_buf());
         }
     }
     None

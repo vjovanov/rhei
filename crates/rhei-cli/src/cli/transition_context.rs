@@ -35,11 +35,11 @@ fn resolve_callback_paths(
         })
         .transpose()?;
     let base_dir = if let Some(path) = state_machine_path.as_deref() {
-        path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        rhei_core::workspace::plan_parent_dir(path)
     } else if plan_path.is_dir() {
         plan_path.as_path()
     } else {
-        plan_path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."))
+        rhei_core::workspace::plan_parent_dir(&plan_path)
     };
 
     let working_dir = base_dir.canonicalize().map_err(|err| {
@@ -49,11 +49,18 @@ fn resolve_callback_paths(
     Ok(CallbackPaths { plan_path, state_machine_path, working_dir })
 }
 
+/// The execution root every derived path hangs off: the plan's own directory,
+/// or the directory workspace itself.
+///
+/// The parent goes through [`rhei_core::workspace::plan_parent_dir`] because
+/// `rhei next plan.rhei.md` hands us a bare filename, whose raw parent is the
+/// empty path — a root that joins correctly and prints as nothing.
+// §FS-rhei-memory.3.4
 fn execution_workspace_root(plan_path: &Path) -> PathBuf {
     if plan_path.is_dir() {
         plan_path.to_path_buf()
     } else {
-        plan_path.parent().unwrap_or(Path::new(".")).to_path_buf()
+        rhei_core::workspace::plan_parent_dir(plan_path).to_path_buf()
     }
 }
 
