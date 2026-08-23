@@ -631,6 +631,12 @@ fn execute_transition_with_origin(
     };
 
     // Atomic write(s): write to temp file in the same directory, then rename.
+    //
+    // On Windows each of these may have released its lock to get the rename
+    // through, and the lock object left behind names the replaced file rather
+    // than the plan. Everything after this point — the `on_enter` callback, and
+    // the rollback writes when it fails — therefore runs with the plan
+    // unlocked, and another command may rewrite it in between. #95
     write_file_atomic_locked(metadata_file, &metadata_raw_updated, Some(&metadata_handle))?;
     if let Some(ref task_raw_updated) = task_raw_updated {
         write_file_atomic_locked(task_file, task_raw_updated, task_handle.as_ref())?;

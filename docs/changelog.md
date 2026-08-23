@@ -30,7 +30,11 @@
   locked the plan and were then refused their own read of it — and then
   refused the rename over it. `rhei new` failed twice over: a project create
   read its own lock as another command rewriting the plan and gave up saying
-  so, and a lone-plan create died on its own write. (PR #94)
+  so, and a lone-plan create died on its own write. Getting the rename through
+  on Windows means releasing that lock for the length of it, so a rewrite there
+  has a window in which a waiting command can read the plan as it stood before
+  the rename and overwrite the change; closing it needs a lock that does not
+  live on the file being replaced, which is #95. (PR #94)
 
 - CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
   build, test on three platforms) and `lint` (grund, fissile, lychee,
