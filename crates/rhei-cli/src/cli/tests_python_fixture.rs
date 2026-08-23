@@ -42,8 +42,14 @@ fn test_python_command() -> &'static str {
 /// `"` followed by `#` is common, and that sequence closes the Rust raw literal
 /// the body is written in.
 fn python_fixture_command(dir: &Path, name: &str, body: &str) -> Vec<String> {
+    // Rhei speaks UTF-8 with one `\n` per line; Python on Windows decodes stdin
+    // in the host's code page and writes `\r\n`. Pin both before `body` runs.
+    const STREAMS: &str = "import sys\n\
+        for _stream in (sys.stdin, sys.stdout, sys.stderr):\n\
+        \x20   if hasattr(_stream, 'reconfigure'):\n\
+        \x20       _stream.reconfigure(encoding='utf-8', newline='')\n";
     let script = dir.join(format!("{name}.py"));
-    fs::write(&script, body).expect("write python fixture");
+    fs::write(&script, format!("{STREAMS}{body}")).expect("write python fixture");
     vec![test_python_command().to_string(), script.display().to_string()]
 }
 

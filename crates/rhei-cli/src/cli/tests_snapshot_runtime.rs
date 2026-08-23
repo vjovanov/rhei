@@ -1083,7 +1083,8 @@ transitions:
         let redactor = write_executable_redactor(
             dir.path(),
             "redact",
-            "import sys\nsys.stdout.write(sys.stdin.read().replace('secret', 'redacted'))\n",
+            "import sys\n\
+             sys.stdout.buffer.write(sys.stdin.buffer.read().replace(b'secret', b'redacted'))\n",
         );
         let mut settings = RheiSettings { agents: built_in_agents(), ..Default::default() };
         settings.snapshots = Some(SnapshotSettings {
@@ -1212,7 +1213,7 @@ lines = ['{{}}={{}}'.format(name, os.environ.get(name, '')) for name in names]\n
 lines.append('RHEI_REDACTOR_BLOCKED=' + os.environ.get('RHEI_REDACTOR_BLOCKED', 'unset'))\n\
 open(capture, 'w', encoding='utf-8').write('\\n'.join(lines) + '\\n')\n\
 sys.stderr.write('redactor diagnostic\\n')\n\
-sys.stdout.write(sys.stdin.read())\n",
+sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
                 capture = serde_json::to_string(&env_capture.display().to_string())
                     .expect("capture path json")
             ),

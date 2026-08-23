@@ -1,23 +1,29 @@
-    /// An agent that succeeds having only recorded that it ran, in a file that
-    /// survives between invocations: one line per spawn is how the reschedule
-    /// tests see how many times the agent was spawned.
+    /// An agent that succeeds having only recorded that it ran, as one file of
+    /// its own in a directory that survives between invocations: counting those
+    /// files is how the reschedule tests see how many times it was spawned.
     ///
-    /// A line appended, not a counter read and written back: a fan-out state
-    /// spawns its invocations concurrently, and read-modify-write loses one of
-    /// them. The path is JSON-encoded, which is also a Python string literal,
-    /// so a backslash in it cannot escape the fixture.
-    fn write_counting_success_agent(dir: &Path, count_file: &Path) -> Vec<String> {
+    /// A file each, not a shared counter and not a shared append: a fan-out
+    /// state spawns its invocations concurrently, read-modify-write loses one of
+    /// them, and an append on Windows is a seek and a write rather than one
+    /// atomic act. The path is JSON-encoded, which is also a Python string
+    /// literal, so a backslash in it cannot escape the fixture.
+    /// How many invocations the counting agent recorded.
+    fn spawn_count(spawns_dir: &Path) -> usize {
+        fs::read_dir(spawns_dir).map(|entries| entries.count()).unwrap_or(0)
+    }
+
+    fn write_counting_success_agent(dir: &Path, spawns_dir: &Path) -> Vec<String> {
         python_fixture_command(
             dir,
             "counting-agent",
             &format!(
-                r#"import pathlib
+                r#"import os, pathlib
 
-count_file = pathlib.Path({path})
-with count_file.open('a', encoding='utf-8', newline='') as handle:
-    handle.write('spawned\n')
+spawns = pathlib.Path({path})
+spawns.mkdir(parents=True, exist_ok=True)
+(spawns / '{{}}.txt'.format(os.getpid())).write_text('spawned')
 "#,
-                path = serde_json::to_string(count_file.to_string_lossy().as_ref()).expect("json")
+                path = serde_json::to_string(spawns_dir.to_string_lossy().as_ref()).expect("json")
             ),
         )
     }
@@ -28,8 +34,8 @@ with count_file.open('a', encoding='utf-8', newline='') as handle:
         let states = dir.path().join("states.yaml");
         let settings_dir = dir.path().join(".agents/rhei");
         fs::create_dir_all(&settings_dir).expect("mkdir");
-        let count_file = dir.path().join("spawn-count");
-        let command = write_counting_success_agent(dir.path(), &count_file);
+        let spawns_dir = dir.path().join("spawns");
+        let command = write_counting_success_agent(dir.path(), &spawns_dir);
         fs::write(
             &plan,
             r#"# Rhei: Missing Outputs
@@ -79,23 +85,21 @@ with count_file.open('a', encoding='utf-8', newline='') as handle:
             "unexpected error: {err}"
         );
 
-        (dir, count_file)
+        (dir, spawns_dir)
     }
 
     #[test]
     fn missing_outputs_reschedule_single_invocation_spawns_once_and_keeps_state() {
-        let (dir, count_file) = missing_outputs_reschedule_workspace(false);
-        let spawns = fs::read_to_string(count_file).expect("spawn count");
-        assert_eq!(spawns.lines().count(), 1, "one invocation, one spawn: {spawns:?}");
+        let (dir, spawns_dir) = missing_outputs_reschedule_workspace(false);
+        assert_eq!(spawn_count(&spawns_dir), 1, "one invocation, one spawn");
         let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
         assert!(plan.contains("**State:** pending"));
     }
 
     #[test]
     fn missing_outputs_reschedule_fanout_spawns_each_target_once_and_keeps_state() {
-        let (dir, count_file) = missing_outputs_reschedule_workspace(true);
-        let spawns = fs::read_to_string(count_file).expect("spawn count");
-        assert_eq!(spawns.lines().count(), 2, "one spawn per declared target: {spawns:?}");
+        let (dir, spawns_dir) = missing_outputs_reschedule_workspace(true);
+        assert_eq!(spawn_count(&spawns_dir), 2, "one spawn per declared target");
         let plan = fs::read_to_string(dir.path().join("plan.rhei.md")).expect("plan");
         assert!(plan.contains("**State:** pending"));
     }

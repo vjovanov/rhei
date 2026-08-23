@@ -109,7 +109,14 @@ elif state == 'prepare-worktree':
         # contract needs.
         added = git('worktree', 'add', '--detach', str(worktree), 'HEAD').returncode == 0
     if not added:
+        # The ref this state writes is checked against the git root of the path
+        # it names, so a bare directory inside the repository is not enough.
         worktree.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ['git', 'init', str(worktree)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     write(
         runtime / 'worktree-refs' / (task + '.yaml'),
         'task_id: {}\npath: {}\nbranch: docs-pass/{}\ntarget_path: mock\n'.format(
