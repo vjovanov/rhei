@@ -77,7 +77,7 @@ fn an_unparseable_rhei_blocks_only_creates_into_itself() {
 
     let captured = new_run(&["new", "Quick thought", "--under", "basin"], &dir);
     assert_success(&captured);
-    assert!(dir.join("basin/1-quick-thought.md").is_file(), "basin capture must still work");
+    assert!(dir.join("basin/001-quick-thought.md").is_file(), "basin capture must still work");
 
     assert_success(&new_run(&["new", "Fresh"], &dir));
 

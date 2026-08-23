@@ -121,7 +121,7 @@ fn a_created_ticket_reads_back_out_of_the_reloaded_plan() {
 fn refuses_to_write_over_an_existing_task_file() {
     let dir = empty_project("new-write-collision");
     assert_success(&new_run(&["new", "Billing", "--dir"], &dir));
-    let occupied = dir.join("billing/tasks/1-dunning.md");
+    let occupied = dir.join("billing/tasks/001-dunning.md");
     let notes = "Design notes.\nWeeks of research.\n";
     fs::write(&occupied, notes).expect("notes should be written");
 
@@ -325,4 +325,38 @@ fn the_two_step_on_ramp_works_beside_a_broken_sibling() {
     assert!(fs::read_to_string(dir.join("billing.rhei.md"))
         .expect("rhei file")
         .contains("First ticket"));
+}
+
+// ---------------------------------------------------------------------------
+// Task file names — §FS-rhei-new.3.1
+// ---------------------------------------------------------------------------
+
+/// Path order is plan order, and commands that scan in plan order schedule in
+/// it — so an unpadded `10-…` between `1-…` and `2-…` hands out the eleventh
+/// ticket second, silently.
+// §FS-rhei-new.3.1 §FS-rhei-plan-language.1.2
+#[test]
+fn numeric_task_files_are_zero_padded_so_plan_order_survives_ten() {
+    let dir = empty_project("new-padding");
+    for n in 1..=11 {
+        assert_success(&new_run(&["new", &format!("Step {n}"), "--under", "basin"], &dir));
+    }
+    assert!(dir.join("basin/001-step-1.md").is_file(), "the first ticket must be padded");
+    assert!(
+        dir.join("basin/010-step-10.md").is_file(),
+        "got: {:?}",
+        fs::read_dir(dir.join("basin"))
+    );
+
+    let mut names: Vec<String> = fs::read_dir(dir.join("basin"))
+        .expect("basin")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names.first().map(String::as_str), Some("001-step-1.md"));
+    assert_eq!(names.get(1).map(String::as_str), Some("002-step-2.md"), "got: {names:?}");
+
+    // A named id keeps its name — there is no numeric order to preserve.
+    assert_success(&new_run(&["new", "Cache fix", "--under", "basin", "--id", "fix-cache"], &dir));
+    assert!(dir.join("basin/fix-cache-cache-fix.md").is_file());
 }

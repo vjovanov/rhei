@@ -203,11 +203,29 @@ help = "give the ticket another id with --id, or move the existing file aside fi
     ))
 }
 
-/// `4-rotate-signing-keys.md` — the id first so the directory sorts the way the
-/// plan reads, the slug so a human can find the file. §FS-rhei-new.3.1
+/// `004-rotate-signing-keys.md` — the id first so the directory sorts the way
+/// the plan reads, the slug so a human can find the file. §FS-rhei-new.3.1
 fn task_file_name(local_id: &str, title: &str) -> String {
+    let stem = padded_task_file_stem(local_id);
     match derive_rhei_id(title) {
-        Some(slug) => format!("{local_id}-{slug}.md"),
-        None => format!("{local_id}.md"),
+        Some(slug) => format!("{stem}-{slug}.md"),
+        None => format!("{stem}.md"),
+    }
+}
+
+/// Zero-pad a numeric ticket id to three digits, the width every shipped
+/// template already writes (`01-coordinate.md` is the two-digit ancestor).
+///
+/// Path order *is* plan order, and commands that scan in plan order schedule
+/// in it: unpadded, `10-…` sorts between `1-…` and
+/// `2-…`, so the eleventh ticket in a rhei is picked up second and nothing
+/// reports a problem — `rhei validate` succeeds, because the file is fine and
+/// only its name is out of order. Named ids keep their name: a name has no
+/// numeric order to preserve.
+// §FS-rhei-new.3.1 §FS-rhei-plan-language.1.2
+fn padded_task_file_stem(local_id: &str) -> String {
+    match local_id.parse::<u32>() {
+        Ok(number) => format!("{number:03}"),
+        Err(_) => local_id.to_string(),
     }
 }

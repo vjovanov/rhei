@@ -275,7 +275,7 @@ fn workspace_tickets_get_their_own_task_file_and_subtasks_join_it() {
     assert_success(&new_run(&["new", "Dunning emails", "--under", "billing"], &dir));
     assert_success(&new_run(&["new", "Retry schedule", "--under", "billing.1"], &dir));
 
-    let task_file = dir.join("billing/tasks/1-dunning-emails.md");
+    let task_file = dir.join("billing/tasks/001-dunning-emails.md");
     let contents = fs::read_to_string(&task_file).expect("task file");
     assert!(contents.starts_with("### Task 1: Dunning emails\n"));
     // A task file owns a subtree. §FS-rhei-new.3.1
@@ -294,7 +294,7 @@ fn captures_into_the_basin_creating_it_on_demand() {
     let result = new_run(&["new", "Fix the footer typo", "--under", "basin"], &dir);
     assert_success(&result);
     assert!(result.stdout.contains("Created ticket basin.1"));
-    assert!(dir.join("basin/1-fix-the-footer-typo.md").is_file());
+    assert!(dir.join("basin/001-fix-the-footer-typo.md").is_file());
     assert!(!dir.join("basin/index.rhei.md").exists(), "the basin manifest is synthetic");
     assert_success(&new_run(&["validate"], &dir));
 }
@@ -459,7 +459,7 @@ fn a_member_rhei_widens_to_its_project() {
     // `--project <member>` resolves the same project, so the basin exists.
     let captured = new_run(&["new", "Typo", "--under", "basin", "--project", "auth.rhei.md"], &dir);
     assert_success(&captured);
-    assert!(dir.join("basin/1-typo.md").is_file());
+    assert!(dir.join("basin/001-typo.md").is_file());
 }
 
 /// §FS-rhei-new.3: a lone plan is its own rhei, so tickets can be added to it
