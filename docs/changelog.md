@@ -21,12 +21,14 @@
   whoever reads them next.
 
   Composition is a **pure function** of the merged graph, the `runtime/` trees,
-  the machines, the settings, and the invocation: no summarization, no ranking,
-  no selection. A summary is a fixed slice of a result file, an order is a
-  stated order, a cap is a stated number, and a truncation leaves a literal
-  overflow line naming the command or file that holds the rest. Nothing that
-  varies per run — a run id, a timestamp, a pid — appears anywhere, so the same
-  inputs compose the same bytes. Every section is omitted when it has nothing to
+  the machines, the settings, the invocation, and the invocations of the same
+  run still in flight: no summarization, no ranking, no selection. A summary is
+  a fixed slice of a result file, an order is a stated order, a cap is a stated
+  number, and a truncation leaves a literal overflow line naming the command or
+  file that holds the rest. No run id, timestamp, or pid appears anywhere, so
+  the same inputs compose the same bytes — with the in-flight set the one input
+  that is not on disk, which makes `### In Flight` reproducible only under
+  `--parallel 1`. Every section is omitted when it has nothing to
   say, so a one-task plan under the built-in machine gains a few lines, not a
   page, and a result already pasted in full under `## Prior Task Results`,
   `## Child Task Results`, or `## Checkpoints` is referred to with `see above`

@@ -204,10 +204,33 @@ claim mode.
 
 ### 4.1. Output (peek mode)
 
+Peek prints what claim mode prints, minus the claim: the same heading, the same
+instructions, and the same context sections, under a first line that says the
+ticket was not advanced.
+
 ```text
-Next: Task <ID>: <title>
-State: <current-state>
+Task <ID> — current state: '<state>' (read-only peek; not advanced)
+Agent: <agent>  |  Model: <model>
+
+Personality: <the state's personality, when it declares one>
+
+## Task <ID>: <title>
+
+<the ticket's body, when it has one>
+
+  - <Kind> <child-ID>: <child title> [<child state>]
+
+--- Instructions (<state>) ---
+<the state's instructions, template variables resolved>
 ```
+
+The `Agent:` line is printed only when an agent or model resolves, and the
+`Personality:` block only when the state declares one. After the instructions
+come the mid-term memory sections in the run prompt's order — `## Position`,
+`## Plan History`, `## Previous Visits`, and `## Rhei Navigation` — each
+omitted exactly when the run prompt would omit it (§FS-rhei-memory.5), together
+with the supervision sections that already travel this way
+(§FS-rhei-supervision.3.4).
 
 If no claimable task exists, the same status summary is printed as in claim mode.
 
