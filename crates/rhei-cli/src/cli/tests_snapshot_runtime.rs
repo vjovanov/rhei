@@ -1266,7 +1266,10 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
 
         let log = fs::read_to_string(&log_path).expect("log");
         assert!(log.contains("snapshot redactor: path="));
-        assert!(log.contains("status=exit status: 0"));
+        // `ExitStatus`'s own words, which differ: "exit status: 0" where there
+        // are wait statuses, "exit code: 0" where there are not.
+        let succeeded = if cfg!(windows) { "status=exit code: 0" } else { "status=exit status: 0" };
+        assert!(log.contains(succeeded), "the diagnostic records the status, got:\n{log}");
         assert!(log.contains("timeout=false"));
         // Beside `timeout` because a redactor the run shut down exits by
         // signal and so has no code to explain itself.
