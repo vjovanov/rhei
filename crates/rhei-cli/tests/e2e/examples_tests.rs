@@ -219,7 +219,7 @@ fn example_agent_discussion_runs_with_mock_agents() {
 ///
 /// Unlike the other examples here it is *not* handed the shared mock agent: the
 /// point of the fixture is that a reader can copy the directory and run it, so
-/// the committed `workflow.sh` and the committed settings are what the test
+/// the committed `workflow.py` and the committed settings are what the test
 /// exercises.
 // §FS-rhei-supervision.7
 #[test]

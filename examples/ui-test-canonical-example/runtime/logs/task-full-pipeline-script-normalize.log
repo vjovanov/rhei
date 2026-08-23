@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh normalize
+program: python3 ./bin/mock-program.py normalize
 task: full-pipeline
 state: script-normalize
 timeout: 30s

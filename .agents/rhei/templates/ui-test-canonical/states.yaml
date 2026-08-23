@@ -44,9 +44,9 @@
 #   parallel-review uses all_targets and writes one output per `{target.slug}`.
 #
 # Callback points:
-#   most transitions call `bin/mock-transition.sh log` on_leave;
+#   most transitions call `bin/mock-transition.py log` on_leave;
 #   script-check -> completed also calls `... enter` on_enter;
-#   aggregate -> fix-loop calls `bin/mock-transition.sh aggregate` and can
+#   aggregate -> fix-loop calls `bin/mock-transition.py aggregate` and can
 #   append one generated follow-up task to the plan file.
 
 name: ui-test-canonical
@@ -79,7 +79,7 @@ states:
   script-normalize:
     description: Mock script normalizes raw inputs into deterministic JSON.
     program:
-      command: ["bash", "./bin/mock-program.sh", "normalize"]
+      command: ["python3", "./bin/mock-program.py", "normalize"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -142,7 +142,7 @@ states:
   script-build:
     description: Mock script consumes implementation output and writes build artifacts.
     program:
-      command: ["bash", "./bin/mock-program.sh", "build"]
+      command: ["python3", "./bin/mock-program.py", "build"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -182,7 +182,7 @@ states:
   aggregate:
     description: Mock script aggregates per-target review outputs.
     program:
-      command: ["bash", "./bin/mock-program.sh", "aggregate"]
+      command: ["python3", "./bin/mock-program.py", "aggregate"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -225,7 +225,7 @@ states:
   script-poll:
     description: Mock polling program returns 75 until the final ready attempt.
     program:
-      command: ["bash", "./bin/mock-program.sh", "poll"]
+      command: ["python3", "./bin/mock-program.py", "poll"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -241,7 +241,7 @@ states:
     description: Mock script writes a small smoke-check artifact and completes.
     concurrent: true
     program:
-      command: ["bash", "./bin/mock-program.sh", "check"]
+      command: ["python3", "./bin/mock-program.py", "check"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -253,7 +253,7 @@ states:
   script-fail:
     description: Mock program that always fails so a live failure routes to blocked.
     program:
-      command: ["bash", "./bin/mock-program.sh", "fail"]
+      command: ["python3", "./bin/mock-program.py", "fail"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -265,7 +265,7 @@ states:
   poll-exhaust:
     description: Mock poll that never becomes ready, so it exhausts its attempts.
     program:
-      command: ["bash", "./bin/mock-program.sh", "poll-exhaust"]
+      command: ["python3", "./bin/mock-program.py", "poll-exhaust"]
       env:
         MOCK_SCENARIO: "{{ scenario_name }}"
     program_timeout: 30s
@@ -358,136 +358,136 @@ transitions:
   - from: collect-inputs
     to: script-normalize
     description: Raw inputs are ready for normalization.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: script-normalize
     to: mock-implement
     description: Normalization succeeded.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: script-normalize
     to: blocked
     description: Normalization failed.
     exit_code: nonzero
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: mock-implement
     to: script-build
     description: Implementation artifact is ready for the build script.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: script-build
     to: parallel-review
     description: Build succeeded and reviewers can fan out.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: script-build
     to: blocked
     description: Build failed.
     exit_code: nonzero
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: parallel-review
     to: aggregate
     description: All review target outputs exist.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: aggregate
     to: fix-loop
     description: Aggregate report written; optional generated follow-up is appended.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh aggregate"
+    on_leave: "cli:python3 ./bin/mock-transition.py aggregate"
   - from: aggregate
     to: blocked
     description: Aggregate failed.
     exit_code: nonzero
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: fix-loop
     to: fix-loop
     description: Continue counted fix loop.
     condition: visitCount < visits
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: fix-loop
     to: human-gate
     description: Counted fix loop finished; wait for human inspection.
     condition: visitCount >= visits
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: script-poll
     to: script-poll
     description: Mock external system is still running.
     exit_code: 75
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: script-poll
     to: script-check
     description: Mock external system is ready.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: script-poll
     to: blocked
     description: Poll attempts exhausted.
     condition: pollAttempts >= pollMaxAttempts
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: script-check
     to: completed
     description: Smoke check passed.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
-    on_enter: "cli:bash ./bin/mock-transition.sh enter"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
+    on_enter: "cli:python3 ./bin/mock-transition.py enter"
   - from: script-check
     to: blocked
     description: Smoke check failed.
     exit_code: nonzero
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: script-fail
     to: completed
     description: Mock failure program unexpectedly succeeded.
     exit_code: 0
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: script-fail
     to: blocked
     description: Mock program failed; route the live failure to blocked.
     exit_code: [1, 2, 42]
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: poll-exhaust
     to: poll-exhaust
     description: Mock external system is still running.
     exit_code: 75
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: poll-exhaust
     to: blocked
     description: Poll attempts exhausted without becoming ready.
     condition: pollAttempts >= pollMaxAttempts
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: inherit-ancestor
     to: completed
     description: Ancestor snapshot inheritance verified.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: agent-missing-skill
     to: blocked
     description: Required skill is unavailable; route to blocked.
     skill_unavailable: [absent-lens]
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: agent-missing-skill
     to: completed
     description: Skill unexpectedly resolved.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: agent-missing-mcp
     to: blocked
     description: Required MCP server is unavailable; route to blocked.
     mcp_unavailable: [mock-mcp]
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
   - from: agent-missing-mcp
     to: completed
     description: MCP server unexpectedly available.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"
 
   - from: human-gate
     to: completed
@@ -499,4 +499,4 @@ transitions:
   - from: "*"
     to: cancelled
     description: Cancel any non-final task.
-    on_leave: "cli:bash ./bin/mock-transition.sh log"
+    on_leave: "cli:python3 ./bin/mock-transition.py log"

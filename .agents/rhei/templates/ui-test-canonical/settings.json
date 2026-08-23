@@ -9,10 +9,9 @@
   "agents": {
     "mock-agent": {
       "command": [
-        "bash",
+        "python3",
         "-c",
-        "exec bash \"$RHEI_ROOT/bin/mock-agent.sh\" \"$@\"",
-        "mock-agent"
+        "import os, pathlib, runpy; runpy.run_path(str(pathlib.Path(os.environ['RHEI_ROOT']) / 'bin' / 'mock-agent.py'), run_name='__main__')"
       ],
       "prompt_flag": "--prompt",
       "model_flag": "--model",

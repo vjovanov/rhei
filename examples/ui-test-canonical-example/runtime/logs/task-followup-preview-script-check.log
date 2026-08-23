@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh check
+program: python3 ./bin/mock-program.py check
 task: followup-preview
 state: script-check
 timeout: 30s

@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh fail
+program: python3 ./bin/mock-program.py fail
 task: live-failure-blocked
 state: script-fail
 timeout: 30s

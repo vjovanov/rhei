@@ -11,7 +11,7 @@ the `**Prior:**` DAG — so it adds no new engine features.
 > **Why no `visits`?** The loop is driven by the judge callback's `nextState`
 > redirect, not by a counted-loop counter. `visits` must **not** be combined with
 > `all_models` on the same state — the engine would run that state per-target
-> per-visit and spin. The round budget is enforced by `CAP` in `workflow.sh`.
+> per-visit and spin. The round budget is enforced by `CAP` in `workflow.py`.
 
 ## The point under discussion
 
@@ -22,7 +22,7 @@ the `**Prior:**` DAG — so it adds no new engine features.
 ## The four participants and their stances
 
 Each participant argues the point from a different project goal (see `goal_for` in
-`workflow.sh`), so this is a genuine multi-perspective deliberation:
+`workflow.py`), so this is a genuine multi-perspective deliberation:
 
 | Participant | Champions | Opening stance |
 |-------------|-----------|----------------|
@@ -52,7 +52,7 @@ Each participant argues the point from a different project goal (see `goal_for` 
    `runtime/discussion/applied.md`. That is how a discussion gates real work.
 
 If the participants never converge, the judge escalates at the round budget
-(`CAP` in `workflow.sh`, default 3) to the gating `escalated` state, where a human
+(`CAP` in `workflow.py`, default 3) to the gating `escalated` state, where a human
 resolves it.
 
 ## How rounds map to the state machine

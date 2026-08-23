@@ -1,5 +1,5 @@
 === rhei program log v1 ===
-program: bash ./bin/mock-program.sh check
+program: python3 ./bin/mock-program.py check
 task: full-pipeline.dependency-blocking.three-level-nesting
 state: script-check
 timeout: 30s

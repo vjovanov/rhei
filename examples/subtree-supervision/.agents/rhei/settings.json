@@ -6,9 +6,9 @@
   "agents": {
     "mock": {
       "command": [
-        "sh",
+        "python3",
         "-c",
-        "ws=\"$RHEI_PLAN_PATH\"; [ -f \"$ws\" ] && ws=$(dirname \"$ws\"); exec sh \"$ws/workflow.sh\""
+        "import os, pathlib, runpy; runpy.run_path(str(pathlib.Path(os.environ['RHEI_ROOT']) / 'workflow.py'), run_name='__main__')"
       ],
       "prompt_flag": "--prompt",
       "timeout": "5m"

@@ -21,7 +21,7 @@ it finishes only once every child is terminal.
 - Each visit renders `## Checkpoints` — what moved since the last visit, carrying
   what that step left behind — and each child renders `## Supervisor Brief`, the
   direction the supervisor wrote for it under `runtime/supervise/`.
-- `workflow.sh` stands in for a real coding agent so the example runs with no
+- `workflow.py` stands in for a real coding agent so the example runs with no
   credentials. It writes one brief per visit and the artifacts each state's
   contract declares; the hold/release barrier and the edge selection are the
   engine's, not the mock's.
