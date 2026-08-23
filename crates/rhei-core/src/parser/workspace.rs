@@ -122,6 +122,14 @@ fn parse_manifest(input: &str, header_name: &str, frontmatter_kind: &str) -> Res
         }
 
         if line.is_empty() {
+            // A content section is pasted verbatim (§FS-rhei-memory.4.2), and
+            // a paragraph break is part of the text: dropping it welds
+            // paragraphs and list items together.
+            if let Some(ContentSection { content: ref mut c, .. }) = content.last_mut() {
+                if !c.is_empty() {
+                    c.push('\n');
+                }
+            }
             continue;
         }
 
@@ -209,6 +217,12 @@ fn parse_manifest(input: &str, header_name: &str, frontmatter_kind: &str) -> Res
     })?;
 
     let states_declared = states.is_some();
+    // Interior blanks are the author's; the ones trailing a section only
+    // separate it from the next heading. §FS-rhei-memory.4.2
+    for section in &mut content {
+        let trimmed = section.content.trim_end().to_string();
+        section.content = trimmed;
+    }
     Ok(ManifestParts {
         title,
         states: states.unwrap_or_else(|| "rhei".to_string()),

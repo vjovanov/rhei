@@ -438,3 +438,32 @@ Acceptance: every child lands its own result.
         assert!(visits.contains("````markdown\n## Result"), "got:\n{visits}");
         assert!(visits.contains("\n````\n"), "got:\n{visits}");
     }
+
+    /// §FS-rhei-memory.4.2: `### Rhei Context` is verbatim — the pasted block
+    /// is the bytes between the section heading and the next one, paragraph
+    /// breaks, lists, and fences included.
+    #[test]
+    fn rhei_context_pastes_the_authored_block_byte_for_byte() {
+        let authored = "First paragraph.\n\nSecond paragraph.\n\n- item one\n- item two\n\n\
+                        ```sh\necho hi\n\necho bye\n```\n\nTail paragraph.";
+        let plan = format!(
+            "# Rhei: Verbatim\n\n## Notes\n\n{authored}\n\n## Tasks\n\n\
+             ### Task 1: Only\n**State:** pending\n"
+        );
+        let dir = memory_dir(&[("plan.rhei.md", plan.as_str())]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1").expect("task 1");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "pending");
+
+        let position = render_position(&context);
+        // The body holds a triple-backtick run, so the fence is four.
+        assert!(
+            position.contains(&format!("````markdown\n## Notes\n\n{authored}\n````")),
+            "got:\n{position}"
+        );
+    }

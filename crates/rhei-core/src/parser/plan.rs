@@ -119,8 +119,11 @@ pub fn parse(input: &str) -> Result<Rhei> {
                     top.blank_line_seen = true;
                     top.content.push('\n');
                 }
-            } else if in_code_block {
-                if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
+            } else if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
+                // A content section is pasted verbatim into a prompt
+                // (§FS-rhei-memory.4.2), so a paragraph break is part of the
+                // text — inside a fence and outside one alike.
+                if !content.is_empty() {
                     content.push('\n');
                 }
             }
@@ -222,11 +225,21 @@ pub fn parse(input: &str) -> Result<Rhei> {
         }
 
         if in_code_block {
-            if let Some(top) = node_stack.last_mut() {
-                if !top.content.is_empty() {
-                    top.content.push('\n');
+            if in_tasks_section {
+                if let Some(top) = node_stack.last_mut() {
+                    if !top.content.is_empty() {
+                        top.content.push('\n');
+                    }
+                    top.content.push_str(raw);
                 }
-                top.content.push_str(raw);
+            } else if let Some(ContentSection { content, .. }) = rhei_content.last_mut() {
+                // Outside `## Tasks` the node stack is empty, so a fenced
+                // block's body used to be dropped between its two fence lines.
+                // A content section is pasted verbatim. §FS-rhei-memory.4.2
+                if !content.is_empty() {
+                    content.push('\n');
+                }
+                content.push_str(raw);
             }
             continue;
         }
@@ -823,6 +836,12 @@ pub fn parse(input: &str) -> Result<Rhei> {
     // §FS-rhei-plan-language.1.1 §FS-rhei-new.2
 
     let states_declared = rhei_states.is_some();
+    // Interior blanks are the author's; the ones trailing a section only
+    // separate it from `## Tasks`. §FS-rhei-memory.4.2
+    for section in &mut rhei_content {
+        let trimmed = section.content.trim_end().to_string();
+        section.content = trimmed;
+    }
     Ok(Rhei {
         title,
         states: rhei_states.unwrap_or_else(|| "rhei".to_string()),
