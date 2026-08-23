@@ -7,6 +7,9 @@ These goals follow from §GND-rhei-purpose.
 - Make task plans readable, reviewable, and directly editable by humans and
   agents.
 - Preserve useful memory across sessions, branches, agents, and handoffs.
+- Give every task the clearest, most token-efficient access to the project's
+  mid-term memory — what was decided, produced, and left undone before it,
+  anywhere in the project — at the depth it needs and no more.
 - Keep simple work simple: a small task should not require a heavyweight
   workflow.
 - Support complex work: security review, release hardening, incident response,
