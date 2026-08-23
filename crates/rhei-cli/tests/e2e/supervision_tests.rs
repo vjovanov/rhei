@@ -13,43 +13,41 @@ use super::*;
 /// a brief for each of its children. `extra` is spliced into the `supervising`
 /// arm so a scenario can make the supervisor act on its subtree.
 pub fn supervision_agent_script(extra: &str) -> String {
-    format!(
-        r#"#!/bin/sh
-set -eu
-root="${{RHEI_ROOT:?}}"
-task="${{RHEI_TASK_ID:?}}"
-state="${{RHEI_STATE:?}}"
-visit="${{RHEI_VISIT_COUNT:-1}}"
-mkdir -p "$root/runtime/logs" "$root/runtime/prompts" "$root/runtime/supervise" "$root/runtime/review"
-printf '%s %s %s\n' "$task" "$state" "$visit" >> "$root/runtime/logs/spawns.log"
+    // A marker line rather than a `format!` hole: the body is Python, and
+    // `format!` would need every brace in it doubled.
+    const BODY: &str = r#"root = pathlib.Path(env('RHEI_ROOT'))
+task = env('RHEI_TASK_ID')
+state = env('RHEI_STATE')
+visit = env('RHEI_VISIT_COUNT', '1')
+for folder in ('logs', 'prompts', 'supervise', 'review'):
+    (root / 'runtime' / folder).mkdir(parents=True, exist_ok=True)
+append(root / 'runtime' / 'logs' / 'spawns.log', '{} {} {}\n'.format(task, state, visit))
 
-prompt=""
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--prompt" ]; then
-    shift
-    prompt="${{1:-}}"
-  fi
-  shift || true
-done
-printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state-$visit.md"
+prompt = ''
+args = sys.argv[1:]
+while args:
+    if args.pop(0) == '--prompt' and args:
+        prompt = args.pop(0)
+write(root / 'runtime' / 'prompts' / '{}-{}-{}.md'.format(task, state, visit), prompt)
 
-case "$state" in
-  supervising)
-    for child in 1 2; do
-      printf 'Brief for child %s written on visit %s.\n' "$child" "$visit" \
-        > "$root/runtime/supervise/$task.$child.md"
-    done
-{extra}
-    ;;
-  review)
-    printf 'Findings from %s.\n' "$task" > "$root/runtime/review/$task.md"
-    ;;
-esac
+if state == 'supervising':
+    for child in (1, 2):
+        write(
+            root / 'runtime' / 'supervise' / '{}.{}.md'.format(task, child),
+            'Brief for child {} written on visit {}.\n'.format(child, visit),
+        )
+    # SUPERVISING-EXTRA
+elif state == 'review':
+    write(root / 'runtime' / 'review' / (task + '.md'), 'Findings from {}.\n'.format(task))
 
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
-"#
-    )
+result('## Result\n\nTask {} finished {}.\n'.format(task, state))
+"#;
+    if extra.trim().is_empty() {
+        // The marker is a comment, and the branch it sits in already has a
+        // statement, so leaving it in place is the empty splice.
+        return BODY.to_string();
+    }
+    BODY.replace("    # SUPERVISING-EXTRA", extra)
 }
 
 /// The canonical supervisor machine of §FS-rhei-supervision.7.
@@ -110,16 +108,16 @@ pub fn setup_supervision(
     let dir = unique_temp_dir(prefix);
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script = write_fixture_file(&dir, "mock-agent.sh", &supervision_agent_script(script_extra));
+    let script = write_python_agent(&dir, "mock-agent.py", &supervision_agent_script(script_extra));
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    let command = fixture_command(&script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "prompt_flag": "--prompt", "timeout": "30s" }} }}
+  "agents": {{ "mock": {{ "command": {command}, "prompt_flag": "--prompt", "timeout": "30s" }} }}
 }}"#
         ),
     )

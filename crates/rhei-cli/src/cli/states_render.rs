@@ -260,8 +260,13 @@ fn format_version(value: &serde_yaml::Value) -> String {
 }
 
 /// Read the markdown plan source file from disk.
+///
+/// Through [`read_plan_source`], because a command may be holding the file's
+/// own lock while it asks the loader to read it: on Windows that lock refuses
+/// a second open, including this process's.
+// §FS-rhei-new.4
 fn read_input_file(path: &Path) -> MietteResult<String> {
-    fs::read_to_string(path).map_err(|err| file_io_report(path, "failed to read input file", err))
+    read_plan_source(path, "failed to read input file")
 }
 
 /// A loaded plan with optional workspace task-to-file mapping.

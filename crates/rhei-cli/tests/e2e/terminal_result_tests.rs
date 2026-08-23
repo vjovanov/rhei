@@ -40,40 +40,32 @@ const ONE_TASK_PLAN: &str = r#"# Rhei: Terminal Result
 /// Passing the path in `RHEI_RESULT_PATH` is the contract a program has instead
 /// of a prompt. §FS-rhei-agents.4
 fn write_result_writing_agent(dir: &Path, body: &str) -> PathBuf {
-    let quoted = shell_single_quote(body);
-    write_fixture_file(
-        dir,
-        "mock-agent.sh",
-        &format!(
-            r#"#!/bin/sh
-set -eu
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '%s' {quoted} > "$RHEI_RESULT_PATH"
-"#
-        ),
-    )
+    // The body is JSON-encoded, which is also a Python string literal, so a
+    // quote or a backslash in it cannot escape into the script.
+    let literal = serde_json::to_string(body).expect("result body json");
+    write_python_agent(dir, "mock-agent.py", &format!("result({literal})\n"))
 }
 
-fn shell_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
+/// A worker that exits `code` having written nothing.
+fn write_exiting_agent(dir: &Path, name: &str, code: i32) -> PathBuf {
+    write_python_agent(dir, name, &format!("sys.exit({code})\n"))
 }
 
 fn write_silent_agent(dir: &Path) -> PathBuf {
-    write_fixture_file(dir, "mock-agent.sh", "#!/bin/sh\nset -eu\nexit 0\n")
+    write_exiting_agent(dir, "mock-agent.py", 0)
 }
 
 fn write_mock_agent_settings(workspace_root: &Path, script: &Path) {
     let settings_dir = workspace_root.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&script.display().to_string()).expect("script path json");
+    let command = fixture_command(script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
   "agents": {{
-    "mock": {{ "command": ["sh", {script_json}], "timeout": "10s" }}
+    "mock": {{ "command": {command}, "timeout": "10s" }}
   }}
 }}"#
         ),
@@ -376,13 +368,17 @@ fn run_treats_a_missing_result_as_a_missing_required_output() {
 /// the result file rather than an empty one. §FS-rhei-run.3
 #[test]
 fn a_run_failure_route_into_a_terminal_state_records_why() {
-    let machine = r#"name: failing-program
+    let dir = unique_temp_dir("terminal-result-run-failure");
+    let failing = write_exiting_agent(&dir, "failing-program.py", 3);
+    let machine = format!(
+        r#"name: failing-program
 version: 1
 states:
   build:
     initial: true
     description: Build it
-    program: "exit 3"
+    program:
+      command: {command}
     program_timeout: 10s
   failed:
     final: true
@@ -391,7 +387,9 @@ transitions:
   - from: build
     to: failed
     exit_code: 3
-"#;
+"#,
+        command = fixture_command(&failing)
+    );
     let plan = r#"# Rhei: Failing Program
 
 ## Tasks
@@ -399,9 +397,8 @@ transitions:
 ### Task 1: Build
 **State:** build
 "#;
-    let dir = unique_temp_dir("terminal-result-failure-route");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     assert_success(&run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]));
     assert_task_state(&plan_path, &machine_path, "1", "failed");
@@ -619,15 +616,14 @@ const FANOUT_PLAN: &str = r#"# Rhei: Fanout Result
 fn write_fanout_agent_settings(workspace_root: &Path, script: &Path) {
     let settings_dir = workspace_root.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
-    let script_json =
-        serde_json::to_string(&script.display().to_string()).expect("script path json");
+    let command = fixture_command(script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
   "agents": {{
-    "mock": {{ "command": ["sh", {script_json}], "timeout": "10s" }}
+    "mock": {{ "command": {command}, "timeout": "10s" }}
   }},
   "models": {{
     "alpha": {{ "provider": "mock", "model": "alpha", "default_agent": "mock" }},
@@ -644,11 +640,11 @@ fn a_fanned_out_terminal_edge_keeps_every_invocation_s_account() {
     let dir = unique_temp_dir("terminal-result-fanout");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
-    let agent = write_fixture_file(
+    let agent = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+        "mock-agent.py",
+        r#"result('{} reviewed it.\n'.format(env('RHEI_MODEL')))
+"#,
     );
     write_fanout_agent_settings(&dir, &agent);
 
@@ -688,12 +684,12 @@ fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_conditio
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
     // Only `alpha` answers.
-    let agent = write_fixture_file(
+    let agent = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nif [ \"${RHEI_MODEL:-}\" = alpha ]; then\n\
-         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf 'alpha reviewed it.\\n' > \"$RHEI_RESULT_PATH\"\nfi\n",
+        "mock-agent.py",
+        r#"if env('RHEI_MODEL') == 'alpha':
+    result('alpha reviewed it.\n')
+"#,
     );
     write_fanout_agent_settings(&dir, &agent);
 
@@ -754,11 +750,11 @@ fn a_refused_fan_out_move_merges_the_fragments_exactly_once_per_attempt() {
     let dir = unique_temp_dir("terminal-result-fanout-once");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_REFUSED_MACHINE);
-    let agent = write_fixture_file(
+    let agent = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+        "mock-agent.py",
+        r#"result('{} reviewed it.\n'.format(env('RHEI_MODEL')))
+"#,
     );
     write_fanout_agent_settings(&dir, &agent);
 
@@ -823,12 +819,12 @@ fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TWO_STATE_MACHINE);
     // Writes only in `review`; `refine` exits 0 having written nothing.
-    let agent = write_fixture_file(
+    let agent = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nif [ \"${RHEI_STATE:-}\" = review ]; then\n\
-         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf 'STALE from review by %s.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+        "mock-agent.py",
+        r#"if env('RHEI_STATE') == 'review':
+    result('STALE from review by {}.\n'.format(env('RHEI_MODEL')))
+"#,
     );
     write_fanout_agent_settings(&dir, &agent);
 
@@ -867,12 +863,14 @@ fn a_slow_fan_out_sibling_does_not_raise_a_false_alarm() {
     let dir = unique_temp_dir("terminal-result-fanout-slow");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TERMINAL_MACHINE);
-    let agent = write_fixture_file(
+    let agent = write_python_agent(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nif [ \"${RHEI_MODEL:-}\" = beta ]; then sleep 2; fi\n\
-         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '%s reviewed it.\\n' \"$RHEI_MODEL\" > \"$RHEI_RESULT_PATH\"\n",
+        "mock-agent.py",
+        r#"model = env('RHEI_MODEL')
+if model == 'beta':
+    time.sleep(2)
+result('{} reviewed it.\n'.format(model))
+"#,
     );
     write_fanout_agent_settings(&dir, &agent);
 
@@ -896,7 +894,9 @@ fn a_slow_fan_out_sibling_does_not_raise_a_false_alarm() {
 /// a program state writes the ticket's result file and is never asked for a
 /// fragment per declared target — files nothing could write.
 // §FS-rhei-states.3.3 §FS-rhei-programs.2
-const PROGRAM_FANOUT_MACHINE: &str = r#"name: program-fanout
+fn program_fanout_machine(command: &str) -> String {
+    format!(
+        r#"name: program-fanout
 version: 1
 models:
   - alpha
@@ -908,9 +908,8 @@ states:
     all_targets:
       - "mock:mock:alpha"
       - "mock:mock:beta"
-    program: >-
-      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-      && printf 'the program did it.\n' > "$RHEI_RESULT_PATH"
+    program:
+      command: {command}
     program_timeout: 20s
   completed:
     final: true
@@ -919,14 +918,26 @@ transitions:
   - from: review
     to: completed
     exit_code: 0
-"#;
+"#
+    )
+}
 
 #[test]
 fn a_program_state_with_declared_targets_writes_the_ticket_result() {
     let dir = unique_temp_dir("terminal-result-program-fanout");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
-    let machine_path = write_fixture_file(&dir, "states.yaml", PROGRAM_FANOUT_MACHINE);
-    let agent = write_fixture_file(&dir, "mock-agent.sh", "#!/bin/sh\nset -eu\nexit 0\n");
+    let program = write_python_agent(
+        &dir,
+        "the-program.py",
+        r#"result('the program did it.\n')
+"#,
+    );
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        &program_fanout_machine(&fixture_command(&program)),
+    );
+    let agent = write_silent_agent(&dir);
     write_fanout_agent_settings(&dir, &agent);
 
     assert_success(&run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]));
@@ -943,13 +954,16 @@ fn a_program_state_with_declared_targets_writes_the_ticket_result() {
 /// A program is a worker: when it exits 0 owing the ticket's result, the run
 /// report must name the file, not fall back to "stalled in non-terminal state".
 // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1
-const SILENT_PROGRAM_MACHINE: &str = r#"name: silent-program
+fn silent_program_machine(command: &str) -> String {
+    format!(
+        r#"name: silent-program
 version: 1
 states:
   probe:
     initial: true
     description: Exits 0 and writes nothing
-    program: "true"
+    program:
+      command: {command}
     program_timeout: 20s
   completed:
     final: true
@@ -958,7 +972,9 @@ transitions:
   - from: probe
     to: completed
     exit_code: 0
-"#;
+"#
+    )
+}
 
 const SILENT_PROGRAM_PLAN: &str = r#"# Rhei: Silent Program
 
@@ -973,7 +989,12 @@ fn a_program_that_owes_the_result_is_reported_as_missing_outputs() {
     for parallel in ["1", "2"] {
         let dir = unique_temp_dir(&format!("terminal-result-program-stall-{parallel}"));
         let plan_path = write_fixture_file(&dir, "plan.rhei.md", SILENT_PROGRAM_PLAN);
-        let machine_path = write_fixture_file(&dir, "states.yaml", SILENT_PROGRAM_MACHINE);
+        let probe = write_exiting_agent(&dir, "probe.py", 0);
+        let machine_path = write_fixture_file(
+            &dir,
+            "states.yaml",
+            &silent_program_machine(&fixture_command(&probe)),
+        );
 
         let result = run_cli(
             "run",
@@ -1007,13 +1028,16 @@ fn a_program_that_owes_the_result_is_reported_as_missing_outputs() {
 /// the pass broke out of the loop, so a healthy ticket mid-workflow never got
 /// its next state and no second pass happened.
 // §FS-rhei-run.3 §FS-rhei-agents.5.2.1
-const SEQUENTIAL_STALL_MACHINE: &str = r#"name: sequential-stall
+fn sequential_stall_machine(command: &str) -> String {
+    format!(
+        r#"name: sequential-stall
 version: 1
 states:
   probe:
     initial: true
     description: Advances the ticket into work
-    program: "true"
+    program:
+      command: {command}
     program_timeout: 20s
   work:
     description: Agent work
@@ -1028,7 +1052,9 @@ transitions:
     exit_code: 0
   - from: work
     to: completed
-"#;
+"#
+    )
+}
 
 const SEQUENTIAL_STALL_PLAN: &str = r#"# Rhei: Sequential Stall
 
@@ -1045,14 +1071,20 @@ const SEQUENTIAL_STALL_PLAN: &str = r#"# Rhei: Sequential Stall
 fn a_sequential_stall_does_not_end_the_run() {
     let dir = unique_temp_dir("terminal-result-sequential-stall");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", SEQUENTIAL_STALL_PLAN);
-    let machine_path = write_fixture_file(&dir, "states.yaml", SEQUENTIAL_STALL_MACHINE);
-    // Task 2 is the silent one; task 1 writes its result and finishes.
-    let agent = write_fixture_file(
+    let probe = write_exiting_agent(&dir, "probe.py", 0);
+    let machine_path = write_fixture_file(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nif [ \"${RHEI_TASK_ID:-}\" != plan.2 ]; then\n\
-         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '%s finished.\\n' \"$RHEI_TASK_ID\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+        "states.yaml",
+        &sequential_stall_machine(&fixture_command(&probe)),
+    );
+    // Task 2 is the silent one; task 1 writes its result and finishes.
+    let agent = write_python_agent(
+        &dir,
+        "mock-agent.py",
+        r#"task = env('RHEI_TASK_ID')
+if task != 'plan.2':
+    result('{} finished.\n'.format(task))
+"#,
     );
     write_mock_agent_settings(&dir, &agent);
 
@@ -1090,13 +1122,19 @@ const THREE_WORKER_PLAN: &str = r#"# Rhei: Three Workers
 fn a_sequential_stall_leaves_its_siblings_claimable() {
     let dir = unique_temp_dir("terminal-result-sequential-siblings");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", THREE_WORKER_PLAN);
-    let machine_path = write_fixture_file(&dir, "states.yaml", SEQUENTIAL_STALL_MACHINE);
-    let agent = write_fixture_file(
+    let probe = write_exiting_agent(&dir, "probe.py", 0);
+    let machine_path = write_fixture_file(
         &dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nif [ \"${RHEI_TASK_ID:-}\" != plan.2 ]; then\n\
-         mkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '%s finished.\\n' \"$RHEI_TASK_ID\" > \"$RHEI_RESULT_PATH\"\nfi\n",
+        "states.yaml",
+        &sequential_stall_machine(&fixture_command(&probe)),
+    );
+    let agent = write_python_agent(
+        &dir,
+        "mock-agent.py",
+        r#"task = env('RHEI_TASK_ID')
+if task != 'plan.2':
+    result('{} finished.\n'.format(task))
+"#,
     );
     write_mock_agent_settings(&dir, &agent);
 
