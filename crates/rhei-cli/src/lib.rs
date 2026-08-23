@@ -145,4 +145,6 @@ mod tests {
     include!("cli/tests_new_verify.rs");
     include!("cli/tests_prompt_memory.rs");
     include!("cli/tests_prompt_memory_history.rs");
+    include!("cli/tests_prompt_memory_caps.rs");
+    include!("cli/tests_prompt_memory_visits.rs");
 }
