@@ -29,10 +29,16 @@ fn legacy_result_path(root: &Path, task: &rhei_core::ast::Task) -> Option<PathBu
         if fenced || !trimmed.starts_with("> **Result:**") {
             continue;
         }
-        if let Some(target) = trimmed.split_once("](").and_then(|(_, rest)| rest.strip_suffix(')'))
+        let target = trimmed.split_once("](").and_then(|(_, rest)| rest.strip_suffix(')'))?;
+        // The block names an artifact of this rhei and nothing else: an
+        // absolute or climbing target is a malformed block, not a result.
+        let relative = Path::new(target);
+        if relative.is_absolute()
+            || relative.components().any(|part| part == std::path::Component::ParentDir)
         {
-            return Some(root.join(target));
+            return None;
         }
+        return Some(root.join(relative));
     }
     None
 }
