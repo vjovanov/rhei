@@ -136,9 +136,13 @@ transitions:
     /// delivers — on macOS a temp dir is reached through a `/var` symlink, so
     /// deriving test paths from the raw handle would compare a path the runtime
     /// never sees.
+    /// The temp directory in the spelling the watch plan uses, which is the
+    /// CLI's canonical form — plain, not Windows' `\\?\` verbatim one.
+    // §REQ-cross-platform.5
     fn canonical_tempdir() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let root = dir.path().canonicalize().expect("canonicalize tmpdir");
+        let root =
+            rhei_core::platform::canonical_path(dir.path()).expect("canonicalize tmpdir");
         (dir, root)
     }
 

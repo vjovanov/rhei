@@ -53,13 +53,14 @@ import pathlib
 import sys
 import time
 
-# Every stream a fixture writes is opened with `newline=''`, so a line ends with
-# one `\n` on every platform. Python's text mode would otherwise translate it to
-# `\r\n` on Windows, and a test comparing a fixture's output byte for byte would
-# see two different files for one program.
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(newline='\n')
-    sys.stderr.reconfigure(newline='\n')
+# Rhei speaks UTF-8 with one `\n` per line on every platform, and Python does
+# not: on Windows it decodes stdin in the host's code page — a prompt carrying
+# an em dash comes back as lone surrogates that will not re-encode — and
+# translates every `\n` it writes into `\r\n`. Both streams are pinned here so a
+# fixture reads what the engine sent and writes bytes the engine can compare.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', newline='')
 
 
 def env(name, default=''):

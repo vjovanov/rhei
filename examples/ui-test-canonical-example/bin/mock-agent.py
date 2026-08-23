@@ -21,6 +21,12 @@ import pathlib
 import sys
 import time
 
+# Rhei speaks UTF-8 with one `\n` per line on every platform, and Python does
+# not: on Windows it decodes stdin in the host's code page and writes `\r\n`.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', newline='')
+
 
 def env(name, default=''):
     """`${NAME:-default}`: an empty value counts as unset, as it does in sh."""
