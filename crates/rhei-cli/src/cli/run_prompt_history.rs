@@ -224,9 +224,20 @@ fn render_plan_history(render_context: &RuntimeTemplateContext<'_>) -> MietteRes
     let skip = pasted_descendant_ids(render_context, &pasted_in_full);
     let own = own_history_tasks(render_context, &order, &rhei_id, &skip)?;
     let own_ids: BTreeSet<String> = own.iter().map(|task| task.id.to_string()).collect();
+    let priors: Vec<&rhei_core::ast::Task> =
+        transitive_priors(&index, &order, render_context.task)
+            .into_iter()
+            .filter(|task| !own_ids.contains(&task.id.to_string()))
+            .collect();
+
+    // Priors are kept; the cap eats the rhei's own backlog, oldest first —
+    // decided first, so no dropped entry's result file is opened for nothing.
+    // §FS-rhei-memory.4.3
+    let dropped =
+        (own.len() + priors.len()).saturating_sub(memory_caps::PLAN_HISTORY).min(own.len());
 
     let mut entries = Vec::new();
-    for task in &own {
+    for task in own.iter().skip(dropped) {
         entries.push(HistoryEntry {
             label: memory_node_label(task),
             title: task.title.clone(),
@@ -235,11 +246,7 @@ fn render_plan_history(render_context: &RuntimeTemplateContext<'_>) -> MietteRes
             foreign_rhei: None,
         });
     }
-    let own_count = entries.len();
-    for task in transitive_priors(&index, &order, render_context.task) {
-        if own_ids.contains(&task.id.to_string()) {
-            continue;
-        }
+    for task in priors {
         entries.push(HistoryEntry {
             label: memory_node_label(task),
             title: task.title.clone(),
@@ -255,9 +262,6 @@ fn render_plan_history(render_context: &RuntimeTemplateContext<'_>) -> MietteRes
         return Ok(String::new());
     }
 
-    // Priors are the ones this task depends on; the cap comes out of the
-    // rhei's own backlog, oldest first. §FS-rhei-memory.4.3
-    let dropped = (entries.len().saturating_sub(memory_caps::PLAN_HISTORY)).min(own_count);
     let mut out = String::from("\n## Plan History\n");
     // The preamble introduces the list; with nothing finished yet, the section
     // is carried by its sub-sections alone and the preamble would be a lie.
@@ -269,7 +273,7 @@ fn render_plan_history(render_context: &RuntimeTemplateContext<'_>) -> MietteRes
                  {rhei_id} --terminal\n"
             ));
         }
-        for entry in entries.iter().skip(dropped) {
+        for entry in &entries {
             out.push_str(&entry.render());
         }
     }
