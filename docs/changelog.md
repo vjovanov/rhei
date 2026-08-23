@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- CI now runs as two parallel jobs instead of one: `test` (fmt, clippy,
+  build, test on three platforms) and `lint` (grund, fissile, lychee,
+  attribution, changelog). The Ubuntu job used to carry every repository gate
+  on top of the test run — compiling `lychee`, `fissile`, and `grund` from
+  source on every run, then `pre-commit run --all-files`, which ran fmt,
+  clippy, build, and the whole test suite a second time — and took ~9 minutes
+  against ~3 for macOS, so every pull request and every release waited on it.
+  The gate binaries are now cached by their pinned versions, and the cargo
+  hooks are skipped in the lint job because the test job has just run them.
+  §AR-ci-release.1
+
 ## 2. [0.3.0] - 2026-08-23
 
 - Give a cold invocation the project's **mid-term memory**. Under `rhei run`
