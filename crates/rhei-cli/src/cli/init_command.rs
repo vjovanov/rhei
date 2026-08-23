@@ -139,23 +139,31 @@ help = init_conflict_help(),
     let mut agents_note_path = None;
     if !no_agents {
         let (changed, path) = write_agents_note(&host, here)?;
-        if changed {
-            agents_note_path = Some(path.clone());
-            if path.parent() == Some(host.as_path()) {
-                // Name the actual file: the note can land in CLAUDE.md when
-                // that is the instruction file the repository uses. §FS-rhei-init.4
-                let name = path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "AGENTS.md".to_string());
-                host_changes.push(name);
-            }
+        // Compared as files, not as spellings: the note's directory comes back
+        // canonicalized, which on Windows is the `\\?\` verbatim form of a
+        // path `host` spells plainly. `==` therefore said "somewhere else" for
+        // a note written into the host directory itself, and init both left it
+        // out of the changed list and announced it as a repository-root write.
+        let at_host = path.parent().is_some_and(|parent| same_path(parent, &host));
+        if changed && at_host {
+            // Name the actual file: the note can land in CLAUDE.md when
+            // that is the instruction file the repository uses. §FS-rhei-init.4
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "AGENTS.md".to_string());
+            host_changes.push(name);
+        } else if changed {
+            agents_note_path = Some(path);
         }
     }
     report_initialized_project(&project, &title, here);
     report_host_changes(&host_changes, here);
-    if let Some(path) = agents_note_path.filter(|path| path.parent() != Some(host.as_path())) {
-        println!("Wrote the agent-discovery note to {} (the repository root).", path.display());
+    if let Some(path) = agents_note_path {
+        println!(
+            "Wrote the agent-discovery note to {} (the repository root).",
+            display_path(&path)
+        );
     }
     println!("Next: `rhei install-skills` wires agent skills; `rhei list` shows the project.");
     // A fresh project's real next step is its first rhei, and the block is
@@ -242,7 +250,10 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
     // no agent looks. §FS-rhei-init.5
     let anchor = repository_root(host).unwrap_or_else(|| host.to_path_buf());
     let path = agents_note_target(&anchor);
-    let location = if anchor == host {
+    // `same_path` rather than `==`: `anchor` is canonicalized and `host` is
+    // whatever the caller spelled, which are the same directory in different
+    // words on every platform and visibly so on Windows.
+    let location = if same_path(&anchor, host) {
         if here {
             "This directory is a Rhei (Panta) project.".to_string()
         } else {
