@@ -318,7 +318,12 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    opens with a plain `## Result` heading or with the `## Result — <identity>`
    a fanned-out fold writes (§FS-rhei-states.3.3); the last of either kind is
    the standing verdict. If `T`'s result is pasted in full elsewhere in this
-   prompt, `see above` replaces the summary.
+   prompt, `see above` replaces the summary. When that file does not exist and
+   `T`'s body carries a `> **Result:**` block, the file **that block links**,
+   resolved against `root(rhei(T))`, is read instead (§FS-rhei-plan-language.3.8)
+   — a plan finished before ids were qualified keeps its account under the
+   rhei-local name, and `(no result)` printed under a body that shows the link
+   is a false statement. Nothing else is consulted.
 4. Cap: 40 lines. Entries in `priors` are never dropped; entries in `own` are
    dropped **oldest first** until the cap holds, and the overflow line
    `… {n} earlier tasks not shown — rhei list --rhei <R₀> --terminal` is
@@ -351,7 +356,8 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    one.
 2. Paste `runtime/results/<task>.md`, fenced; cap 100 lines, keeping the
    **last** 100 with the overflow line `… earlier entries omitted; read <path>`
-   first.
+   first. The legacy fallback of §4.3.3 applies here too, and `<path>` names
+   whichever file was read.
 3. `prev_log` = the path of §FS-rhei-agents.8.1 for `(task, state, identity,
    visit_count − 1)`; emit the `Previous log:` line only when that file exists.
 

@@ -67,20 +67,6 @@ fn render_child_task_results(
     Ok(out)
 }
 
-/// One task's result file, when it exists with content.
-fn read_task_result(
-    render_context: &RuntimeTemplateContext<'_>,
-    task_id: &TaskId,
-) -> MietteResult<Option<String>> {
-    let path = task_result_path(export_root_for_task(render_context, task_id), task_id);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|err| file_io_report(&path, "failed to read task result", err))?;
-    Ok(Some(content.trim().to_string()).filter(|content| !content.is_empty()))
-}
-
 /// The one qualified id a checkpoint's rhei-local `task` can name.
 ///
 /// A checkpoint records the rhei-local id (§3.3), while the merged plan graph

@@ -15,19 +15,68 @@ fn task_result_path(workspace_root: &Path, task_id: &TaskId) -> PathBuf {
     workspace_root.join("runtime").join("results").join(format!("{}.md", task_id))
 }
 
+/// The result file a ticket's own `> **Result:**` block names, resolved against
+/// the execution root of the rhei that owns it.
+// §FS-rhei-plan-language.3.8
+fn legacy_result_path(root: &Path, task: &rhei_core::ast::Task) -> Option<PathBuf> {
+    let mut fenced = false;
+    for line in task.content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced || !trimmed.starts_with("> **Result:**") {
+            continue;
+        }
+        if let Some(target) = trimmed.split_once("](").and_then(|(_, rest)| rest.strip_suffix(')'))
+        {
+            return Some(root.join(target));
+        }
+    }
+    None
+}
+
+/// The file one ticket's result actually lives in, when there is one.
+///
+/// A plan finished before ids were qualified wrote `runtime/results/<local>.md`
+/// and links it from the ticket; the qualified file was never written, so the
+/// block is the only witness of an account every surface can see in the body.
+// §FS-rhei-memory.4.3 §FS-rhei-plan-language.3.8
+fn resolved_result_path(
+    render_context: &RuntimeTemplateContext<'_>,
+    task_id: &TaskId,
+) -> Option<PathBuf> {
+    let root = export_root_for_task(render_context, task_id);
+    let path = task_result_path(root, task_id);
+    if path.exists() {
+        return Some(path);
+    }
+    let task = find_task_by_id(render_context.plan_tasks?, task_id)?;
+    let legacy = legacy_result_path(root, task)?;
+    legacy.exists().then_some(legacy)
+}
+
+/// One task's result file, when it exists with content.
+///
+/// Every memory section reads a result through here, so the legacy fallback
+/// and the trimming rule are decided once rather than per surface.
+// §FS-rhei-memory.4.3
+fn read_task_result(
+    render_context: &RuntimeTemplateContext<'_>,
+    task_id: &TaskId,
+) -> MietteResult<Option<String>> {
+    let Some(path) = resolved_result_path(render_context, task_id) else { return Ok(None) };
+    let content = fs::read_to_string(&path)
+        .map_err(|err| file_io_report(&path, "failed to read task result", err))?;
+    Ok(Some(content.trim().to_string()).filter(|content| !content.is_empty()))
+}
+
 fn render_prior_task_results(render_context: &RuntimeTemplateContext<'_>) -> MietteResult<String> {
     // §FS-rhei-agents.3: Prior task result files are graph-level prompt context.
     let mut out = String::new();
     for prior in &render_context.task.prior {
-        let path = task_result_path(export_root_for_task(render_context, prior), prior);
-        if !path.exists() {
-            continue;
-        }
-        let content = fs::read_to_string(&path)
-            .map_err(|err| file_io_report(&path, "failed to read prior task result", err))?;
-        if content.trim().is_empty() {
-            continue;
-        }
+        let Some(content) = read_task_result(render_context, prior)? else { continue };
         if out.is_empty() {
             out.push_str(
                 "\n## Prior Task Results\n\n\
@@ -36,7 +85,7 @@ fn render_prior_task_results(render_context: &RuntimeTemplateContext<'_>) -> Mie
         }
         // §FS-rhei-memory.4.5: a pasted result starts with `## Result`, a
         // heading that would outrank the section it was pasted under.
-        out.push_str(&format!("\n### Task {prior}\n\n{}\n", fenced_markdown(content.trim())));
+        out.push_str(&format!("\n### Task {prior}\n\n{}\n", fenced_markdown(&content)));
     }
     Ok(out)
 }
