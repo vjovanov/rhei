@@ -853,6 +853,8 @@ fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
     fs::remove_dir_all(project).expect("cleanup");
 }
 
+// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
+#[cfg(unix)]
 #[test]
 fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
     let project = create_panta_project(

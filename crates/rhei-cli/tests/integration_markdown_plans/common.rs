@@ -352,6 +352,8 @@ transitions:
     to: done
 "#;
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 /// A project machine whose initial state carries autonomous agent work, so
 /// `rhei run` takes the orchestrated (agent-mode) scheduling path.
 const AGENT_WORK_STATE_MACHINE: &str = r#"name: workspace-test-machine

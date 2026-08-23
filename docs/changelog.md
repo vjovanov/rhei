@@ -2,14 +2,17 @@
 
 ## Unreleased
 
-- Windows CI now runs the test suite it can: every crate's unit tests and
-  `rhei-core`'s integration tests, which together cover the parsers, the
-  validator, workspace and Panta loading, qualified ids, the transition ledger,
-  and every prompt renderer — the path-handling code where Windows differs
-  most. Until now the Windows job stopped after `cargo build`, so Windows
-  proved compilation and nothing about behaviour. The CLI's e2e suite, which
-  drives `sh` mock agents, is still Linux and macOS only. §AR-ci-release.1
-  (PR #94)
+- Windows CI now runs the test suite it can: every crate's unit tests,
+  `rhei-core`'s integration tests, and the CLI's integration target, which
+  spawns the built `rhei` and reads what it wrote. Together they cover the
+  parsers, the validator, workspace and Panta loading, qualified ids, the
+  transition ledger, every prompt renderer, and the commands that rewrite a
+  plan — the path handling where Windows differs most. Until now the Windows
+  job stopped after `cargo build`, so Windows proved compilation and nothing
+  about behaviour. The CLI's e2e target, which drives `sh` mock agents
+  throughout, is still Linux and macOS only, as are the individual integration
+  tests that stand a shell script up as an agent, a polled program, or a
+  callback. §AR-ci-release.1 (PR #94)
 
   Running them found four things that were broken on Windows and are now
   fixed. **Run liveness**: a lock somebody holds is refused with a different

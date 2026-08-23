@@ -55,13 +55,14 @@ jobs:
         run: cargo test --workspace --all-targets --locked --no-fail-fast
 
       # Windows runs every test that needs no shell: the unit tests of every
-      # crate and rhei-core's integration tests. The CLI's e2e suite drives
-      # `sh` mock agents and is still excluded there; porting it is #91.
+      # crate, rhei-core's integration tests, and the CLI's integration target.
+      # The CLI's *e2e* target drives `sh` mock agents throughout and is still
+      # excluded there; porting it is #91.
       #
-      # Two steps rather than two lines in one, so a failure in the unit tests
-      # still lets the rhei-core suite run and one red job reports everything
-      # there is to fix. `rhei-core` is the directory; `rhei-plan` is the
-      # package name cargo answers to.
+      # Three steps rather than three lines in one, so a failure in the first
+      # still lets the rest run and one red job reports everything there is to
+      # fix. `rhei-core` is the directory; `rhei-plan` is the package name cargo
+      # answers to.
       # `rhei-api` is excluded rather than left to its manifest's `test = false`:
       # `--lib` selects targets explicitly, and an explicit selection overrides
       # that flag. Its N-API shims resolve against a host Node process, so the
@@ -71,8 +72,17 @@ jobs:
         run: cargo test --workspace --lib --exclude rhei-api --locked --no-fail-fast
 
       - name: cargo test (rhei-core)
-        if: matrix.os == 'windows-latest' && !cancelled()
+        if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
         run: cargo test -p rhei-plan --locked --no-fail-fast
+
+      # The CLI's integration target: it spawns the built `rhei` and reads what
+      # it wrote, which is exactly the path handling Windows spells differently.
+      # The tests inside it that do stand a shell script up as an agent, a
+      # polled program, or a callback are `#[cfg(unix)]` and say so (#91).
+      - name: cargo test (CLI integration)
+        if: ${{ !cancelled() && matrix.os == 'windows-latest' }}
+        timeout-minutes: 30
+        run: cargo test -p rhei-cli --test integration_markdown_plans --locked --no-fail-fast
 
   lint:
     name: repository gates (grund, fissile, lychee, changelog, attribution)

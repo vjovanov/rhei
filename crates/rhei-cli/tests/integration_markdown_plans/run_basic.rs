@@ -33,6 +33,8 @@ fn run_run_command(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -
     }
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn run_run_command_with_env(
     plan_path: &Path,
     machine_path: &Path,
@@ -58,6 +60,8 @@ fn run_run_command_with_env(
     }
 }
 
+// Only the Unix-gated tests here use it. #91
+#[cfg(unix)]
 fn run_run_command_in_dir(
     current_dir: &Path,
     plan_path: &Path,
