@@ -220,7 +220,9 @@ fn probe_run_lock(workspace_root: &Path) -> Liveness {
             let _ = fs2::FileExt::unlock(&file);
             Liveness::Ended
         }
-        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Liveness::Live,
+        // Contention is the whole point of the probe, and the platforms spell
+        // it with different errnos. §FS-rhei-run-headless.3
+        Err(err) if lock_is_contended(&err) => Liveness::Live,
         Err(err) => Liveness::Unknown(format!("{} could not be probed: {err}", path.display())),
     }
 }
