@@ -170,13 +170,11 @@ fn execute_transition_with_origin(
     };
 
     // Read the raw markdown while holding the locks.
-    let metadata_raw = fs::read_to_string(metadata_file)
-        .map_err(|err| file_io_report(metadata_file, "failed to read plan file", err))?;
-    let task_raw = if task_file == metadata_file {
-        metadata_raw.clone()
-    } else {
-        fs::read_to_string(task_file)
-            .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?
+    let metadata_raw =
+        read_locked_to_string(&metadata_handle, metadata_file, "failed to read plan file")?;
+    let task_raw = match task_handle.as_ref() {
+        None => metadata_raw.clone(),
+        Some(handle) => read_locked_to_string(handle, task_file, "failed to read plan file")?,
     };
 
     // Parse to validate structure and find the task.

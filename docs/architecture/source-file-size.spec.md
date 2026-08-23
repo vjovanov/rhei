@@ -107,8 +107,9 @@ under `crates/rhei-cli/src/cli/`:
   program execution, parallel spawning and scheduling, per-invocation result
   handling, failure routing, and automatic transition selection.
 - `next_command`, `complete_reset_commands`, `complete_reset_rewrites`,
-  `render_install_commands`, `install_skill_agents`, and `diagnostics` contain
-  the remaining command families and shared diagnostics.
+  `file_locks`, `render_install_commands`, `install_skill_agents`, and
+  `diagnostics` contain the remaining command families, the cross-platform
+  file-lock helpers every locking command shares, and shared diagnostics.
 - `tests_cli_render`, `tests_complete_reset_tooling`, `tests_agent_resolution`,
   `tests_agent_execution_validation`, `tests_settings_tooling`,
   `tests_snapshots_gc`, and `tests_snapshot_runtime` contain CLI unit tests

@@ -35,8 +35,7 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
     file.lock_exclusive()
         .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
 
-    let raw = fs::read_to_string(path)
-        .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
+    let raw = read_locked_to_string(&file, path, "failed to read plan file")?;
     let new_raw = rewrite_all_states_to_initial(&raw, machine)?;
     let new_raw = strip_result_links(&new_raw);
     let new_raw = strip_assignee_lines(&new_raw);
@@ -76,8 +75,7 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
     file.lock_exclusive()
         .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
 
-    let raw = fs::read_to_string(path)
-        .map_err(|err| file_io_report(path, "failed to read plan file", err))?;
+    let raw = read_locked_to_string(&file, path, "failed to read plan file")?;
     let metadata = if workspace_index {
         rhei_core::parser::parse_workspace_index(&raw)
             .map_err(|err| {

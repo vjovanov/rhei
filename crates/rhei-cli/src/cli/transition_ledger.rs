@@ -174,8 +174,7 @@ fn write_task_assignee(
         .lock_exclusive()
         .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
 
-    let raw = fs::read_to_string(task_file)
-        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+    let raw = read_locked_to_string(&handle, task_file, "failed to read plan file")?;
     let target = parse_task_id(task_id);
     let task = parse_claim_task_from_raw(&raw, task_file, &target, task_id)?;
     let current_state = normalized_state_name(task.state.as_str(), machine);
