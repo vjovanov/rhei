@@ -115,14 +115,14 @@ fn templates_with_a_name_shows_the_template_detail() {
     let result = run_raw(&["templates", "spec-review"], &dir);
     assert_success(&result);
     for expected in [
-        "Template: spec-review",
-        "spec (string, required)",
-        "Source: built-in",
-        "Instantiate it with:",
-        "rhei instantiate spec-review spec='<value>'",
+        "Template: spec-review".to_string(),
+        "spec (string, required)".to_string(),
+        "Source: built-in".to_string(),
+        "Instantiate it with:".to_string(),
+        format!("rhei instantiate spec-review spec={}", shell_quote("<value>")),
     ] {
         assert!(
-            result.stdout.contains(expected),
+            result.stdout.contains(&expected),
             "detail should contain '{expected}'; got:\n{}",
             result.stdout
         );

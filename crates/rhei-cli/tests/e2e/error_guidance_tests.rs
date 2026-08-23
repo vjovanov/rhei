@@ -91,8 +91,11 @@ fn missing_inputs_are_reported_together_with_a_runnable_command() {
 
     // §FS-rhei-errors.1.2: the help line is a command, with the placeholders
     // quoted so `<value>` is not read as a shell redirection.
+    let placeholder = shell_quote("<value>");
     assert!(
-        result.stderr.contains("rhei instantiate guided subject='<value>' brief='<value>'"),
+        result.stderr.contains(&format!(
+            "rhei instantiate guided subject={placeholder} brief={placeholder}"
+        )),
         "expected a runnable suggestion; got:\n{}",
         result.stderr
     );
@@ -117,7 +120,10 @@ fn missing_input_suggestion_echoes_arguments_already_supplied() {
     );
     // §FS-rhei-errors.1.2: the suggestion carries what the user already typed.
     assert!(
-        result.stderr.contains("rhei instantiate guided subject=docs brief='<value>'"),
+        result.stderr.contains(&format!(
+            "rhei instantiate guided subject=docs brief={}",
+            shell_quote("<value>")
+        )),
         "expected supplied arguments to be echoed; got:\n{}",
         result.stderr
     );
@@ -172,7 +178,9 @@ fn malformed_execution_target_fails_against_the_input_the_user_typed() {
     // §FS-rhei-errors.1.2: and keyed to the input the user typed, so it pastes
     // back instead of producing a fresh "no such input" error.
     assert!(
-        result.stderr.contains("worker_agent='codex[yolo]:openai:gpt-5.5'"),
+        result
+            .stderr
+            .contains(&format!("worker_agent={}", shell_quote("codex[yolo]:openai:gpt-5.5"))),
         "expected a shell-quoted example keyed to the input; got:\n{}",
         result.stderr
     );
@@ -187,12 +195,16 @@ fn the_suggested_execution_target_repair_can_be_pasted_back() {
         &["instantiate", "guided", "subject=a", "brief=b", "worker_agent=codex", "--dry-run"],
         &dir,
     );
-    // Recover the assignment rhei suggested and hand it straight back.
+    // Recover the assignment rhei suggested and hand it straight back. The
+    // quote it is wrapped in is the platform's, and stripping it is what the
+    // shell the suggestion was printed for would have done.
+    let quote = if cfg!(windows) { '"' } else { '\'' };
+    let opening = format!("worker_agent={quote}");
     let suggestion = failed
         .stderr
         .split_whitespace()
-        .find(|word| word.starts_with("worker_agent='"))
-        .map(|word| word.trim_end_matches('.').replace('\'', ""))
+        .find(|word| word.starts_with(&opening))
+        .map(|word| word.trim_end_matches('.').replace(quote, ""))
         .unwrap_or_else(|| panic!("no suggestion found in:\n{}", failed.stderr));
 
     // §FS-rhei-errors.1.2: a suggested command is a next action, not a hint.
@@ -287,13 +299,19 @@ fn list_inputs_quotes_values_that_a_shell_would_glob() {
     assert_success(&result);
     // §FS-rhei-errors.2: this listing is where users copy values from.
     assert!(
-        result.stdout.contains("default='claude-code[yolo]:anthropic:claude-opus-4-7'"),
+        result.stdout.contains(&format!(
+            "default={}",
+            shell_quote("claude-code[yolo]:anthropic:claude-opus-4-7")
+        )),
         "expected the default selector to be quoted; got:\n{}",
         result.stdout
     );
     assert!(result.stdout.contains("format: execution-target"), "got:\n{}", result.stdout);
+    let placeholder = shell_quote("<value>");
     assert!(
-        result.stdout.contains("rhei instantiate guided subject='<value>' brief='<value>'"),
+        result.stdout.contains(&format!(
+            "rhei instantiate guided subject={placeholder} brief={placeholder}"
+        )),
         "expected the listing to end on a runnable command; got:\n{}",
         result.stdout
     );
@@ -311,10 +329,13 @@ fn list_inputs_gives_a_pasteable_form_of_a_multi_line_default() {
     // §FS-rhei-errors.2 needs a quoted one-line form beside it.
     assert!(result.stdout.contains("default below"), "got:\n{}", result.stdout);
     assert!(
-        result.stdout.contains(
-            "copy: reviewers='[\"claude-code[yolo]:anthropic:claude-opus-4-7\",\
-             \"codex[xhigh]:openai:gpt-5.5\"]'"
-        ),
+        result.stdout.contains(&format!(
+            "copy: reviewers={}",
+            shell_quote(
+                "[\"claude-code[yolo]:anthropic:claude-opus-4-7\",\
+                 \"codex[xhigh]:openai:gpt-5.5\"]"
+            )
+        )),
         "expected a quoted one-line default; got:\n{}",
         result.stdout
     );
