@@ -10,6 +10,10 @@ As shipped the workspace has only the coordinator (`analyze`) task — the
 dispatched tasks do not exist until the coordinator actually runs and writes
 them, so a fresh `--dry-run` shows just the one ready task.
 
+The coordinator here dispatches once and integrates once. For a parent that is
+woken at *every* finished child and steers the rest of the chain in between,
+see [`examples/subtree-supervision/`](../subtree-supervision/).
+
 ## Inputs used
 
 Checked in at `instantiation-values.yaml`. The coordinator is pointed at this

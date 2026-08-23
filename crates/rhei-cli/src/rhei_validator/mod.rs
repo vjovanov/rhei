@@ -21,7 +21,11 @@ include!("validator/state_machine_snapshots.rs");
 include!("validator/state_machine_runtime_validation.rs");
 include!("validator/state_machine_profiles.rs");
 include!("validator/validation_helpers.rs");
+include!("validator/reserved_names.rs");
+include!("validator/state_machine_warnings.rs");
+include!("validator/validator_dependencies.rs");
 include!("validator/validator_entry.rs");
+include!("validator/validator_tree_coherence.rs");
 include!("validator/validator_links.rs");
 
 #[cfg(test)]
@@ -31,6 +35,7 @@ mod tests {
     include!("validator/tests_links_tooling.rs");
     include!("validator/tests_profiles.rs");
     include!("validator/tests_poll.rs");
+    include!("validator/tests_supervision.rs");
     include!("validator/tests_snapshots.rs");
     include!("validator/tests_prompt_templates.rs");
 }

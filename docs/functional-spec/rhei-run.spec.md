@@ -141,7 +141,12 @@ task. The manual worker loop must claim such a task with `rhei next`, do the
 work, and finish it with `rhei complete`. This prevents the built-in machine
 from silently completing fresh tasks without executing them.
 
-1. Load the state machine and plan. Validate.
+1. Load the state machine and plan. Validate. Errors stop the run; the
+   validation **warnings** (§FS-rhei-validate.4) are printed once at start, in
+   the same words `rhei validate` prints them. A machine that warns is still a
+   legal machine, so the run proceeds — but the operator hears about it before
+   the run spends an hour proving the warning right, rather than only if they
+   happened to run `rhei validate` first.
 2. Scan all task nodes, including child and grandchild tasks, and compute the
    *ready set*: tasks all of whose descendants are terminal, whose `**Prior:**`
    are all in successful terminal states
@@ -165,6 +170,12 @@ from silently completing fresh tasks without executing them.
    descendants-first guard on the shared transition path
    (§FS-rhei-transition-cmd.3.1) rather than leaving behind a plan that fails
    `rhei validate`.
+
+   A task in a *supervising* state, and every descendant of one, follow the
+   hold/release rule instead of the descendant condition
+   (§FS-rhei-supervision.3.2): the supervisor is ready while its subtree is
+   held and nothing beneath it is in flight; its descendants are ready only
+   while every supervising ancestor has released them.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
    - Resolve the state's target: either an agent subprocess (`agent` or resolved target selector) or a program (`program`).
    - If the state declares `snapshot.inherit:`, resolve and preload the source snapshot before spawning the agent. Polling states reject `snapshot.inherit` in v1. See [Snapshots Specification](rhei-snapshots.spec.md).
@@ -208,7 +219,9 @@ from silently completing fresh tasks without executing them.
    terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
 8. Apply the selected transition and append one central state-transition entry
-   to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. The
+   to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. When the
+   moved task has a supervising ancestor, the shared path records the
+   checkpoint on the nearest one and holds its subtree (§FS-rhei-supervision.2). The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
    orchestrator owns the transition. When the effective target is `final:
    true`, the transition passes the terminal-result obligation
@@ -476,6 +489,10 @@ parallel: scheduling is driven by the ready set, which excludes tasks already in
 flight. A dependent task only becomes schedulable after its `**Prior:**` task has
 actually reached a successful terminal state; if sibling work finishes first,
 the freed slot is filled only with work whose dependencies are already satisfied.
+
+A supervising task's subtree additionally drains at each checkpoint: once a
+checkpoint is delivered, no new descendant of that supervisor starts until the
+supervisor has run and released the subtree again (§FS-rhei-supervision.3.1).
 
 ### 5.1. Polling States
 

@@ -206,6 +206,61 @@ items improve operator diagnosis without changing the execution model.
 - Add task-opening affordances, state/level filtering or dimming, a dependency
   graph view, and diff visualization against another snapshot or git ref. §FS-rhei-viz
 
+## Planned: Subtree Supervision Follow-Ups
+
+Status: shipped, with two follow-ups. A non-leaf task can look after its
+subtree while it runs instead of only integrating it at the end: a state
+declaring `execute_on: <scope>-<event>` wakes the task at every finished child,
+every child transition, every finished descendant, or every descendant
+transition, and holds the subtree in between. The
+`execute_on` field, the hold/release readiness rule, the `supervision` task
+metadata, the `openDescendants` condition operand, and the prompt sections all
+ship. So does the reason where a surface has somewhere to put it: `rhei next`
+names the supervisor holding a ticket and the command that claims it, the run
+report says `held by supervisor Task <P> (<state>)` on the ticket it halted on,
+and `rhei list --ready` excludes a held descendant by the ready set's own rule.
+§FS-rhei-supervision §DF-subtree-supervision
+
+- Carry the reason into the plain `rhei list` listing, the TUI, and the Flow
+  dashboard. None of the three has a readiness-reason concept of its own yet —
+  `rhei list` shows no reason for any ticket, held or blocked — so this is a
+  column that has to be designed once for every cause rather than added for
+  supervision alone. §FS-rhei-list §FS-rhei-viz
+- Context continuity for `claude-code` supervisors depends on the snapshot
+  adapter work below; until it lands, a supervisor with that profile runs each
+  visit cold, carried by its checkpoints and briefs. §FS-rhei-snapshots
+- Fanout on a supervising state is a v1 validation error; lift it only with a
+  rule for what a fanned-out supervisor's continued session means.
+  §FS-rhei-supervision.1.2
+- **Machine-readable supervision.** Three surfaces carry supervision as prose a
+  script has to parse: the `events.jsonl` stream has the held reason only inside
+  a free-text message, `rhei next --json` renders `checkpoints` as one Markdown
+  blob rather than a list of `{task, from, to, visit}` objects, and
+  `rhei render --json` spells `checkpoints[].task` with the rhei-local id while
+  everything beside it is project-qualified. Design the three together — one
+  shape for a checkpoint, one field for a held reason — rather than one at a
+  time. §FS-rhei-supervision.3.3 §FS-rhei-run-json §FS-rhei-next.4
+- **Brief provenance.** Briefs are ordinary files the engine never clears, so a
+  brief left over from visit 1 is rendered as-is on visit 7 and reads as fresh
+  direction. Stamp what wrote it — supervisor id, visit, mtime — where the
+  section is rendered, so a stale brief is visible as stale.
+  §FS-rhei-supervision.5.2
+- **A resumed run can hand a supervisor a checkpoint for work it killed.** When
+  a run is interrupted mid-step, the artifacts the killed worker had already
+  written can satisfy the next run's completion condition, so the ticket
+  advances without the work being redone and the supervisor is checkpointed on a
+  step nobody finished. This is generic `rhei run` resume behaviour rather than
+  anything supervision added — it is only *visible* through supervision, because
+  a supervisor is woken by it. The fix belongs with resume: decide what evidence
+  proves a step ran, not merely that its outputs exist.
+  §FS-rhei-run.3.2 §FS-rhei-supervision.6
+- **Fence the older pasted sections.** `## Checkpoints` and
+  `## Child Task Results` fence what they paste so a pasted `## Result` heading
+  cannot outrank the section it sits under (§FS-rhei-supervision.5.1);
+  `## Prior Task Results`, `## Consumed Exports`, and the handoff sections
+  predate that and still paste raw. Change them together, with one rule for
+  every pasted body. §FS-rhei-agents.3
+
 ## Planned: Snapshot Adapter and Retention Work
 
 Status: planned. Snapshot v1 intentionally ships a conservative built-in

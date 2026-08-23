@@ -1,0 +1,20 @@
+spec_path: docs/functional-spec/rhei-supervision.spec.md
+title: Deliver subtree supervision
+supervisor_target: claude-code[yolo]:anthropic:claude-opus-4-7
+implementer_target: claude-code[yolo]:anthropic:claude-opus-4-7
+reviewer_target: codex[xhigh]:openai:gpt-5.5
+pm_target: claude-code[yolo]:anthropic:claude-opus-4-7
+fixer_target: claude-code[yolo]:anthropic:claude-opus-4-7
+coverage_target: codex[xhigh]:openai:gpt-5.5
+docs_target: claude-code[yolo]:anthropic:claude-opus-4-7
+review_rounds: 2
+coverage_rounds: 1
+docs_rounds: 1
+ci_commands:
+  - cargo fmt --all -- --check
+  - cargo clippy --workspace --all-targets -- -D warnings -W clippy::all
+  - cargo test --workspace --all-targets --no-fail-fast
+review_focus:
+  - concurrency
+  - error handling
+supervisor_session: false

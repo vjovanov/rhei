@@ -48,7 +48,14 @@ help = ticket_id_required_help(),
         // rolling the state back: the transition happened, its callbacks ran,
         // and discarding that silently would lose the record of it.
         if let Some(initial) = target.initial_state.as_deref() {
-            if normalized_state_name(&target.state, machines.for_task_str(&target.id)) != initial {
+            let machine = machines.for_task_str(&target.id);
+            let state = normalized_state_name(&target.state, machine);
+            // A supervisor is claimed where it stands, and a name the machine
+            // does not declare cannot be transitioned to.
+            // §FS-rhei-supervision.3.4 §FS-rhei-release
+            let claimable_where_it_stands = execute_on_of(machine, &state).is_some();
+            let target_exists = machine.states.contains_key(initial);
+            if state != initial && !claimable_where_it_stands && target_exists {
                 println!(
                     "  note: still in '{}'. `rhei next` claims from '{}', so move it back with \
                      `rhei transition --task {} --from {} --to {}` if it should be picked up \
@@ -145,18 +152,14 @@ fn release_target(
     }
 }
 
-/// Drop the target task's `**Assignee:**` line, leaving every other line alone.
+/// One task's markdown without its `**Assignee:**` line, and whether there was
+/// one to drop.
 ///
 /// Task files are addressed by the rhei-local id they were authored with, so a
-/// heading match uses that rather than the project-qualified id.
-fn remove_task_assignee(
-    task_file: &Path,
-    local_id: &str,
-    qualified_id: &str,
-) -> MietteResult<()> {
-    let raw = fs::read_to_string(task_file)
-        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
-
+/// heading match uses that rather than the project-qualified id. Kept apart
+/// from the file write so the transition path — which rewrites the same text in
+/// memory and may still roll it back — can drop a claim through it too.
+fn without_task_assignee(raw: &str, local_id: &str) -> (String, bool, bool) {
     let mut out: Vec<String> = Vec::with_capacity(raw.lines().count());
     let mut in_target_task = false;
     let mut target_found = false;
@@ -175,6 +178,24 @@ fn remove_task_assignee(
         out.push(line.to_string());
     }
 
+    let mut output = out.join("\n");
+    if raw.ends_with('\n') {
+        output.push('\n');
+    }
+    (output, target_found, removed)
+}
+
+/// Drop the target task's `**Assignee:**` line, leaving every other line alone.
+fn remove_task_assignee(
+    task_file: &Path,
+    local_id: &str,
+    qualified_id: &str,
+) -> MietteResult<()> {
+    let raw = fs::read_to_string(task_file)
+        .map_err(|err| file_io_report(task_file, "failed to read plan file", err))?;
+
+    let (output, target_found, removed) = without_task_assignee(&raw, local_id);
+
     if !target_found {
         return Err(miette!(
 help = task_id_help(),
@@ -192,9 +213,5 @@ help = task_moved_help(),
         ));
     }
 
-    let mut output = out.join("\n");
-    if raw.ends_with('\n') {
-        output.push('\n');
-    }
     write_file_atomic(task_file, &output)
 }

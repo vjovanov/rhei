@@ -403,3 +403,143 @@ fn transition_allows_terminal_entry_once_the_subtree_is_closed() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A cancel does not owe the abandoned step's `outputs:`.
+///
+/// Cancellation abandons the work, so the source state's artifact contract is
+/// moot — requiring it made a step whose state declares an output impossible
+/// to drop, which is exactly the step a supervisor wants to drop.
+// §FS-rhei-transitions.4.5 §FS-rhei-supervision.6
+#[test]
+fn cancelling_waives_the_source_states_outputs_but_not_its_result() {
+    let plan = r#"# Rhei: Cancel
+
+## Tasks
+
+### Task 1: Review item
+**State:** review
+"#;
+    let machine = r#"name: cancel-waiver
+version: 1
+states:
+  review:
+    description: Must produce findings before finishing
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    description: Done
+    final: true
+  cancelled:
+    description: Dropped
+    final: true
+transitions:
+  - { from: review, to: completed, description: Reviewed }
+  - { from: review, to: cancelled, description: Dropped }
+"#;
+    let dir = unique_temp_dir("trans-cancel-waiver");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+
+    // The finishing edge still owes the output.
+    let finished = run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "review",
+        "completed",
+        "Reviewed.",
+    );
+    assert!(!finished.status.success(), "finishing still owes the declared output");
+    assert_stderr_contains(&finished, "Missing required output artifact: findings");
+    // §FS-rhei-states.1.4: the refusal names the one state that skips it, so a
+    // machine whose abandon state is spelled otherwise learns why.
+    assert_stderr_contains(
+        &finished,
+        "A transition into the reserved `cancelled` state skips this check.",
+    );
+
+    // The cancel does not — but it still owes a result.
+    let silent = run_transition(&plan_path, &machine_path, "1", "review", "cancelled");
+    assert!(!silent.status.success(), "a cancelled ticket still has to say why");
+    assert_stderr_contains(&silent, "cannot enter terminal state 'cancelled' without a result");
+
+    let cancelled = run_transition_with_result(
+        &plan_path,
+        &machine_path,
+        "1",
+        "review",
+        "cancelled",
+        "Made unnecessary.",
+    );
+    assert_success(&cancelled);
+    assert_task_state(&plan_path, &machine_path, "1", "cancelled");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// `cancelled` is a reserved name, `canceled` is the same name, and anything
+/// else is an ordinary terminal state.
+///
+/// Keying the waiver on one literal spelling made a machine that used the
+/// American one silently ordinary, and one that named its abandon state
+/// `dropped` refused with no hint at all.
+// §FS-rhei-states.1.4 §FS-rhei-transitions.4.5
+#[test]
+fn the_reserved_cancel_name_covers_both_spellings_and_nothing_else() {
+    let plan = r#"# Rhei: Cancel
+
+## Tasks
+
+### Task 1: Review item
+**State:** review
+"#;
+    let machine = |terminal: &str| {
+        format!(
+            r#"name: cancel-spelling
+version: 1
+states:
+  review:
+    description: Must produce findings before finishing
+    outputs:
+      - name: findings
+        path: runtime/findings/{{task_id}}.md
+  {terminal}:
+    description: Dropped
+    final: true
+transitions:
+  - {{ from: review, to: {terminal}, description: Dropped }}
+"#
+        )
+    };
+
+    for accepted in ["cancelled", "canceled"] {
+        let dir = unique_temp_dir(&format!("trans-cancel-{accepted}"));
+        let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+        let machine_path = write_fixture_file(&dir, "states.yaml", &machine(accepted));
+        let result = run_transition_with_result(
+            &plan_path,
+            &machine_path,
+            "1",
+            "review",
+            accepted,
+            "Made unnecessary.",
+        );
+        assert_success(&result);
+        assert_task_state(&plan_path, &machine_path, "1", accepted);
+        fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    let dir = unique_temp_dir("trans-cancel-dropped");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine("dropped"));
+    let result =
+        run_transition_with_result(&plan_path, &machine_path, "1", "review", "dropped", "Nope.");
+    assert!(!result.status.success(), "`dropped` is an ordinary terminal state");
+    assert_stderr_contains(&result, "Missing required output artifact: findings");
+    assert_stderr_contains(
+        &result,
+        "A transition into the reserved `cancelled` state skips this check.",
+    );
+    fs::remove_dir_all(dir).expect("cleanup");
+}

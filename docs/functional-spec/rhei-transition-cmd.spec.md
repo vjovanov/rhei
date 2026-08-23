@@ -63,7 +63,15 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
    condition-blocked — is reported as such rather than as an open subtree: a
    user is not sent to finish descendants for a move that was never available.
 7. Execute the `on_leave` callback on the source state, if any, unless `--no-callbacks` is set.
-8. Verify that every required `outputs:` artifact declared on the source state exists (see [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing outputs abort the transition before the state write.
+8. Verify that every required `outputs:` artifact declared on the source state
+   exists (see [Plan Language Specification — State Artifact
+   Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts)). Missing
+   outputs abort the transition before the state write. This check is skipped
+   when the effective target is the `cancelled` state: cancellation abandons the
+   work, so the source state's artifact contract is moot. Nothing else on the
+   path changes — step 6's descendants-first guard, step 9's target inputs, step
+   10's terminal-result obligation, and the callbacks all still apply, so a
+   cancel into `cancelled` still needs `--result` or a result on disk.
 9. Resolve the target state's `inputs:` artifacts. Missing required inputs abort the transition before the state write; optional inputs are resolved but do not block entry.
 10. Apply the terminal-result obligation (§3.2) against the same effective
     target, before the state write: when the target is `final: true`, either
@@ -85,7 +93,13 @@ Steps 10 and 13 are the same code on every verb that can move a task, so a
 file, a `> **Result:**` link, and an absent `**Assignee:**` indistinguishable
 from the ones `rhei complete` and `rhei run` leave for the same edge.
 
-Outside a terminal entry, `rhei transition` does not add, remove, or modify the `**Assignee:**` line. Assignment is owned by `rhei next`; unassignment is part of the shared terminal finalization above, which `rhei complete` also runs.
+Outside a terminal entry, `rhei transition` does not add, remove, or modify
+the `**Assignee:**` line, with one exception: the self-loop of a supervising
+state (§FS-rhei-supervision.3.1). That edge ends a supervisor's visit, so it
+ends the claim on that visit too, and the line is dropped exactly as a
+terminal entry drops it. Assignment is otherwise owned by `rhei next`;
+unassignment is part of the shared terminal finalization above, which
+`rhei complete` also runs.
 
 `rhei transition` deliberately does **not** check `**Prior:**` dependencies.
 It is the explicit human-initiated primitive, so it is the escape hatch for
@@ -117,9 +131,10 @@ orchestrator-owned auto-advance (§FS-rhei-run.3), and a callback that redirects
 an edge with `nextState` (§FS-rhei-transitions.3.2) — a redirect is re-checked
 against the effective target, so it cannot smuggle a terminal entry past the
 guard. No command holds a private copy of the rule, and no state machine can
-opt out of it: transition `condition:` expressions see only visit and exit-code
-variables (§FS-rhei-states.2.3), so a machine author has no way to gate a
-parent's terminal edge on its children. The engine must.
+opt out of it: a transition `condition:` can *select* a parent's terminal edge
+on its subtree with `openDescendants` (§FS-rhei-supervision.4.1), but
+selection is not permission — a machine author has no way to take a terminal
+edge past an open descendant. The engine must guard it.
 
 The guard is deliberately **not** symmetric with `**Prior:**` readiness, which
 `rhei transition` skips as the human escape hatch (§3). The line between the

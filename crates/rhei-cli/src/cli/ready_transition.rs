@@ -114,17 +114,25 @@ fn format_open_descendants(
 /// Find tasks that are ready to advance: not in a terminal or gating state,
 /// with every descendant terminal, and all prior dependencies satisfied.
 ///
+/// `spawned` names the tickets a live run has an invocation out for. It only
+/// matters under supervision, where a supervisor is ready once its subtree is
+/// quiescent rather than once its subtree is terminal, so a caller with no run
+/// behind it passes an empty set.
+///
 /// Returns task references in source order.
+// §FS-rhei-supervision.3.2: the ready set's one supervision refinement.
 fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
+    spawned: &HashSet<String>,
 ) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
 
     let mut all_tasks = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all_tasks);
+    let index = task_index(&all_tasks);
 
     // Build a map of every task node's state for dependency lookups, each
     // normalized under its owning rhei's machine. §FS-rhei-run.3
@@ -135,12 +143,22 @@ fn find_ready_tasks<'a>(
 
     let mut ready = Vec::new();
 
-    for task in all_tasks {
-        // §FS-rhei-plan-language.3: a non-leaf task is workable only once its
-        // subtree is terminal — the same rule for `rhei next` and `rhei run`,
-        // so a parent is never worked beside its own child.
-        if !descendants_are_terminal(task, machines) {
-            continue;
+    for task in &all_tasks {
+        let task = *task;
+        // §FS-rhei-supervision.3.2: a supervisor is scheduled *between* its
+        // descendants, and everything under a held one waits — the one
+        // declared refinement of the eligibility rule below.
+        match supervision_verdict_for(task, &index, machines, rhei.metadata.as_ref(), spawned) {
+            SupervisionVerdict::Held { .. } | SupervisionVerdict::SupervisorWaiting => continue,
+            SupervisionVerdict::SupervisorReady => {}
+            // §FS-rhei-plan-language.3: a non-leaf task is workable only once
+            // its subtree is terminal — the same rule for `rhei next` and
+            // `rhei run`, so a parent is never worked beside its own child.
+            SupervisionVerdict::Unsupervised => {
+                if !descendants_are_terminal(task, machines) {
+                    continue;
+                }
+            }
         }
         let machine = machines.for_task(&task.id);
         let current_state = task.state.as_str();
@@ -198,8 +216,9 @@ fn find_runnable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
+    spawned: &HashSet<String>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new())
+    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), spawned)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -213,9 +232,51 @@ fn find_held_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new())
+    find_ready_tasks(
+        rhei,
+        machines,
+        workspace_root,
+        &std::collections::HashMap::new(),
+        &HashSet::new(),
+    )
+    .into_iter()
+    .filter(|task| task.assignee.is_some())
+    .collect()
+}
+
+/// One line per supervisor whose barrier is stopping tickets this pass.
+///
+/// A dry run is the surface an author reads to understand what a machine will
+/// do, and the barrier is invisible in it: four of five tickets simply never
+/// appear as ready, with nothing saying why. Grouped by supervisor because the
+/// supervisor, not the count, is the thing to look at.
+// §FS-rhei-supervision.3.4
+fn format_supervisor_holds(
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    scope: &RheiScope,
+) -> Vec<String> {
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for task in all
+        .iter()
+        .copied()
+        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
+        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
+    {
+        let Some(hold) = held_by_supervisor(task, rhei, machines) else { continue };
+        let key = hold.supervisor.to_string();
+        match counts.iter_mut().find(|(id, _)| *id == key) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((key, 1)),
+        }
+    }
+    counts
         .into_iter()
-        .filter(|task| task.assignee.is_some())
+        .map(|(supervisor, count)| {
+            format!("{count} ticket(s) held by supervisor Task {supervisor}")
+        })
         .collect()
 }
 
@@ -241,7 +302,7 @@ fn find_claimable_tasks<'a>(
     workspace_root: &Path,
     task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, task_roots)
+    find_ready_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new())
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {
@@ -328,819 +389,8 @@ fn first_blocking_prior(
     })
 }
 
-/// Why one non-terminal ticket is not moving.
-///
-/// `rhei next` already tells a worker exactly which of these applies. Every
-/// `rhei run` surface — the halt message, the dry
-/// run, and the durable report's Attention table — collapsed all of them into
-/// "stalled in non-terminal state <s>" with "inspect logs or mark the task
-/// cancelled" as the advice: wrong for a claimed ticket, wrong for one waiting
-/// on a prior, and pointing at logs a run that spawned nothing never wrote.
-// §FS-rhei-run-report.3.1 §FS-rhei-run.4: one classification, every surface.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum HaltCause {
-    /// A non-leaf ticket whose own subtree is still open. It is a task in its
-    /// own right, so it is reported — but the work is in the descendants.
-    /// §FS-rhei-plan-language.3
-    WaitingOnDescendants { open: String },
-    /// A gating state deliberately waiting for a human decision.
-    Gate,
-    /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
-    Claimed { assignee: String },
-    /// An unsatisfied `**Prior:**`, already formatted as `Task <id> (<state>)`.
-    BlockedByPrior { prior: String },
-    /// Manual-only initial state: `rhei run` must not advance it.
-    ManualOnly { to: String },
-    /// Non-terminal with no declared outgoing transition to take.
-    NoTransition,
-    /// The run was interrupted while this ticket's worker was in flight.
-    /// Nothing about the ticket failed and nothing about it is waiting on a
-    /// human: the run was stopped, and re-running it is the whole recovery.
-    /// Reported ahead of `MissingOutputs` because it explains it — a worker
-    /// the run killed had no chance to write what it owed.
-    // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
-    Interrupted,
-    /// A worker ran, exited `0`, and left required artifacts unwritten, so the
-    /// completion condition refused to advance the ticket. `entries` are the
-    /// `name (path)` renderings the run already produced — the ticket's terminal
-    /// result appears among them under the name `result`.
-    ///
-    /// Distinct from `Stalled` because the remedy is concrete: write these
-    /// files, or record the outcome by hand. "Inspect logs or mark the task
-    /// cancelled" is advice for a halt nobody can name, and this one is named.
-    ///
-    /// `plan` is the plan argument as the operator would type it, carried here
-    /// so the suggested `rhei transition` runs from wherever they are reading
-    /// the report rather than only from the plan's own directory.
-    // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1 §FS-rhei-errors.2
-    MissingOutputs { entries: Vec<String>, plan: String },
-    /// The run never scheduled this ticket: nothing about it is known to have
-    /// failed, so it must not borrow the stalled reading.
-    // §FS-rhei-run-report.3.1
-    NotScheduled,
-    /// None of the above — work was possible and the ticket is still here.
-    Stalled,
-}
-
-impl HaltCause {
-    /// The reason and the next action, for the report table and the halt
-    /// diagnostics. Both name concrete commands wherever one exists.
-    fn describe(&self, id: &str, state: &str) -> (String, String) {
-        match self {
-            HaltCause::WaitingOnDescendants { open } => (
-                format!("waiting on open descendant {open}"),
-                "finish the descendants; the parent is claimable once its subtree is terminal"
-                    .to_string(),
-            ),
-            HaltCause::Gate => (
-                "gating state awaiting review".to_string(),
-                "transition manually when reviewed".to_string(),
-            ),
-            HaltCause::Claimed { assignee } => (
-                format!("claimed by {assignee}"),
-                format!(
-                    "`rhei release {id}` to hand it back, or `rhei complete {id} --result …` \
-                     to finish it"
-                ),
-            ),
-            HaltCause::BlockedByPrior { prior } => (
-                format!("waiting on {prior}"),
-                "finish the prior first".to_string(),
-            ),
-            HaltCause::ManualOnly { to } => (
-                format!("manual-only initial state '{state}' with terminal transition to '{to}'"),
-                format!("`rhei next` to claim, do the work, then `rhei complete {id} --result …`"),
-            ),
-            HaltCause::NoTransition => (
-                format!("no forward transition available from '{state}'"),
-                "declare a transition out of this state, or cancel the ticket".to_string(),
-            ),
-            // Not "stalled", and emphatically not "mark the task cancelled":
-            // the operator stopped the run, so the run says so and asks for
-            // nothing else. §FS-rhei-run-report.3.1
-            HaltCause::Interrupted => (
-                format!("run interrupted while its worker was in state {state}"),
-                "re-run to continue".to_string(),
-            ),
-            // Name the files. The whole point of this cause is that the operator
-            // does not have to go read a log to learn which one is missing.
-            // §FS-rhei-run-report.3.1
-            HaltCause::MissingOutputs { entries, plan } => (
-                format!("worker exited 0 without {}", entries.join(", ")),
-                format!(
-                    "write the file(s) above and rerun, or record the outcome with \
-                     `rhei transition{} --task {id} --from {state} --to <state> --result …`",
-                    if plan.is_empty() { String::new() } else { format!(" {plan}") }
-                ),
-            ),
-            HaltCause::NotScheduled => (
-                format!("not scheduled before the run halted, still in '{state}'"),
-                format!(
-                    "rerun to pick it up; if it never starts, claim it with `rhei next` or check \
-                     the agent or program configured for '{state}'"
-                ),
-            ),
-            HaltCause::Stalled => (
-                if state.is_empty() {
-                    "no forward transition available".to_string()
-                } else {
-                    format!("stalled in non-terminal state {state}")
-                },
-                "inspect logs or mark the task cancelled".to_string(),
-            ),
-        }
-    }
-}
-
-/// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
-/// the run actually spawned work for, whose failure is the ordinary stalled
-/// case rather than a scheduling one; `missing` carries the required artifacts
-/// its last exit-0 worker left unwritten, when the run recorded any;
-/// `interrupted` marks one whose last invocation the run's shutdown ended.
-#[allow(clippy::too_many_arguments)]
-fn classify_halt(
-    task: &rhei_core::ast::Task,
-    rhei: &rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-    state_map: &std::collections::HashMap<&TaskId, String>,
-    scope: &RheiScope,
-    worked: bool,
-    missing: Option<Vec<String>>,
-    interrupted: bool,
-    plan_arg: &str,
-) -> HaltCause {
-    let machine = machines.for_task(&task.id);
-    let state = normalized_state_name(task.state.as_str(), machine);
-    // A parent is not schedulable at all until its subtree closes, so that
-    // outranks anything about its own state. §FS-rhei-plan-language.3
-    let open = open_descendant_tasks(task, machines);
-    if !open.is_empty() {
-        return HaltCause::WaitingOnDescendants { open: format_open_descendants(&open, machines) };
-    }
-    if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
-        return HaltCause::Gate;
-    }
-    // A claim outranks a prior: releasing it is the one action that unblocks
-    // the scheduler, and a claimed ticket is skipped before priors are read.
-    if let Some(assignee) = task.assignee.as_deref() {
-        return HaltCause::Claimed { assignee: assignee.to_string() };
-    }
-    if let Some(prior) = first_blocking_prior(task, state_map, machines, scope) {
-        return HaltCause::BlockedByPrior { prior };
-    }
-    if let Ok(Some(to)) = manual_initial_terminal_transition(task, rhei, machine) {
-        return HaltCause::ManualOnly { to };
-    }
-    // Ahead of every work-shaped cause below: an interrupted worker explains
-    // both an unwritten artifact and a bare stall. §FS-rhei-run-report.3.1
-    if interrupted {
-        return HaltCause::Interrupted;
-    }
-    if worked {
-        // The run knows exactly what the worker did not write; say so instead
-        // of pointing at logs. §FS-rhei-run-report.3.1
-        return match missing {
-            Some(entries) if !entries.is_empty() => {
-                HaltCause::MissingOutputs { entries, plan: plan_arg.to_string() }
-            }
-            _ => HaltCause::Stalled,
-        };
-    }
-    match find_next_transition(task, rhei, machine) {
-        Ok(None) => HaltCause::NoTransition,
-        // Nothing ran against this ticket, so nothing about it stalled. It was
-        // simply never reached. §FS-rhei-run-report.3.1
-        _ => HaltCause::NotScheduled,
-    }
-}
-
-/// Every in-scope, non-terminal ticket with why it is not moving, in plan
-/// order — the shared basis for the run's halt diagnostics and the report.
-///
-/// `worked` reports whether the run actually spawned an invocation for a
-/// ticket; those failed at their work rather than at scheduling, so they keep
-/// the generic stalled reading unless `missing` names what the work left
-/// unwritten, which is a halt with a concrete remedy. `interrupted` reports
-/// whether the run's shutdown ended the ticket's last invocation, which
-/// outranks both.
-// §FS-rhei-run-report.3.1 §FS-rhei-run.3.2: non-leaf tickets are classified
-// alongside leaves, so a parent nobody can advance is nameable as the reason a
-// dependent is stuck; an interrupted worker explains its ticket before its work does.
-fn classify_halted_tasks<'a>(
-    rhei: &'a rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-    scope: &RheiScope,
-    worked: &dyn Fn(&str) -> bool,
-    missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
-    interrupted: &dyn Fn(&str) -> bool,
-    plan_arg: &str,
-) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
-    let mut all = Vec::new();
-    collect_plan_tasks(&rhei.tasks, &mut all);
-    let state_map = plan_state_map(&all, machines);
-    all.iter()
-        .copied()
-        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
-        .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
-        .map(|task| {
-            let id = task.id.to_string();
-            // `missing` is asked about the state the ticket is in now, so a
-            // stall it left behind two states ago cannot explain this halt.
-            // §FS-rhei-run-report.3.1
-            let state = normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-            let cause = classify_halt(
-                task,
-                rhei,
-                machines,
-                &state_map,
-                scope,
-                worked(&id),
-                missing(&id, &state),
-                interrupted(&id),
-                plan_arg,
-            );
-            (task, cause)
-        })
-        .collect()
-}
-
-/// One `Task <id> (<state>): <reason> — <next action>` line per halted ticket,
-/// plus whether any of them needs a human to act — which is what makes a run,
-/// real or dry, end non-zero. The caller emits the lines through its own run
-/// journal.
-///
-/// The lines and the verdict answer different questions. A line explains one
-/// ticket from its own vantage point; the verdict asks whether the plan as a
-/// whole is waiting on a human decision, which only the walk over subtrees and
-/// priors can answer. Reading the verdict off the per-ticket causes instead was
-/// a second judgment, and it disagreed with the real run's: a `BlockedByPrior`
-/// whose chain ends in a gate is no pause by variant, so a dry run exited one
-/// on a plan the run itself exits zero on.
-// §FS-rhei-run.4 §FS-rhei-run-report.3.1: the live halt message and `--dry-run`
-// must not disagree, so both derive from `remaining_work_is_only_gating_or_poll_blocked`.
-fn halted_task_report(
-    rhei: &rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-    scope: &RheiScope,
-    plan_path: &Path,
-) -> (Vec<String>, bool) {
-    let mut lines = Vec::new();
-    // Suggested commands carry the plan, so they run from wherever the operator
-    // is reading them. §FS-rhei-errors.2
-    let plan_arg = plan_arg_for_help(plan_path);
-    // Pre-launch diagnostics: no run has happened yet, so nothing worked and
-    // nothing is known missing. §FS-rhei-run.4
-    for (task, cause) in classify_halted_tasks(
-        rhei,
-        machines,
-        scope,
-        &|_| false,
-        &|_, _| None,
-        &|_| false,
-        &plan_arg,
-    ) {
-        let machine = machines.for_task(&task.id);
-        let state = normalized_state_name(task.state.as_str(), machine);
-        let id = task.id.to_string();
-        let (reason, next) = cause.describe(&id, &state);
-        lines.push(format!("Task {id} ({state}): {reason} \u{2014} {next}"));
-    }
-    let needs_human = !remaining_work_is_only_gating_or_poll_blocked(rhei, machines, scope);
-    (lines, needs_human)
-}
-
-fn transition_command_lines(
-    task: &rhei_core::ast::Task,
-    state_name: &str,
-    machine: &rhei_validator::StateMachine,
-    metadata: Option<&Metadata>,
-    plan_arg: &str,
-    state_machine_path: Option<&Path>,
-) -> Vec<String> {
-    let state_machine_arg = state_machine_path
-        .map(|path| format!(" --state-machine={}", shell_quote(&path.display().to_string())))
-        .unwrap_or_default();
-    let from_arg = shell_quote(state_name);
-    machine
-        .transitions()
-        .iter()
-        .filter(|rule| rule.from.0 == state_name || rule.from.0 == "*")
-        .filter(|rule| {
-            task_profile_allows_state(
-                machine,
-                task.kind.as_str(),
-                task.profile_level(),
-                &rule.to.0,
-            )
-        })
-        .filter(|rule| {
-            transition_rule_is_applicable(
-                rule,
-                machine,
-                metadata,
-                &task.id,
-                state_name,
-                task.state.as_str(),
-            )
-            .unwrap_or(false)
-        })
-        .map(|rule| {
-            let to_arg = shell_quote(&rule.to.0);
-            format!(
-                "  rhei{} transition {} --task {} --from={} --to={}",
-                state_machine_arg, plan_arg, task.id, from_arg, to_arg
-            )
-        })
-        .collect()
-}
-
-/// Build an actionable error message for `rhei next` when no task can be
-/// auto-claimed. Priors resolve project-wide even under `--rhei`, so only the
-/// reported categories narrow — never the state map. §FS-rhei-panta.6.1
-fn diagnose_no_claimable(
-    rhei: &rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-    plan_path: &Path,
-    state_machine_path: Option<&Path>,
-    scope: &RheiScope,
-) -> String {
-    let mut project = Vec::new();
-    collect_plan_tasks(&rhei.tasks, &mut project);
-
-    let state_map = plan_state_map(&project, machines);
-
-    let all: Vec<&rhei_core::ast::Task> = project
-        .iter()
-        .copied()
-        .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
-        .collect();
-
-    let scope_suffix = match scope {
-        Some(_) => format!(" in the --rhei scope ({})", scope_label(scope)),
-        None => String::new(),
-    };
-
-    if all.is_empty() {
-        return match scope {
-            Some(_) => {
-                format!("no tickets are ready to claim{scope_suffix} (no tickets in scope)")
-            }
-            // Match the vocabulary and the next step `rhei list` gives for the
-            // same state; a bare "plan has no tasks" leaves a new user stuck.
-            None if rhei_core::workspace::is_panta_project(plan_path) => {
-                format!(
-                    "no tickets are ready to claim — the project has none yet: {}",
-                    add_a_rhei_hint()
-                )
-            }
-            None => "no tickets are ready to claim — this rhei has none yet".to_string(),
-        };
-    }
-
-    let non_terminal: Vec<&rhei_core::ast::Task> = all
-        .iter()
-        .copied()
-        .filter(|t| !is_terminal_state(t.state.as_str(), machines.for_task(&t.id)))
-        .collect();
-
-    if non_terminal.is_empty() {
-        return match scope {
-            Some(_) => format!(
-                "Scope complete. All {} task(s){scope_suffix} are in terminal states.",
-                all.len()
-            ),
-            None => format!("Plan complete. All {} task(s) are in terminal states.", all.len()),
-        };
-    }
-
-    // Every category below speaks about a task the caller can act on, so each
-    // is computed over the *workable* set: leaves, plus non-leaf tasks whose
-    // subtree is already terminal. A parent with open descendants is not work
-    // anyone can be handed; it gets its own category last, so it can still
-    // explain a stuck plan instead of falling through to a bare "nothing is
-    // ready". The retired "Leaf work complete. <N> rollup task(s) …" message
-    // existed only because a parent could never be claimed at all — under the
-    // eligibility rule it simply becomes the next claimable ticket the moment
-    // its own children finish.
-
-    // §FS-rhei-next.5
-    let non_terminal_workable: Vec<&rhei_core::ast::Task> = non_terminal
-        .iter()
-        .copied()
-        .filter(|task| descendants_are_terminal(task, machines))
-        .collect();
-
-    let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
-        task.prior.iter().all(|dep_id| {
-            state_map
-                .get(dep_id)
-                .map(|s| dependency_is_satisfied(s, machines.for_task(dep_id)))
-                .unwrap_or(false)
-        })
-    };
-
-    let gating_ready: Vec<&rhei_core::ast::Task> = non_terminal_workable
-        .iter()
-        .copied()
-        .filter(|task| {
-            let machine = machines.for_task(&task.id);
-            let state = normalized_state_name(task.state.as_str(), machine);
-            machine.states.get(&state).map(|def| def.gating).unwrap_or(false)
-                && priors_satisfied(task)
-        })
-        .collect();
-
-    if !gating_ready.is_empty() {
-        let items: Vec<String> = gating_ready
-            .iter()
-            .take(3)
-            .map(|task| {
-                let state =
-                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-                format!("Task {} ({})", task.id, state)
-            })
-            .collect();
-        let suffix = if gating_ready.len() > 3 {
-            format!(" (+{} more)", gating_ready.len() - 3)
-        } else {
-            String::new()
-        };
-        return format!(
-            "Blocked: {} task(s) waiting on human action: {}{}.",
-            gating_ready.len(),
-            items.join(", "),
-            suffix
-        );
-    }
-
-    let assigned_ready: Vec<&rhei_core::ast::Task> = non_terminal_workable
-        .iter()
-        .copied()
-        .filter(|t| {
-            let machine = machines.for_task(&t.id);
-            let s = normalized_state_name(t.state.as_str(), machine);
-            let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
-            !gating && t.assignee.is_some() && priors_satisfied(t)
-        })
-        .collect();
-
-    if !assigned_ready.is_empty() {
-        let items: Vec<String> = assigned_ready
-            .iter()
-            .take(3)
-            .map(|task| {
-                let state =
-                    normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-                let assignee = task.assignee.as_deref().unwrap_or("unknown");
-                format!("Task {} ({}, assignee {})", task.id, state, assignee)
-            })
-            .collect();
-        let suffix = if assigned_ready.len() > 3 {
-            format!(" (+{} more)", assigned_ready.len() - 3)
-        } else {
-            String::new()
-        };
-        return format!(
-            "No tasks available to claim{}. {} task(s) are currently in progress: {}{}.",
-            scope_suffix,
-            assigned_ready.len(),
-            items.join(", "),
-            suffix
-        );
-    }
-
-    let ready_non_initial: Vec<&rhei_core::ast::Task> = non_terminal_workable
-        .iter()
-        .copied()
-        .filter(|t| {
-            let machine = machines.for_task(&t.id);
-            let s = normalized_state_name(t.state.as_str(), machine);
-            let gating = machine.states.get(&s).map(|def| def.gating).unwrap_or(false);
-            !gating && !task_is_in_initial_state(t, &s, machine) && priors_satisfied(t)
-        })
-        .collect();
-
-    if let Some(task) = ready_non_initial.first() {
-        let machine = machines.for_task(&task.id);
-        let state_name = normalized_state_name(task.state.as_str(), machine);
-        let plan_arg = shell_quote(&plan_path.display().to_string());
-        let normalized_metadata = ensure_current_state_visit_count(
-            rhei.metadata.as_ref(),
-            &task.id,
-            &state_name,
-            task.state.as_str(),
-            machine,
-        );
-        let metadata_for_checks = normalized_metadata.as_ref().or(rhei.metadata.as_ref());
-        let commands = transition_command_lines(
-            task,
-            &state_name,
-            machine,
-            metadata_for_checks,
-            &plan_arg,
-            state_machine_path,
-        );
-        let guidance = if commands.is_empty() {
-            "No outgoing transitions are currently applicable for this state.".to_string()
-        } else {
-            format!("Available transitions:\n{}", commands.join("\n"))
-        };
-        return format!(
-            "No tasks can be auto-claimed: Task {} is mid-workflow in state '{}'. \
-             Pick one of its outgoing transitions explicitly.\n{}",
-            task.id, state_name, guidance
-        );
-    }
-
-    let blocked: Vec<&rhei_core::ast::Task> =
-        non_terminal_workable.iter().copied().filter(|t| !priors_satisfied(t)).collect();
-    if !blocked.is_empty() {
-        let ids: Vec<String> = blocked
-            .iter()
-            .take(3)
-            .map(|task| {
-                if let Some(prior) = first_blocking_prior(task, &state_map, machines, scope) {
-                    format!("Task {} waiting on {}", task.id, prior)
-                } else {
-                    format!("Task {}", task.id)
-                }
-            })
-            .collect();
-        let suffix = if blocked.len() > 3 {
-            format!(" (+{} more)", blocked.len() - 3)
-        } else {
-            String::new()
-        };
-        return format!(
-            "no tickets are ready to claim{}: {} ticket(s) blocked by incomplete prerequisites: {}{}.",
-            scope_suffix,
-            blocked.len(),
-            ids.join(", "),
-            suffix
-        );
-    }
-
-    // No branch for "only parents are left": a parent with an open descendant
-    // always has a non-terminal leaf under it, and that leaf is workable, so
-    // the categories above speak for the subtree. A worker whose dependent is
-    // blocked on an unclaimed parent reads it in the prerequisite branch,
-    // which names the parent and its state like any other prior.
-
-    // Fallback: we found non-terminal tasks with priors satisfied but no
-    // other category matched. Keep the legacy phrasing for this edge case.
-    format!("no tickets are ready to claim{scope_suffix}")
-}
-
 /// Check whether a state is terminal (final) in the state machine.
 fn is_terminal_state(state: &str, machine: &rhei_validator::StateMachine) -> bool {
     let normalized = normalized_state_name(state, machine);
     machine.states.get(&normalized).map(|def| def.terminal).unwrap_or(false)
-}
-
-fn state_declares_autonomous_execution(def: &rhei_validator::StateDef) -> bool {
-    def.program.is_some()
-        || def.agent.is_some()
-        || def.model.is_some()
-        || def.target.is_some()
-        || !def.all_models.is_empty()
-        || !def.all_targets.is_empty()
-}
-
-fn initial_state_has_non_terminal_forward_transition(
-    task: &rhei_core::ast::Task,
-    rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
-) -> MietteResult<bool> {
-    let Some(to_state) = find_next_transition(task, rhei, machine)? else {
-        return Ok(false);
-    };
-    Ok(!machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false))
-}
-
-fn manual_initial_terminal_transition(
-    task: &rhei_core::ast::Task,
-    rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
-) -> MietteResult<Option<String>> {
-    // §FS-rhei-run.3: default manual-only tasks must not be callback-completed by `rhei run`.
-    if !is_builtin_simple_manual_machine(machine) {
-        return Ok(None);
-    }
-    let current_state = normalized_state_name(task.state.as_str(), machine);
-    if !task_is_in_initial_state(task, &current_state, machine) {
-        return Ok(None);
-    }
-    let Some(state_def) = machine.states.get(&current_state) else {
-        return Ok(None);
-    };
-    if state_declares_autonomous_execution(state_def) {
-        return Ok(None);
-    }
-    let Some(to_state) = find_next_transition(task, rhei, machine)? else {
-        return Ok(None);
-    };
-    if machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false) {
-        Ok(Some(to_state))
-    } else {
-        Ok(None)
-    }
-}
-
-fn is_builtin_simple_manual_machine(machine: &rhei_validator::StateMachine) -> bool {
-    machine.name == "rhei"
-        && machine.states.len() == 2
-        && machine.states.contains_key("pending")
-        && machine.states.get("completed").map(|def| def.terminal).unwrap_or(false)
-        && machine
-            .transitions()
-            .iter()
-            .filter(|rule| rule.from.0 == "pending" && rule.to.0 == "completed")
-            .count()
-            == 1
-}
-
-/// Find the next forward transition from a given state.
-///
-/// Prefers exact `from` matches over wildcard (`*`) rules, and skips
-/// transitions to terminal states via wildcards (those are escape hatches
-/// like cancellation, not forward progress).
-fn find_next_transition(
-    task: &rhei_core::ast::Task,
-    rhei: &rhei_core::ast::Rhei,
-    machine: &rhei_validator::StateMachine,
-) -> MietteResult<Option<String>> {
-    let current_state = normalized_state_name(task.state.as_str(), machine);
-
-    // First, look for an exact from-state match.
-    for rule in machine.transitions() {
-        if rule.from.0 == current_state
-            && task_profile_allows_state(
-                machine,
-                task.kind.as_str(),
-                task.profile_level(),
-                &rule.to.0,
-            )
-            && transition_rule_is_applicable(
-                rule,
-                machine,
-                rhei.metadata.as_ref(),
-                &task.id,
-                &current_state,
-                task.state.as_str(),
-            )?
-        {
-            return Ok(Some(rule.to.0.clone()));
-        }
-    }
-
-    // Fall back to wildcard, but only to non-terminal states (forward progress).
-    for rule in machine.transitions() {
-        if rule.from.0 == "*" {
-            let is_terminal =
-                machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false);
-            if !is_terminal
-                && task_profile_allows_state(
-                    machine,
-                    task.kind.as_str(),
-                    task.profile_level(),
-                    &rule.to.0,
-                )
-                && transition_rule_is_applicable(
-                    rule,
-                    machine,
-                    rhei.metadata.as_ref(),
-                    &task.id,
-                    &current_state,
-                    task.state.as_str(),
-                )?
-            {
-                return Ok(Some(rule.to.0.clone()));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-type BeforeTransitionCallback<'a> =
-    &'a mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>;
-
-fn try_auto_advance_task(
-    input: &Path,
-    machines: &ExecutionMachines,
-    task_id_str: &str,
-    current_state: &str,
-    no_callbacks: bool,
-    mut before_transition: Option<BeforeTransitionCallback<'_>>,
-) -> MietteResult<Option<String>> {
-    // The advancing ticket's own machine and callback base govern it.
-    // §DA-per-rhei-state-machines
-    let machine = machines.for_task_str(task_id_str);
-    let callback_paths = machines.callbacks_for_str(task_id_str);
-    // The spec splits agent exit into:
-    //   (5) select the outgoing transition without applying it,
-    //   (6) emit snapshots after selection / before application,
-    //   (7) apply the selected transition.
-    // Step 6 is delegated to the snapshot module owned by impl-rhei-snapshots;
-    // see `emit_snapshots_after_transition_selection` for the call site.
-
-    // §FS-rhei-run.3: Select, emit, then apply transitions.
-    let loaded = load_plan(input)?;
-    let target_id = parse_task_id(task_id_str);
-    let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) else {
-        return Ok(None);
-    };
-
-    // Step 5: select the outgoing transition.
-    let Some(to_state) = find_next_transition(task, &loaded.rhei, machine)? else {
-        if machine.states.get(current_state).and_then(|def| def.poll.as_ref()).is_some()
-            && task_visit_count(loaded.rhei.metadata.as_ref(), &task.id, current_state)
-                >= machine
-                    .states
-                    .get(current_state)
-                    .and_then(|def| def.poll.as_ref())
-                    .map(|poll| u64::from(poll.max_attempts))
-                    .unwrap_or(u64::MAX)
-        {
-            return Err(miette!(
-                help = "the poll state ran out of attempts without a transition becoming applicable. Raise its `poll.max_attempts`, or fix the condition the poll waits on: rhei states",
-                "polling exhausted with no matching non-self-loop transition for Task {} in state '{}'",
-                task_id_str,
-                current_state
-            ));
-        }
-        return Ok(None);
-    };
-
-    if record_poll_self_loop_if_needed(
-        &loaded,
-        input,
-        machine,
-        task,
-        current_state,
-        &to_state,
-    )? {
-        return Ok(Some(to_state));
-    }
-
-    // Step 6: emit auto- and named-snapshots for this state exit, before the
-    // transition is applied. This is a no-op until impl-rhei-snapshots wires
-    // the snapshot module in; the call site here pins the spec-mandated
-    // ordering ("after transition selection and before the transition is
-    // applied") so future wiring does not have to relitigate it.
-    if let Some(before_transition) = before_transition.as_mut() {
-        before_transition(task, &to_state)?;
-    }
-    emit_snapshots_after_transition_selection(machine, task, current_state, &to_state);
-
-    // Step 7: apply the selected transition, routed to the owning rhei.
-    let route = loaded.task_route(task_id_str, input);
-
-    // A fanned-out state's fragments are folded here, before the shared path
-    // looks for the result, and only on an edge that finishes the ticket.
-    // §FS-rhei-states.3.3
-    if machine.states.get(&to_state).map(|def| def.terminal).unwrap_or(false) {
-        if let Some(state_def) = machine.states.get(current_state) {
-            let workspace_root = execution_workspace_root(&callback_paths.plan_path);
-            let settings = load_merged_settings(&workspace_root)?;
-            let invocations = resolve_agent_invocations_for_task(
-                machine,
-                current_state,
-                &settings,
-                &default_run_options(),
-                Some(task),
-            )
-            .unwrap_or_default();
-            merge_fanout_result_fragments(
-                &route.execution_root,
-                task_id_str,
-                current_state,
-                render_visit_count(
-                    loaded.rhei.metadata.as_ref(),
-                    &task.id,
-                    current_state,
-                    task.state.as_str(),
-                    machine,
-                ),
-                state_def,
-                &invocations,
-            )?;
-        }
-    }
-
-    // No message: the subprocess that worked this state knows the outcome and
-    // writes `runtime/results/<task-id>.md` itself. A terminal edge with
-    // nothing written is caught by the completion condition. §FS-rhei-run.3
-    let effective_to = execute_transition(
-        TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
-        callback_paths,
-        machine,
-        &route.local_id,
-        current_state,
-        &to_state,
-        None,
-        no_callbacks,
-    )?;
-
-    Ok(Some(effective_to))
 }

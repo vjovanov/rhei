@@ -29,6 +29,7 @@ The state-machine surface also permits these optional fields for richer workflow
 - Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
 - Per-state `handoff:` inheritance to inject declared same-task handoff artifacts from the previous state into the successor prompt
 - Per-state `mcp_servers:` and `skills:` lists to attach MCP servers and agent skills to the agent subprocess for that state; individual entries may be marked `optional: true` to warn-and-continue rather than block when the tool is unavailable
+- Per-state `execute_on: <scope>-<event>` to make a non-leaf task in that state a *supervisor* of its subtree, woken at every finished child, every child transition, every finished descendant, or every descendant transition, and holding the subtree in between (§FS-rhei-supervision)
 
 When `models` is omitted, the machine behaves as it does today and states are
 not model-constrained. For new workflows, prefer `target` / `all_targets`
@@ -86,6 +87,7 @@ can start in different states within the same state machine.
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
 | `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
+| `execute_on` | enum | No | Marks this state as a *supervising* state: `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`. A non-leaf task in it is woken at checkpoints of its subtree — the scope picks whose moves it hears (its direct children, or any descendant), the event picks which (a terminal entry, or every transition) — and holds the subtree between visits. Requires a self-loop transition as the release edge. See [Supervision Specification](rhei-supervision.spec.md). |
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. A task may override this per work item with `**Model:**` or `**Target:**` unless `target_locked` is set; see [Plan Language — Task Execution Overrides](rhei-plan-language.spec.md#311-task-execution-overrides). |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
 | `target_locked` | boolean | No | When `true`, the state's execution identity is essential to the phase and must not be reassigned per task: any task-level `**Model:**` or `**Target:**` override (§FS-rhei-plan-language.3.11) on a task entering this state is a validation error. Defaults to `false`. |
@@ -195,6 +197,12 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
 - `state.poll` on a `gating: true` state is a validation error (gating states require human action; polling executes autonomously).
 - `state.poll` combined with `state.visits` is a validation error. `poll.max_attempts` replaces the `visits` cap for the poll state and populates the same `stateVisits` counter.
 - A state that declares `poll` must have at least one self-loop transition (`from: <state>, to: <state>`); without it the "retry" branch is unreachable.
+- A non-poll state the machine declares a self-loop from is warned about when
+  it declares neither `visits` nor a transition whose `condition` is bounded by
+  `visitCount`: the loop has no budget and no exit that counts, so a run may
+  re-enter it forever. Visits of such a state are counted regardless, so an
+  authored `visitCount` exit works (§FS-rhei-supervision.4.2).
+- `state.execute_on`, when present, must be one of `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`, and the state must be agent-bearing. `execute_on` on a `final: true`, `gating: true`, `program:`, or `poll:` state is a validation error — a state has one trigger, `poll:` (time) or `execute_on:` (its subtree) — as is combining it with `all_targets` or `all_models`. A supervising state must declare a self-loop transition — its release edge. Warnings and the full rule set are in §FS-rhei-supervision.1.2.
 - A state that declares both `poll` and `snapshot.inherit` is a validation
   error in v1. Polling states may still emit snapshots on terminal exit when
   otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#103-counted-loops-fanout-and-polling).
@@ -208,6 +216,27 @@ Counted-loop counters are task-instance data, not state-definition data. The sta
 When a state declares `all_targets` and `visits`, the engine runs the state
 once per listed target and each target-specific execution tracks its own visit
 budget. The same scoping rule applies to `all_models`.
+
+### 1.4. Reserved State Names
+
+A machine names its own states, with one exception: **`cancelled` is reserved**.
+It is the one state name the engine reads as *the work was abandoned* rather
+than as a state like any other, and four rules key on it:
+
+- a `**Prior:**` in it does **not** satisfy a dependency, so a cancelled ticket
+  never unblocks downstream work (§FS-rhei-plan-language.3);
+- `rhei complete` never selects it as a completion target;
+- the run report marks it apart from success (§FS-rhei-run-report.3.2);
+- a transition **into** it waives the *source* state's declared `outputs:` —
+  cancellation abandons the work, so that contract is moot
+  (§FS-rhei-transitions.4.5). The terminal-result obligation still stands.
+
+`canceled` is accepted as the same name; the two spellings are one reserved
+name, not two states. Any other name — `dropped`, `abandoned`, `wontfix` — is an
+ordinary terminal state and gets none of the four rules. A machine that wants
+cancellation semantics must spell the state `cancelled`; the outputs refusal on
+a transition into a `final: true` state says so, because that is where the
+mistake shows up.
 
 ## 2. Polling States
 

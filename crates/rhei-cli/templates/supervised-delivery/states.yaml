@@ -1,0 +1,502 @@
+# Supervised-Delivery State Machine
+# =================================
+#
+# One task supervises the whole delivery. `Task deliver` sits in `supervising`,
+# which declares `execute_on: child-terminal`: the orchestrator wakes it after
+# every child that finishes and holds the rest of the subtree in between
+# (§FS-rhei-supervision.3.1). Every other state here belongs to a child the
+# supervisor sends.
+#
+# Supervisor (one task, many visits)
+# ----------------------------------
+#
+#      +--> supervising [initial] --(visitCount >= visits)--> human-review [gating]
+#      |         |     |                                            |
+#      |         |     +--(openDescendants < 1)--> completed [final]|
+#      |         |                                                  |
+#      +---------+  self-loop: release the subtree and wait         |
+#      |                                                            |
+#      +------------------------------------------------------------+
+#
+#   The three edges are tried in declaration order, and the order is the design:
+#     1. exhaustion  `visitCount >= visits`  - the budget ran out; a human decides
+#     2. terminal    `openDescendants < 1`   - the subtree closed; write the result
+#     3. self-loop   (unconditional)         - release the subtree and wait
+#   Without the self-loop the supervisor would run once and never wait.
+#
+# Children (one visit each, every one released by a brief)
+# --------------------------------------------------------
+#
+#   implement  --> completed        report export
+#   review     --> completed        findings export   } run concurrently,
+#   pm-review  --> completed        findings export   } one round at a time
+#   fix        --> completed        resolutions export
+#   coverage   --> completed        gaps export
+#   docs       --> completed        report export
+#
+#   any non-final state --> cancelled [final]
+#
+# Per-task paths through the machine
+# ----------------------------------
+#
+#   deliver            supervising x N -> completed  (or -> human-review)
+#   implement          implement       -> completed
+#   review-k           review          -> completed
+#   pm-k               pm-review       -> completed
+#   fix-k              fix             -> completed
+#   coverage-k         coverage        -> completed
+#   coverage-fix-k     fix             -> completed
+#   docs-k             docs            -> completed
+#
+# The release gate
+# ----------------
+#
+#   Every child state declares a *required* input at
+#   `runtime/supervise/{task_id}.md` — the supervisor's brief. A child whose
+#   brief does not exist is not dispatched, so the supervisor literally sends
+#   each agent (§FS-rhei-supervision.5.2). Its exports are declared as that
+#   state's `outputs:`, so the completion condition refuses to finish a step
+#   that did not publish them.
+#
+# Snapshots
+# ---------
+#
+#   The `snapshot:` block below exists only when `supervisor_session` is true.
+#   Of the built-in agent profiles only `pi` declares a snapshot session layout;
+#   `claude-code`, `codex`, `gemini`, `cursor`, and `kilocode` reject the block
+#   as a hard `unsupported-snapshot-session` error. Without it the supervisor
+#   runs each visit cold, carried by its checkpoints and its briefs.
+
+name: supervised-delivery
+version: 1.0.0
+
+states:
+
+  # ---------------------------------------------------------------------------
+  # The supervisor
+  # ---------------------------------------------------------------------------
+
+  supervising:
+    initial: true
+    execute_on: child-terminal
+    description: The delivery's one decision maker, woken after every child that finishes and holding the rest of the subtree in between.
+    target: {{supervisor_target}}
+    visits: {{ 3 * review_rounds + 2 * coverage_rounds + docs_rounds + 3 }}
+{%- if supervisor_session %}
+    snapshot:
+      emit: { name: supervisor, on: always }
+      inherit: { name: supervisor, from: self }
+{%- endif %}
+    personality: |
+      You supervise a delivery. You do not write the code, the reviews, or the
+      docs; you decide what happens next and you say it in writing. Every step
+      beneath you is waiting for a brief from you and will not start without
+      one, so an unbriefed step is a stalled delivery, not a patient one.
+      Prefer cancelling a round you do not need over running it for symmetry.
+    inputs:
+      - name: preparation
+        path: runtime/supervision/preparation.md
+        optional: true
+        description: The acceptance criteria, risk areas, and per-role focus this delivery is judged against. Written on the first visit and read on every later one; optional so its absence is what marks the first visit rather than blocking it.
+    instructions: |
+      You supervise Task {task_id}: {task_title}.
+
+      This workspace is a scratchpad. Resolve the repository root with
+      `git rev-parse --show-toplevel`; code lives there, and everything under
+      `runtime/` stays here.
+
+      {if input.preparation.exists}
+      ## This is not your first visit
+
+      `{input.preparation.path}` already holds the acceptance criteria, the
+      risk areas, and the focus each role was given. Read it before you judge
+      anything: with no session carried between visits it is the only memory
+      this delivery has of what you decided at the start. Extend it when a
+      checkpoint changes what "done" means; never rewrite it to match what
+      happened.
+      {else}
+      ## Visit 1: prepare, then send the implementer
+
+      Read `{{spec_path}}` and the project's own agent instructions
+      (`CLAUDE.md`, `AGENTS.md`, or their equivalent). Then write
+      `{input.preparation.path}`:
+
+        - the acceptance criteria this delivery is judged against, concretely
+          enough that a reviewer can check them;
+        - the risk areas — where this change is most likely to break something;
+        - one short paragraph of focus for each role: code review, product
+          review, coverage audit, documentation.
+
+      Then brief `{task_id}.implement` and return. Do not write a `## Result`,
+      and stop here — the rules below are for the visits that follow.
+      {endif}
+
+      ## Every later visit: judge, then send exactly one step
+
+      `## Checkpoints` lists the children that moved since your last visit.
+      For each, read its result and its exports under
+      `runtime/exports/<task-id>/`. Then apply these rules, in order:
+
+        - after `implement` finished -> brief `{task_id}.review-1` AND
+          `{task_id}.pm-1`. This is the only pair you ever brief together.
+        - after BOTH `review-k` and `pm-k` finished -> brief `{task_id}.fix-k`,
+          naming which finding ids it must fix. You may downgrade or skip a
+          finding, but the brief has to say which one and why.
+        - after `fix-k` finished -> read its `resolutions` export. If any
+          finding of severity `major` or `blocker` is not `fixed` and
+          k < {{review_rounds}}, brief `{task_id}.review-(k+1)` and
+          `{task_id}.pm-(k+1)`. Otherwise cancel every remaining review, product
+          review, and fix round and brief `{task_id}.coverage-1`.
+        - after `coverage-k` finished -> brief `{task_id}.coverage-fix-k`.
+        - after `coverage-fix-k` finished -> if gaps remain and
+          k < {{coverage_rounds}}, brief `{task_id}.coverage-(k+1)`. Otherwise
+          cancel every remaining coverage round and brief `{task_id}.docs-1`.
+        - after `docs-k` finished -> if the documentation is still incomplete
+          and k < {{docs_rounds}}, brief `{task_id}.docs-(k+1)`. Otherwise cancel
+          every remaining documentation round and finish (below).
+
+      ## Rules you do not bend
+
+        - Brief one phase at a time. `review-k` and `pm-k` are the only pair
+          that runs together; briefing across phases lets two steps edit the
+          same code at once.
+        - Never cancel a step that has already started, and never cancel
+          `{task_id}.fix-1` or `{task_id}.coverage-fix-1`: the coverage and
+          documentation phases are chained to those two, and a cancelled task
+          does not satisfy anyone's prerequisite.
+        - Every cancel carries a reason:
+          `rhei transition <task-id> --to cancelled --result "<why>"`.
+        - Do not transition your own task. The orchestrator owns that edge.
+        - Write `## Result` only on the visit where every child is terminal and
+          you intend to finish. On every other visit, return without one and
+          you will be woken at the next checkpoint.
+
+      ## Finishing
+
+      On the visit where every child is terminal, write the delivery result:
+      what shipped, how many rounds of each phase were used and which were
+      cancelled, every finding by `fixed` / `rejected` / `deferred` with the
+      reasons for the last two, and the CI status the last steps reported.
+      Then return, and the `openDescendants < 1` edge finishes this task.
+
+  # ---------------------------------------------------------------------------
+  # The steps the supervisor sends
+  # ---------------------------------------------------------------------------
+
+  implement:
+    description: Write the implementation the spec calls for.
+    target: {{implementer_target}}
+    personality: |
+      You are the implementer. Build what the spec says and nothing it does not
+      say. Where the spec is silent, choose the option that is easiest to review
+      and record the choice rather than hiding it.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: report
+        path: runtime/exports/{task_id}/report.md
+        description: The implementation report export every later step reads.
+    prompt_template:
+      name: report-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        report_path: "{output.report.path}"
+        report_scope: "Implement what the spec describes, then report what landed."
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and make
+      your changes there; `runtime/` artifacts stay in this workspace.
+
+      Implement every normative requirement of `{{spec_path}}` that the brief
+      puts in scope: source, the tests the spec asks for, configuration, and
+      the interfaces it names. Anything you cannot implement now goes in
+      `notes` with a concrete reason — never silently skipped.
+{%- if ci_commands %}
+
+      Run these before you finish, and record each one in `ci`:
+  {%- for c in ci_commands %}
+        - `{{ c }}`
+  {%- endfor %}
+{%- else %}
+
+      Find the project's own checks (its CI config, `CLAUDE.md`, or
+      `AGENTS.md`), run them, and record each one in `ci`.
+{%- endif %}
+
+  review:
+    description: Read the code as it stands and record this round's findings, each one reproduced.
+    target: {{reviewer_target}}
+    personality: |
+      You are a code reviewer and you do not accept your own guesses. A finding
+      you have not reproduced is a suspicion; either reproduce it or file it as
+      a `nit` saying you could not. Skip style unless it signals a defect.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: findings
+        path: runtime/exports/{task_id}/findings.md
+        description: This round's code-review findings export.
+    prompt_template:
+      name: findings-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        findings_path: "{output.findings.path}"
+        role: "code reviewer"
+        role_value: "code-review"
+        role_focus: "Judge correctness against the spec, regressions, edge cases, error paths, concurrency, and contract violations at public interfaces."
+        repro_rule: "Every finding MUST carry a non-empty `repro` — the command you ran and the output it printed, or the exact code path that misbehaves. This is the one rule of this role: an unreproduced finding costs the fixer a round and the delivery its credibility."
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and read
+      the code there. Do not edit repository files in this state.
+
+      Scope yourself to what `deliver.implement`'s `report` export lists, plus
+      whatever those files break. Read the preparation note at
+      `runtime/supervision/preparation.md` for the focus the supervisor set.
+{%- if review_focus %}
+
+      Your findings must answer each of these areas. Every one appears in the
+      export, even when the answer is that nothing was found:
+  {%- for f in review_focus %}
+        - {{ f }}
+  {%- endfor %}
+{%- endif %}
+
+  pm-review:
+    description: Judge the change as a product - experience, predictability, and whether the documentation tells the truth.
+    target: {{pm_target}}
+    personality: |
+      You are the product reviewer. You are not a second code reviewer: you
+      judge what this change is like to use and to trust. Read the spec and the
+      project's stated goals, and say where the change misses them.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: findings
+        path: runtime/exports/{task_id}/findings.md
+        description: This round's product-review findings export.
+    prompt_template:
+      name: findings-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        findings_path: "{output.findings.path}"
+        role: "product reviewer"
+        role_value: "product"
+        role_focus: "Judge user experience, predictability, error messages, defaults, and documentation against the spec and the project's stated goals. Name what a user would be surprised by, and what a message fails to tell them."
+        repro_rule: "`repro` may be empty when the finding is a judgement about experience, wording, or documentation. When the finding is about behaviour, reproduce it like any other."
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and read
+      the change there. Do not edit repository files in this state.
+
+      Read `{{spec_path}}`, the project's goals, and the preparation note at
+      `runtime/supervision/preparation.md`. Then judge the change against them:
+      would a user get what the spec promised, would they understand what
+      happened when it fails, and does the documentation still tell the truth?
+
+      Exercise it the way a user would rather than reading the diff for it: run
+      the commands the change touches, on a real subject, and report what
+      surprised you with the command and the output it printed. A finding of
+      this role is "I ran X and it told me Y, which is not what the spec
+      promised" — not "this could be clearer".
+
+      You run alongside this round's code review and never read its findings.
+      Duplication between the two is expected and cheap; the fixer reconciles
+      them.
+
+  fix:
+    description: Apply exactly the fixes the brief scopes, and account for every finding it was given.
+    target: {{fixer_target}}
+    personality: |
+      You are the fixer. Apply the fixes the brief scopes and nothing wider. A
+      fix that turns out to need broader scope is `deferred` with a reason, not
+      a bigger patch.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: resolutions
+        path: runtime/exports/{task_id}/resolutions.md
+        description: One entry per finding this step was given.
+    prompt_template:
+      name: resolutions-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        resolutions_path: "{output.resolutions.path}"
+        fix_scope: "Answer every finding the exports in your prompt carry — the code review and the product review of this round, or the coverage gaps of this round."
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and make
+      your changes there; `runtime/` artifacts stay in this workspace.
+
+      Work from the exports in your prompt, not from a re-review of your own:
+      the findings and gaps you were given are the scope, and the supervisor's
+      brief narrows it further.
+{%- if ci_commands %}
+
+      These must be green before you finish:
+  {%- for c in ci_commands %}
+        - `{{ c }}`
+  {%- endfor %}
+      A command you cannot get green is a `deferred` resolution naming it, not
+      a silent pass.
+{%- else %}
+
+      Run the project's own checks (its CI config, `CLAUDE.md`, or `AGENTS.md`)
+      before you finish. A check you cannot get green is a `deferred`
+      resolution naming it, not a silent pass.
+{%- endif %}
+
+  coverage:
+    description: Name what the delivery left untested, and the test that would close each gap.
+    target: {{coverage_target}}
+    personality: |
+      You are the coverage auditor. You find what no test exercises and you
+      name the test that would. You do not write tests, and you do not report
+      coverage percentages — a percentage is not a gap.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: gaps
+        path: runtime/exports/{task_id}/gaps.md
+        description: This round's coverage-gap export.
+    prompt_template:
+      name: gaps-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        gaps_path: "{output.gaps.path}"
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and read
+      the tests there. Do not edit repository files in this state.
+
+      Work from `deliver.implement`'s `report` export and the fixes that
+      followed it. For every behaviour that changed, ask what test would fail
+      if the change were reverted — and if the answer is "none", that is a gap.
+{%- if ci_commands %}
+
+      Run these to see what the suite covers today:
+  {%- for c in ci_commands %}
+        - `{{ c }}`
+  {%- endfor %}
+{%- endif %}
+
+  docs:
+    description: Update the documentation the delivery made stale.
+    target: {{docs_target}}
+    personality: |
+      You are the documentation writer. You update what this change made
+      untrue, and you do not rewrite what it did not touch. Where the project
+      has a specification, the specification changes first.
+    inputs:
+      - name: brief
+        path: runtime/supervise/{task_id}.md
+        description: The supervising task's brief. This step does not start without it.
+    outputs:
+      - name: report
+        path: runtime/exports/{task_id}/report.md
+        description: The documentation report export.
+    prompt_template:
+      name: report-export
+      values:
+        task_id: "{task_id}"
+        task_title: "{task_title}"
+        report_path: "{output.report.path}"
+        report_scope: "Update the documentation this delivery made stale, then report what you changed."
+    instructions: |
+      Resolve the repository root with `git rev-parse --show-toplevel` and make
+      your changes there; `runtime/` artifacts stay in this workspace.
+
+      Work from the `report` and `resolutions` exports in your prompt: they say
+      what changed in behaviour terms, which is what documentation is about.
+      Update the spec, the README, the changelog, and the help text the change
+      made stale, and follow the project's own documentation conventions.
+{%- if ci_commands %}
+
+      These must still be green when you are done:
+  {%- for c in ci_commands %}
+        - `{{ c }}`
+  {%- endfor %}
+{%- endif %}
+
+  # ---------------------------------------------------------------------------
+  # Gate and terminal states
+  # ---------------------------------------------------------------------------
+
+  human-review:
+    description: The supervisor spent its visit budget without closing the subtree. A human reads the checkpoints and decides.
+    gating: true
+    instructions: |
+      Task {task_id} ran out of supervisor visits. Its subtree is still held.
+
+      Read `runtime/supervision/preparation.md`, the exports under
+      `runtime/exports/`, and the plan, then either transition this task back
+      to `supervising` to give it more rope, or to `cancelled` to stop the
+      delivery. Until you move it, nothing beneath it runs.
+
+  completed:
+    description: The delivery finished and the supervisor wrote its result.
+    final: true
+
+  cancelled:
+    description: Abandoned. The reserved name, so a cancelled step waives its declared outputs and does not satisfy anyone's prerequisite.
+    final: true
+
+transitions:
+
+  # The supervisor's three edges, in the order they are tried.
+  - from: supervising
+    to: human-review
+    condition: visitCount >= visits
+    description: Supervisor budget exhausted; a human decides.
+
+  - from: supervising
+    to: completed
+    condition: openDescendants < 1
+    description: Every child is terminal and the supervisor wrote its result.
+
+  - from: supervising
+    to: supervising
+    description: Released the subtree; wait for the next checkpoint.
+
+  # Every step the supervisor sends runs once and finishes.
+  - from: implement
+    to: completed
+    description: Implementation written and the report export published.
+
+  - from: review
+    to: completed
+    description: Code-review findings published.
+
+  - from: pm-review
+    to: completed
+    description: Product-review findings published.
+
+  - from: fix
+    to: completed
+    description: Every finding answered and the resolutions export published.
+
+  - from: coverage
+    to: completed
+    description: Coverage gaps published.
+
+  - from: docs
+    to: completed
+    description: Documentation updated and the report export published.
+
+  - from: human-review
+    to: supervising
+    description: A human gave the supervisor more rope.
+
+  - from: "*"
+    to: cancelled
+    description: Cancel the step from any non-final state.

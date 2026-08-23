@@ -1,0 +1,93 @@
+name: supervised-delivery
+version: 1.0.0
+description: A delivery pipeline one supervisor drives — implement, code review alongside product review, fix, test coverage, and documentation — briefing every step and cancelling the rounds the results made unnecessary.
+
+inputs:
+  - name: spec_path
+    description: The spec, issue, or design note that says what to deliver. The supervisor reads it on its first visit and turns it into the acceptance criteria every later step is judged against. Repository-relative; rendered verbatim, so the workspace stays portable.
+    type: string
+    positional: 1
+
+  - name: title
+    description: Human-readable title for the workspace and for the root delivery task.
+    type: string
+    default: Supervised delivery
+
+  - name: supervisor_target
+    description: Agent that supervises the whole subtree. It reads the spec, writes the preparation note, briefs every child, decides which rounds to run, and writes the delivery result. Give it your strongest reasoning target - every routing decision in this workspace is its call.
+    type: string
+    format: execution-target
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: implementer_target
+    description: Agent that writes the implementation the reviews then judge.
+    type: string
+    format: execution-target
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: reviewer_target
+    description: Agent that runs the code review rounds. Prefer a different agent from `implementer_target` so the review is independent of the hand that wrote the code.
+    type: string
+    format: execution-target
+    default: codex[xhigh]:openai:gpt-5.5
+
+  - name: pm_target
+    description: Agent that runs the product review rounds alongside the code review. It judges user experience, predictability, and documentation against the spec and the project's goals rather than the code.
+    type: string
+    format: execution-target
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: fixer_target
+    description: Agent that applies the fixes for both review rounds and coverage rounds. One fixer answers both reviews so a single hand reconciles them.
+    type: string
+    format: execution-target
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: coverage_target
+    description: Agent that audits test coverage of what was implemented and names the tests that are missing.
+    type: string
+    format: execution-target
+    default: codex[xhigh]:openai:gpt-5.5
+
+  - name: docs_target
+    description: Agent that updates the documentation the change makes stale.
+    type: string
+    format: execution-target
+    default: claude-code[yolo]:anthropic:claude-opus-4-7
+
+  - name: review_rounds
+    description: How many code-review + product-review + fix rounds to unroll. The supervisor may cancel the rounds it does not need, so this is a ceiling, not a schedule. 2 is the usual ceiling; 1 for a small change; 3+ for a risky one.
+    type: number
+    default: 2
+    validate: "[1-9][0-9]*"
+
+  - name: coverage_rounds
+    description: How many coverage-audit + fix rounds to unroll after the review phase. A ceiling like `review_rounds`.
+    type: number
+    default: 1
+    validate: "[1-9][0-9]*"
+
+  - name: docs_rounds
+    description: How many documentation rounds to unroll after the coverage phase. A ceiling like `review_rounds`.
+    type: number
+    default: 1
+    validate: "[1-9][0-9]*"
+
+  - name: ci_commands
+    description: The commands that must be green before the fix, coverage, and documentation steps report success. Rendered into their instructions verbatim. Empty means the agents discover the project's checks themselves.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: review_focus
+    description: Extra subsections every code review must answer (e.g. concurrency, error handling, backwards compatibility). Empty means a general correctness review.
+    type: array
+    items:
+      type: string
+    default: []
+
+  - name: supervisor_session
+    description: Give the supervisor a snapshot session so each visit continues the previous transcript. Only set this true when `supervisor_target` names a session-capable agent - of the built-in profiles that is `pi` today. With the built-in `claude-code` profile a snapshot block is a hard validation error, so this stays false by default and the supervisor runs each visit cold, carried by its checkpoints and its briefs.
+    type: boolean
+    default: false

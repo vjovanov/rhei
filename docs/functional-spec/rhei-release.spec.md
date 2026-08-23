@@ -84,6 +84,14 @@ artifacts may exist, and its ledger entry is written. Whether that work is
 salvageable or should be redone is the operator's call, and the state is the
 only remaining evidence of it.
 
+The note is **not** printed for two tickets it would be wrong about:
+
+- a ticket in a **supervising** state (§FS-rhei-supervision.3.4), which
+  `rhei next` claims exactly where it stands — moving it back to the profile's
+  initial state is the one thing that would make it unclaimable;
+- a ticket whose machine declares no state by the suggested name, where the
+  command the note prints could not run.
+
 ## 4. Relationship to Other Commands
 
 - `rhei next` writes the claim this command drops.

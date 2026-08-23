@@ -107,6 +107,16 @@ the summary prints five stacked groups:
    `… N more in the report` line appears when the list is truncated. The group is
    omitted entirely when no task is halted, rather than printing an empty heading.
 
+   A ticket **held by a supervisor** (§FS-rhei-supervision.3.4) is not in this
+   group. Its own next action is "nothing to do on this ticket", so listing it
+   beside rows a person must act on dilutes them; it goes under a **Waiting**
+   group of its own — same columns, calm marker, omitted when empty — and the
+   durable report gets a matching `## Waiting` section after `## Attention`.
+   Held tickets are therefore counted in neither the `N gated · M blocked`
+   header nor `could not advance` (§2), for the same reason a parent held open
+   by its own subtree is not: the ticket that *is* someone's problem — the
+   supervisor, or the human gate holding it — reports for itself.
+
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
@@ -147,6 +157,14 @@ the summary prints five stacked groups:
    gating, `blocked`, or `failed` keeps its Attention row: those are things to
    act on whatever its children are doing, even though the open subtree
    outranks them in the classification order above.
+
+   A **gating** parent that still carries a `held` supervision block
+   (§FS-rhei-supervision.3.1) is classified ahead of the open-subtree reading,
+   because it is not waiting on its descendants — it is holding them. Its row
+   says so and names them, and the next action is the human's: move it back into
+   its supervising state to resume supervision, or anywhere else to release the
+   subtree. The held descendants keep their own held rows, and those rows name
+   the human rather than a supervisor visit that is not coming.
 
    The run's exit status and `--dry-run`'s are one judgment, not two readings
    of this classification: a run ends non-zero when work remains that is

@@ -111,6 +111,7 @@ fn spawn_parallel_agent_work_item(
     let render_context = RuntimeTemplateContext {
         workspace_root,
         task_roots: Some(&loaded.task_roots),
+        plan_tasks: Some(&loaded.rhei.tasks),
         checkout_root: &checkout_root.path,
         plan_path: &callback_paths.plan_path,
         state_machine_path: callback_paths.state_machine_path.as_deref(),
@@ -404,6 +405,9 @@ fn spawn_parallel_program_work_item(
             let render_context = RuntimeTemplateContext {
                 workspace_root: &workspace_root_for_thread,
                 task_roots: Some(&task_roots_for_thread),
+                // A program state renders no supervisor brief, and the task
+                // tree does not cross into the worker thread.
+                plan_tasks: None,
                 checkout_root: &workspace_root_for_thread,
                 plan_path: &callback_paths_for_thread.plan_path,
                 state_machine_path: callback_paths_for_thread.state_machine_path.as_deref(),

@@ -1,3 +1,21 @@
+/// When a supervising state's task is woken, in the words of its
+/// `execute_on:` value.
+///
+/// The value is a scope and an event, and a reader of `rhei states` is asking
+/// one question of it: which moves under this task bring it back. The bare
+/// value answers that only to someone who already knows the grammar.
+// §FS-rhei-supervision.1.1 §FS-rhei-states-cmd.4
+fn executes_on_phrase(execute_on: rhei_validator::ExecuteOn) -> &'static str {
+    match execute_on {
+        rhei_validator::ExecuteOn::ChildTerminal => "every finished child",
+        rhei_validator::ExecuteOn::ChildTransition => "every child transition",
+        rhei_validator::ExecuteOn::DescendantTerminal => "every finished descendant",
+        rhei_validator::ExecuteOn::DescendantTransition => {
+            "every descendant transition \u{2014} one invocation per hop"
+        }
+    }
+}
+
 fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
     let mut out = String::new();
     out.push_str(&format!(
@@ -59,6 +77,12 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
             out.push('\n');
             if let Some(visits) = def.visits {
                 out.push_str(&format!("      Visits: {visits}\n"));
+            }
+            // §FS-rhei-supervision.1.1: when the supervisor wakes, in the
+            // words of the value — the bare value read as a noun ("task") said
+            // nothing about which events reach it.
+            if let Some(execute_on) = def.execute_on() {
+                out.push_str(&format!("      Executes on: {}\n", executes_on_phrase(execute_on)));
             }
             if let Some(poll) = def.poll.as_ref() {
                 out.push_str(&format!(
@@ -176,6 +200,7 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
                 "concurrent": def.concurrent,
                 "poll": &def.poll,
                 "visits": def.visits,
+                "execute_on": &def.execute_on,
                 "target": &def.target,
                 "all_targets": &def.all_targets,
                 "all_models": &def.all_models,

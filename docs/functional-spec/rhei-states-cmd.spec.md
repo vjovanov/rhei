@@ -98,9 +98,16 @@ Text output includes:
 - Node policy when present.
 - Each state with description and flags such as `final`, `gating`, and
   `concurrent`.
-- Per-state execution details such as visits, polling, targets, models, agent,
-  agent mode, timeouts, program presence, MCP servers, skills, snapshots,
-  inputs, outputs, personality, and instructions.
+- Per-state execution details such as visits, the supervision trigger
+  (§FS-rhei-supervision.1.1), polling, targets, models, agent, agent mode,
+  timeouts, program presence, MCP servers, skills, snapshots, inputs, outputs,
+  personality, and instructions. A supervising state's `execute_on:` is spelled
+  as *when the supervisor wakes*, on an `Executes on:` line: `every finished
+  child`, `every child transition`, `every finished descendant`, or `every
+  descendant transition — one invocation per hop`. The reader's question is
+  which moves under the task bring it back, and the bare value answers that
+  only to someone who already knows the grammar. `--json` keeps the value
+  itself, `"execute_on": "<scope>-<event>"`.
 - Per-state prompt-template reference when present.
 - Declared transitions and annotations for callbacks, conditions, and timeouts.
 

@@ -16,6 +16,8 @@ Use this table when you know the job you want to model:
 | Multi-model analysis | `multi-model-analysis/` | Runs analysis across several targets before aggregation. |
 | Parallel implementation branches | `parallel-worktrees/` | Demonstrates independent tasks advancing concurrently. |
 | Snapshot continuation | `snapshot-continuation/` | Shows snapshot emit, inherit, list, continue, and run override commands. |
+| A parent that steers its subtree while it runs | `subtree-supervision/` | A supervising state wakes the parent at every finished child and holds the rest of the subtree in between. |
+| A full delivery one supervisor drives | `supervised-delivery-example/` | Implement, code review alongside product review, fix, coverage, and docs — every step released by the supervisor's brief, every handoff a plan export. |
 | Live dashboard regression testing | `ui-test-canonical-example/` | Canonical runnable fixture for Flow and TUI/dashboard behavior. |
 
 ## Files
@@ -73,6 +75,26 @@ Use this table when you know the job you want to model:
   - `states.yaml`
   - counted `review` and `fix` states with two total passes each
   - one review artifact file and one fix artifact updated across the loop
+
+- `subtree-supervision/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/` and `states.yaml`
+  - a state that declares `execute_on: descendant-terminal`, making its task a supervisor
+  - the three supervisor edges — exhaustion, `openDescendants < 1`, and the
+    unconditional self-loop that releases the subtree
+  - a committed mock agent, so the whole chain runs without credentials
+
+- `supervised-delivery-example/`
+  Valid example directory using:
+  - `index.rhei.md` plus `tasks/`, `states.yaml`, and `prompt_templates/`
+  - a `supervising` root task with `execute_on: child-terminal` and ten children
+    unrolled from the template's round ceilings
+  - a required `brief` input on every child state, so the supervisor's brief is
+    what releases each step
+  - `**Provides:**` / `**Consumes:**` exports declared as the producing state's
+    `outputs:`, so a step cannot finish without publishing its JSON
+  - Instantiated from the `supervised-delivery` built-in template; regenerate it
+    with the command in its own README.
 
 - `snapshot-continuation/`
   Valid example directory using:

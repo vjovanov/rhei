@@ -16,6 +16,7 @@ one `FS-<slug>` ID at its H1.
 | §FS-rhei-callbacks | Transition callback examples |
 | §FS-rhei-agents | Agent configuration, execution, and timeout behavior |
 | §FS-rhei-programs | Deterministic program states |
+| §FS-rhei-supervision | Subtree supervision: a parent woken at task or state checkpoints of its descendants |
 | §FS-rhei-errors | CLI error anatomy, help lines, and copy-paste safety |
 | §FS-rhei-validate | `rhei validate` command behavior |
 | §FS-rhei-render | `rhei render` command behavior |

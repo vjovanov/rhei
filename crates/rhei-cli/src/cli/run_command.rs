@@ -225,6 +225,14 @@ fn run_command(
     if report.has_errors() {
         return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
     }
+    // A machine that warns is legal, so the run proceeds — but the operator
+    // heard it only if they happened to validate first.
+
+    // §FS-rhei-validate.4 §FS-rhei-run.3
+    report.warnings.dedup();
+    for warning in &report.warnings {
+        eprintln!("warning: {warning}");
+    }
 
     let use_standalone_mode =
         should_use_agent_mode(&loaded.rhei, &machines.set, &settings, &opts, &workspace_root)?;
@@ -263,7 +271,7 @@ fn should_use_agent_mode(
     }
 
     for task in narrow_to_rhei_scope(
-        find_runnable_tasks(rhei, machines, workspace_root),
+        find_runnable_tasks(rhei, machines, workspace_root, &HashSet::new()),
         &rhei_scope_set(opts.rhei_scope()),
     ) {
         let machine = machines.for_task(&task.id);

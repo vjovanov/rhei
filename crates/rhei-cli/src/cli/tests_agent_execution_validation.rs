@@ -528,6 +528,32 @@ done
             errs.iter().any(|e| e.contains("unsupported-snapshot-session")),
             "named emit with no session layout must error: {errs:?}"
         );
+        assert!(
+            errs.iter().all(|e| !e.contains("remove the `snapshot:` block")),
+            "an ordinary state has no supervision advice to give: {errs:?}"
+        );
+    }
+
+    /// A supervising state is the one place the spec *recommends* `snapshot:`,
+    /// so the error an author hits by following that recommendation onto an
+    /// agent without session support has to say what to do instead.
+    // §FS-rhei-supervision.1.1 §FS-rhei-supervision.6
+    #[test]
+    fn a_supervisor_told_to_drop_snapshot_is_told_what_it_keeps() {
+        let settings = default_settings();
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  supervising:\n    description: x\n    execute_on: descendant-terminal\n    target: claude-code:anthropic:model\n    snapshot:\n      emit:\n        name: supervisor\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: supervising\n    to: supervising\n  - from: supervising\n    to: done\n    condition: openDescendants < 1\n",
+        );
+        let errs = validate_machine_settings_references(&machine, &settings);
+        let hinted = errs
+            .iter()
+            .find(|e| e.contains("unsupported-snapshot-session"))
+            .expect("claude-code has no snapshot session layout");
+        assert!(
+            hinted.contains("remove the `snapshot:` block")
+                && hinted.contains("`## Checkpoints` and the briefs"),
+            "the error owes the author the way forward: {hinted}"
+        );
     }
 
     #[test]

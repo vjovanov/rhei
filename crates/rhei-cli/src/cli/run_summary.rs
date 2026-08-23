@@ -433,7 +433,8 @@ fn state_is_failure(state: &str) -> bool {
 /// still reads as attention, not a calm gate. §FS-rhei-run-report.3.2
 fn classify_marker(state: &str, machine: &rhei_validator::StateMachine) -> Marker {
     match state {
-        "cancelled" | "canceled" => return Marker::Cancelled,
+        // §FS-rhei-states.1.4: the reserved cancel name, in either spelling.
+        _ if rhei_validator::is_cancelled_state_name(state) => return Marker::Cancelled,
         _ if state_is_failure(state) => return Marker::Attention,
         _ => {}
     }
@@ -463,6 +464,14 @@ fn marker_for_task(
     machine: &rhei_validator::StateMachine,
     halt_causes: &HashMap<String, HaltCause>,
 ) -> Marker {
+    // A held descendant is a deliberate pause, not work to act on: its
+    // supervisor is the ticket that is owed a visit, and it takes the
+    // Attention row. §FS-rhei-supervision.3.4
+    if matches!(halt_causes.get(id), Some(HaltCause::HeldBySupervisor { .. }))
+        && !state_is_failure(state)
+    {
+        return Marker::Gate;
+    }
     if is_calm_parent(id, state, machine, halt_causes) {
         return Marker::Gate;
     }
@@ -600,6 +609,10 @@ pub struct RunSummaryReport {
     work: String,
     accounting: Option<rhei_tui::AccountingRunSummary>,
     attention: Vec<AttentionRow>,
+    /// Tickets nobody has to act on because someone else's turn is what they
+    /// are waiting for. Held descendants dilute Attention: a held ticket's own
+    /// next action is "nothing to do on this ticket". §FS-rhei-supervision.3.4
+    waiting: Vec<AttentionRow>,
     rows: Vec<TaskRow>,
     dashboard: Option<String>,
     // ── Durable-report fields (§FS-rhei-run-report.1, .2, .4, .7) ────────────
@@ -693,6 +706,7 @@ impl RunSummaryReport {
         // Source-order walk that preserves hierarchy depth.
         let mut rows = Vec::new();
         let mut attention = Vec::new();
+        let mut waiting = Vec::new();
         let mut counts: std::collections::BTreeMap<String, (usize, Marker)> =
             std::collections::BTreeMap::new();
         collect_rows(
@@ -703,6 +717,7 @@ impl RunSummaryReport {
             &halt_causes,
             &mut rows,
             &mut attention,
+            &mut waiting,
             &mut counts,
         );
 
@@ -770,6 +785,7 @@ impl RunSummaryReport {
             work,
             accounting,
             attention,
+            waiting,
             rows,
             dashboard: stats.dashboard,
             run_id: stats.run_id,
@@ -850,6 +866,31 @@ impl RunSummaryReport {
                     "  {}… {} more in the report{}\n",
                     c.dim,
                     self.attention.len() - MAX_ATTENTION_ROWS,
+                    c.reset
+                ));
+            }
+        }
+
+        // Waiting — held tickets, which are nobody's action item.
+        // §FS-rhei-supervision.3.4
+        if !self.waiting.is_empty() {
+            out.push_str(&format!(
+                "\n{}Waiting{}    {} held\n",
+                c.bold,
+                c.reset,
+                self.waiting.len()
+            ));
+            for row in self.waiting.iter().take(MAX_ATTENTION_ROWS) {
+                out.push_str(&format!(
+                    "  {}\u{23f8}{} {:<26} {}{:<11}{} {}\n",
+                    c.dim, c.reset, row.id, c.dim, row.state, c.reset, row.reason
+                ));
+            }
+            if self.waiting.len() > MAX_ATTENTION_ROWS {
+                out.push_str(&format!(
+                    "  {}\u{2026} {} more in the report{}\n",
+                    c.dim,
+                    self.waiting.len() - MAX_ATTENTION_ROWS,
                     c.reset
                 ));
             }
@@ -970,6 +1011,23 @@ impl RunSummaryReport {
                     md_cell(&a.state),
                     md_cell(&a.reason),
                     md_cell(&a.next),
+                ));
+            }
+            out.push('\n');
+        }
+
+        // 3b. Waiting — held tickets, kept out of Attention so the rows a
+        // person must act on stay undiluted. §FS-rhei-supervision.3.4
+        if !self.waiting.is_empty() {
+            out.push_str("## Waiting\n\n");
+            out.push_str("| Task | State | Reason | Next action |\n| --- | --- | --- | --- |\n");
+            for row in &self.waiting {
+                out.push_str(&format!(
+                    "| {} | {} | {} | {} |\n",
+                    md_cell(&row.id),
+                    md_cell(&row.state),
+                    md_cell(&row.reason),
+                    md_cell(&row.next),
                 ));
             }
             out.push('\n');
@@ -1189,6 +1247,7 @@ fn collect_rows(
     halt_causes: &HashMap<String, HaltCause>,
     rows: &mut Vec<TaskRow>,
     attention: &mut Vec<AttentionRow>,
+    waiting: &mut Vec<AttentionRow>,
     counts: &mut std::collections::BTreeMap<String, (usize, Marker)>,
 ) {
     for task in tasks {
@@ -1206,13 +1265,21 @@ fn collect_rows(
         // counted — see [`is_calm_parent`].
         if marker.needs_attention() && !is_calm_parent(&id, &state, machine, halt_causes) {
             let (reason, next) = attention_reason(marker, &id, &state, halt_causes);
-            attention.push(AttentionRow {
+            let row = AttentionRow {
                 id: id.clone(),
                 state: state.clone(),
                 reason,
                 next,
                 is_gate: marker == Marker::Gate,
-            });
+            };
+            // A held ticket is someone else's turn, not a human's: it belongs
+            // under Waiting, where it explains itself without diluting the rows
+            // a person has to act on. §FS-rhei-supervision.3.4
+            if matches!(halt_causes.get(&id), Some(HaltCause::HeldBySupervisor { .. })) {
+                waiting.push(row);
+            } else {
+                attention.push(row);
+            }
         }
 
         rows.push(TaskRow { depth, id, state, marker, detail });
@@ -1224,6 +1291,7 @@ fn collect_rows(
             halt_causes,
             rows,
             attention,
+            waiting,
             counts,
         );
     }

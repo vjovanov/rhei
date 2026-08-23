@@ -401,9 +401,10 @@ fn validate_machine_settings_references(
                             && !profile_has_snapshot_layout(&invocation.profile.session)
                         {
                             errors.push(format!(
-                                "state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout (unsupported-snapshot-session)",
+                                "state '{}' declares snapshot.emit but agent '{}' has no supported snapshot session layout (unsupported-snapshot-session){}",
                                 state_name,
-                                invocation.agent.id()
+                                invocation.agent.id(),
+                                snapshot_removal_hint(state)
                             ));
                         }
                         if state
@@ -414,9 +415,10 @@ fn validate_machine_settings_references(
                             && !profile_has_snapshot_preload(&invocation.profile.session)
                         {
                             errors.push(format!(
-                                "state '{}' declares required snapshot.inherit but agent '{}' has no supported snapshot preload strategy (unsupported-snapshot-session)",
+                                "state '{}' declares required snapshot.inherit but agent '{}' has no supported snapshot preload strategy (unsupported-snapshot-session){}",
                                 state_name,
-                                invocation.agent.id()
+                                invocation.agent.id(),
+                                snapshot_removal_hint(state)
                             ));
                         }
                     }
@@ -578,6 +580,23 @@ fn snapshot_record_is_orphaned_for_loaded(
         return true;
     };
     slugs.is_empty() || !slugs.contains(&record.target_slug)
+}
+
+/// What to do about a `snapshot:` block the resolved agent cannot honour.
+///
+/// On a supervising state the block is *recommended*, so an author who followed
+/// the recommendation onto an agent without session support hits a hard error
+/// with nothing to do about it. Supervision works without it — worse, but it
+/// works — and that is the sentence the error owes them.
+// §FS-rhei-supervision.1.1 §FS-rhei-supervision.6
+fn snapshot_removal_hint(state: &rhei_validator::StateDef) -> &'static str {
+    if state.execute_on().is_some() {
+        "; remove the `snapshot:` block \u{2014} the supervisor still receives \
+         `## Checkpoints` and the briefs (\u{a7}FS-rhei-supervision.6), it just starts each \
+         visit cold"
+    } else {
+        ""
+    }
 }
 
 fn profile_has_snapshot_layout(session: &Option<serde_json::Value>) -> bool {

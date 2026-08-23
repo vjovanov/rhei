@@ -50,12 +50,23 @@ When multiple tasks are claimable, `rhei next` picks the first in plan order —
 
 A task with child nodes is a task in its own right, not a container that fills up. Nothing advances it when its children advance: it carries its own state, its own work, and its own result. Rule 1 is the only thing that makes it different — it is not claimable while any descendant is still open, and it becomes claimable the moment the last one closes.
 
-So a parent is worked exactly like a leaf, just later: `rhei next` hands it to you after its subtree is terminal, you do whatever its state's instructions say (the integration, the verification, the write-up the children do not cover), and you finish it with `rhei complete`. Do not try to skip it, and do not read a parent left in `pending` after its children finished as a bug — it is work waiting for you.
+So a parent is worked exactly like a leaf, just later: `rhei next` hands it to you after its subtree is terminal — unless its state declares `execute_on:`, in which case it is handed to you *between* its children instead (see *Supervising parents*). You do whatever its state's instructions say (the integration, the verification, the write-up the children do not cover), and you finish it with `rhei complete`. Do not try to skip it, and do not read a parent left in `pending` after its children finished as a bug — it is work waiting for you.
 
 Two refusals follow from the same rule, and neither is worked around by editing markdown:
 
 - `rhei next --task <parent>` while a descendant is open fails, naming the open descendants and the ticket that is claimable instead. Claim that one.
 - Any move into a terminal state — `rhei complete`, `rhei transition`, an orchestrated run — is refused on a task with a non-terminal descendant. Finish or cancel the descendants first; `cancelled` is terminal, so a deliberately abandoned child releases its parent.
+
+### Supervising parents
+
+A parent whose current state declares `execute_on:` is a **supervisor**: `rhei next` hands it to you *while* its subtree is open, at every checkpoint, not once at the end. Which moves reach you is that state's `execute_on` value — every finished child, every child transition, every finished descendant, or every descendant transition — and your prompt says which. The visit is short and it is not the parent's own work:
+
+1. **Judge the checkpoints.** `rhei next` prints `## Checkpoints` — the descendants that moved since the last visit, each with what that step left behind — plus `## Supervising This Subtree`, which gives the paths below.
+2. **Steer the next step.** Write a brief at `<root>/runtime/supervise/<task-id>.md` (read by every state of that descendant) or `<root>/runtime/supervise/<task-id>/<state>.md` (that state only). Append a child by editing the parent's own task file. Cancel a step the checkpoints made unnecessary with `rhei transition <plan> --task <child> --from <state> --to cancelled --result "<why>"` — a cancel does not have to satisfy the cancelled step's declared outputs, but it does have to say why.
+3. **End the visit.** Run `rhei transition <plan> --task <P> --from <s> --to <s>` — the state's own self-loop. That one edge is the release: it lets the subtree run again and drops your `**Assignee:**`, so the next checkpoint is claimed afresh. Do not leave the visit by editing markdown, and do not hold the ticket across checkpoints.
+4. **Finish it** with `rhei complete` only once every descendant is terminal; the machine's `openDescendants < 1` edge is what selects that.
+
+While you hold a supervisor's visit, nothing beneath it runs. A `rhei next --task <child>` refusal that says the child is *held by supervisor Task \<P\>* is not your ticket to force — it names the supervisor to work instead, or the worker holding it and the `rhei release` that hands it back.
 
 A resumable task (already carrying your own `**Assignee:**` from an interrupted prior session) is not re-claimable via `rhei next`. Resume it directly: read the current state, follow its instructions, and advance with `rhei transition` / `rhei complete` as usual.
 
@@ -86,7 +97,7 @@ If the loaded machine differs from the default, trust it over this list.
 
 ## Assignee Discipline
 
-`**Assignee:**` is owned by the CLI — never edit it by hand. `rhei next` writes it when claiming; any move into a terminal state removes it, whether that move came from `rhei complete` or `rhei transition`; a non-terminal `rhei transition` leaves it untouched, so a long-running task keeps the same assignee across intermediate transitions in custom machines.
+`**Assignee:**` is owned by the CLI — never edit it by hand. `rhei next` writes it when claiming; any move into a terminal state removes it, whether that move came from `rhei complete` or `rhei transition`; a supervising state's self-loop removes it too, because that edge ends the visit it was claimed for (see *Supervising parents*); every other non-terminal `rhei transition` leaves it untouched, so a long-running task keeps the same assignee across intermediate transitions in custom machines.
 
 ## Progress Logging
 

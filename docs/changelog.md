@@ -2,6 +2,152 @@
 
 ## Unreleased
 
+- Give a parent a way to look after its subtree *while* it runs instead of only
+  integrating it at the end. A state that declares
+  **`execute_on: <scope>-<event>`** turns the task holding it into a
+  **supervisor**: the orchestrator wakes it at *checkpoints* — after every
+  finished child (`child-terminal`), every child transition
+  (`child-transition`), every finished descendant (`descendant-terminal`), or
+  every descendant transition (`descendant-transition`) — with the same agent
+  session continued from its previous visit, and holds the rest of the subtree
+  while it decides how to steer. The scope says whose moves reach the
+  supervisor, the event says which of them do; because a non-leaf child is
+  terminal only once its own subtree is, `child-terminal` wakes it exactly once
+  per finished child *subtree*, which is how supervision is layered one level of
+  decomposition at a time. Continuity needs an agent with session support, which today
+  means `pi`: with the built-in `claude-code` profile the supervisor runs each
+  visit cold, carried by its checkpoints and its briefs rather than by a
+  transcript. A review/fix chain authored as four children no longer runs
+  unattended to the end with the parent's context out of the room.
+
+  The supervisor is a **barrier over its subtree**, and the rule is one rule:
+  entry holds, the supervisor's **self-loop releases**, a checkpoint holds
+  again, and it is ready once nothing beneath it is in flight. So a supervisor
+  and one of its descendants are still never worked at the same time — the
+  guarantee the non-leaf task model already made, extended to a parent that runs
+  many times — and a supervisor that changes nothing changes nothing: it is not
+  ready again until a descendant produces one. Under `--parallel` a checkpoint
+  is a drain: siblings already running finish, nothing new starts, and one visit
+  sees every checkpoint they produced.
+
+  Checkpoints are **post-transition** and reach exactly one task, the *nearest
+  in-scope* supervising ancestor: a `child-*` supervisor declines a
+  grandchild's move and the event climbs to the next ancestor whose scope
+  reaches that deep, or to nobody. Scope narrows what wakes a supervisor, never
+  what it holds — a `child-*` supervisor is still the barrier over its whole
+  subtree, and the descendants it does not hear about simply run freely between
+  its visits. A poll retry is not a checkpoint, a supervisor's own release edge
+  is not one for its own ancestors, and neither is a move the supervisor made
+  itself during its visit. The phase and the pending checkpoints live in plan
+  frontmatter beside `stateVisits`, written on the shared transition path — so
+  `rhei run`'s auto-advance, `rhei transition`, `rhei complete`, and a callback
+  redirect all maintain the barrier identically, a run stopped between a
+  checkpoint and the visit resumes exactly where it was, and a manual worker
+  sees the same state the orchestrator would. `rhei reset` clears it.
+
+  The supervisor steers with the levers that already exist. It writes a
+  **brief** at `runtime/supervise/<task-id>.md` (or
+  `runtime/supervise/<task-id>/<state>.md` for one state only) that the next
+  step reads under **`## Supervisor Brief`** — direction, bounded by that state's
+  own instructions and artifact contract. It appends children by editing its own
+  task file and cancels ones the results made unnecessary with `rhei
+  transition`, both of which the orchestrator sees on re-read. Its own prompt
+  gains **`## Checkpoints`** — what moved since its last visit, each carrying
+  the result or the source state's outputs — and an unsupervised parent finally
+  gains **`## Child Task Results`**, the result of every terminal child, which
+  it never saw before.
+
+  Transition conditions gain **`openDescendants`**, the number of non-terminal
+  descendants of the transitioning task, evaluated against the plan as re-read
+  after the subprocess exits. It is how a machine *selects* a parent's terminal
+  edge once its subtree closes; the descendants-first guard still decides
+  whether that edge may be taken. Self-loops on non-poll agent states are now
+  general **loop-back re-entries** rather than a polling-only construct.
+
+  That generalization is a **behaviour change** for machines that already had
+  such a self-loop: the engine now counts visits of every non-poll state a
+  self-loop is declared from, so a `condition: visitCount >= N` exit on that
+  loop fires where it previously compared against `0` and spun forever. The
+  visible side effect is that a task which merely *enters* such a state gets
+  `stateVisits.<state>: 1` in frontmatter even if it never loops. How the state
+  is spelled does not change: `**State:**` takes its `-<n>` suffix only where
+  `visits:` is declared. `rhei validate` now warns when a non-poll self-loop
+  declares neither `visits:` nor a `visitCount`-bounded exit — nothing ends that
+  loop.
+
+  Cancelling a step no longer has to satisfy that step's own `outputs:`. This
+  is a deliberate **behaviour change** on every verb, not only under a
+  supervisor: a transition whose effective target is `cancelled` skips the
+  source state's required outputs, because cancellation abandons the work and
+  the contract of a step nobody is finishing is moot. Without it a supervisor
+  could not drop a pending `review` child whose state declares a `findings`
+  output — the whole point of cancelling it is that nobody will write one.
+  Nothing else on the path changes: the descendants-first guard, the target's
+  `inputs:`, the callbacks, and the terminal-result obligation all still apply,
+  so a cancel still needs `--result "<why>"`, and the supervisor's prompt now
+  says so.
+
+  `cancelled` is now a **reserved state name**, and `canceled` is accepted as
+  the same name. Four rules read it as "the work was abandoned" — a cancelled
+  prior does not satisfy a dependency, `rhei complete` never selects it, the run
+  report marks it apart from success, and a transition into it waives the
+  source state's outputs — and each used to spell the test itself, so an
+  American-spelled machine got cancellation semantics in one surface out of
+  four. A machine that names its abandon state anything else keeps the ordinary
+  outputs check, and the refusal on a transition into a `final: true` state now
+  names the state that skips it. §FS-rhei-states.1.4
+
+  A supervisor that leaves its supervising state for a **human gate keeps its
+  subtree held**. The `supervision` block, not the state, is the hold: an exit
+  into a `gating: true` state keeps the block, every other non-self-loop exit
+  removes it, and a human moving the parked ticket on is what releases the
+  subtree. Exhausting a visit budget used to silently un-supervise everything
+  beneath the supervisor, which is the opposite of what a budget is for. The run
+  says so at that transition and the report gives the parked ticket a row naming
+  the subtree it still holds.
+
+  Every surface that explains readiness gained the reason: `rhei next` refuses a
+  held descendant by naming its supervisor — or the worker holding that visit,
+  or the human at the gate — `rhei list --ready` excludes it and
+  admits a supervisor whose subtree is still open, the run report gives held
+  tickets a **Waiting** section of their own rather than diluting Attention, and
+  `rhei run --dry-run` names the barrier per pass and renders the release
+  self-loop as `(release)`. `rhei run` also prints the machine's validation
+  warnings once at start, so a machine whose supervisor has no `openDescendants`
+  exit is called out before the run spends the whole subtree proving it — and if
+  it halts there, the halt names the missing transition line.
+
+  `examples/subtree-supervision/` runs the whole chain with a committed mock
+  agent and no credentials. §FS-rhei-supervision §DF-subtree-supervision
+  Issue #86. PR #87 §FS-rhei-supervision §DF-subtree-supervision
+
+- A new built-in template, **`supervised-delivery`**, is the workflow
+  `execute_on:` was for: one supervising task that reads a spec, sends the
+  implementer, sends a code review and a product review of the same round
+  together, sends the fixer, and then decides from the resolutions it just read
+  whether the next round happens or gets cancelled so coverage can start. Two
+  things make the supervisor the one that decides. The **brief is the release
+  gate** — every child state declares a required input at
+  `runtime/supervise/{task_id}.md`, so no step is dispatched until the
+  supervisor has written that step's brief. And the channel between steps is
+  **plan exports** (`**Provides:**` / `**Consumes:**`), each one file holding a
+  single fenced `json` block, declared as that state's `outputs:` so a step
+  cannot finish without publishing it; the schemas ship as `prompt_templates/`
+  fragments the reviewer states share. Run it with `--parallel 2` or more so the
+  two reviews of a round overlap. The rendered example is
+  `examples/supervised-delivery-example/`. §FS-rhei-supervision §FS-rhei-templates
+  PR #87 §FS-rhei-templates
+
+- `rhei instantiate`'s template environment documents `range()`, arithmetic, and
+  `~`, which it already supported. `{% for k in range(1, rounds + 1) %}` is how
+  a template unrolls a counted structure into one task per round — the shape to
+  reach for when each round needs its own `**Prior:**`, exports, or title, which
+  are per-task metadata a counted `visits:` loop has nowhere to put. The same
+  arithmetic sizes a state's budget from the inputs that shaped the plan.
+  §FS-rhei-templates.5
+  PR #87 §FS-rhei-templates.5
+
+
 ## 2. [0.2.0] - 2026-08-22
 
 - Separate a run from the surface that watches it. `rhei run` bound the two into

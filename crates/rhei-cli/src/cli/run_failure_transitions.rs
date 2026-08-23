@@ -242,8 +242,18 @@ fn format_ready_tasks(tasks: &[&rhei_core::ast::Task]) -> String {
     tasks.iter().map(|task| format_task_label(task)).collect::<Vec<_>>().join(", ")
 }
 
-fn format_dry_run_transition(task_id: &str, from: &str, to: &str) -> String {
-    format!("would transition: Task {task_id}  {from} -> {to}")
+fn format_dry_run_transition(
+    task_id: &str,
+    from: &str,
+    to: &str,
+    machine: &rhei_validator::StateMachine,
+) -> String {
+    // A supervisor's self-loop is the release edge, and rendered bare it reads
+    // as a no-op — the one line in a dry run that decides whether the subtree
+    // beneath it moves. §FS-rhei-supervision.3.1
+    let release = from == to && execute_on_of(machine, &normalized_state_name(from, machine)).is_some();
+    let suffix = if release { " (release)" } else { "" };
+    format!("would transition: Task {task_id}  {from} -> {to}{suffix}")
 }
 
 /// A dry run reports the manual-only condition instead of aborting on the
@@ -337,7 +347,9 @@ fn newly_discovered_tasks(
 /// Terminal cancellation does not satisfy dependencies: a cancelled task should
 /// not unblock downstream work.
 fn dependency_is_satisfied(state: &str, machine: &rhei_validator::StateMachine) -> bool {
-    normalized_state_name(state, machine) != "cancelled" && is_terminal_state(state, machine)
+    // §FS-rhei-states.1.4: the reserved cancel name, in either spelling.
+    !rhei_validator::is_cancelled_state_name(&normalized_state_name(state, machine))
+        && is_terminal_state(state, machine)
 }
 
 fn current_unix_secs() -> u64 {

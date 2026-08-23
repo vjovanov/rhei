@@ -13,14 +13,14 @@ load error, and per-rhei divergence was parked on the roadmap as polish.
 §FS-rhei-panta.6 §AR-rhei-panta.4
 
 Two later product moves invalidated the limit's weighting without revisiting
-it. Templates became the front door — ten built-ins ship in the binary, each
+it. Templates became the front door — eleven built-ins ship in the binary, each
 necessarily bundling its own state machine, because each template *is* a
 distinct process (a review loop is not a product-management loop). And
 `rhei instantiate` learned to land templates in the enclosing project by
 default, adopting the first template's machine as the project default so the
 first instantiation would work at all. The combination armed a first-session
 wall: template #1 succeeded frictionlessly and silently locked the project to
-its machine; templates #2 through #10 were refused, with only a second-class
+its machine; every template after it was refused, with only a second-class
 standalone workspace as the way out — while the README promised "automate your
 complex daily routines in minutes", plural, in one repository. Adoption also
 broke the other direction: once a template's machine became the project
