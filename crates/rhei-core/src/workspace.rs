@@ -49,6 +49,16 @@ pub struct PantaProject {
     /// Execution root of each rhei, keyed by rhei id — where a self-declared
     /// machine's `states.yaml` resolves first. §AR-rhei-panta.4
     pub rhei_roots: HashMap<String, PathBuf>,
+    /// Title each rhei declared in its own `# Rhei:` heading, keyed by rhei id.
+    ///
+    /// The merge folds every rhei's tickets into one graph and keeps only the
+    /// project's title on `rhei.title`, so a reader that has to name the rhei a
+    /// ticket came from had nowhere to look.
+    // §FS-rhei-memory.3.1
+    pub rhei_titles: HashMap<String, String>,
+    /// Plan document of each rhei, keyed by rhei id: a Directory Workspace's
+    /// `index.rhei.md`, or the single-file rhei itself. §FS-rhei-memory.3.4
+    pub rhei_plans: HashMap<String, PathBuf>,
     /// Rheis skipped by a lenient load, one message each. Always empty for the
     /// strict load, which fails on the first unloadable rhei instead.
     pub unloadable: Vec<String>,
@@ -298,7 +308,7 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
             }
             Err(err) => return Err(err),
         };
-        rheis.push((id, loaded.rhei, loaded.task_sources, root));
+        rheis.push((id, loaded.rhei, loaded.task_sources, root, entry));
     }
 
     let basin_dir = dir.join(BASIN_RHEI_ID);
@@ -307,20 +317,28 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
             return Err(ParseError::new("duplicate synthetic basin rhei id", None));
         }
         let loaded = load_basin_rhei(&basin_dir, &manifest.structure, &manifest.states)?;
-        rheis.push((BASIN_RHEI_ID.to_string(), loaded.rhei, loaded.task_sources, basin_dir));
+        rheis.push((
+            BASIN_RHEI_ID.to_string(),
+            loaded.rhei,
+            loaded.task_sources,
+            basin_dir.clone(),
+            basin_dir,
+        ));
     }
 
-    let rhei_ids: Vec<String> = rheis.iter().map(|(id, _, _, _)| id.clone()).collect();
+    let rhei_ids: Vec<String> = rheis.iter().map(|(id, ..)| id.clone()).collect();
     let mut all_tasks = Vec::new();
     let mut task_sources = HashMap::new();
     let mut task_roots = HashMap::new();
     let mut rhei_machines: HashMap<String, String> = HashMap::new();
     let mut rhei_roots: HashMap<String, PathBuf> = HashMap::new();
+    let mut rhei_titles: HashMap<String, String> = HashMap::new();
+    let mut rhei_plans: HashMap<String, PathBuf> = HashMap::new();
     let mut merged_structure = manifest.structure.clone();
     let mut merged_metadata = manifest.metadata.clone();
     let mut content_sections = manifest.content_sections.clone();
     let mut content_section_roots = vec![dir.to_path_buf(); content_sections.len()];
-    for (rhei_id, mut rhei, sources, root) in rheis {
+    for (rhei_id, mut rhei, sources, root, entry) in rheis {
         // Machine ownership survives the merge: a declared `**States:**` is
         // the rhei's own machine; silence means the project default. The
         // synthetic basin is built on the manifest machine and records no
@@ -331,6 +349,11 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
             rhei_machines.insert(rhei_id.clone(), rhei.states.trim().to_string());
         }
         rhei_roots.insert(rhei_id.clone(), root.clone());
+        // §FS-rhei-memory.3.1 §FS-rhei-memory.3.4: the merged graph keeps the
+        // project's title and paths; a prompt that names the owning rhei needs
+        // the rhei's own.
+        rhei_titles.insert(rhei_id.clone(), rhei.title.clone());
+        rhei_plans.insert(rhei_id.clone(), rhei_plan_file(&entry));
         // Child runtime metadata joins the merged graph under qualified keys
         // so counted loops and poll timers resolve project-wide. §AR-rhei-panta.2
         merge_task_metadata(
@@ -380,6 +403,8 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
         rhei_ids,
         rhei_machines,
         rhei_roots,
+        rhei_titles,
+        rhei_plans,
         unloadable,
     })
 }
@@ -435,6 +460,8 @@ pub fn wrap_rhei_as_implicit_panta(
         collect_task_roots(task, &root, &mut task_roots)?;
     }
     let rhei_roots = HashMap::from([(id.clone(), root.clone())]);
+    let rhei_titles = HashMap::from([(id.clone(), rhei.title.clone())]);
+    let rhei_plans = HashMap::from([(id.clone(), rhei_plan_file(entry))]);
     let content_section_roots = vec![root; rhei.content_sections.len()];
     // The implicit Panta has no manifest: the single rhei's own `**States:**`
     // declaration is the project's effective machine, so it needs no per-rhei
@@ -447,8 +474,20 @@ pub fn wrap_rhei_as_implicit_panta(
         rhei_ids,
         rhei_machines: HashMap::new(),
         rhei_roots,
+        rhei_titles,
+        rhei_plans,
         unloadable: Vec::new(),
     })
+}
+
+/// The plan document of a rhei entry: a Directory Workspace's `index.rhei.md`,
+/// or the single-file rhei itself. The execution root of a workspace rhei is
+/// the directory, which is not a document anyone can open. §FS-rhei-memory.3.4
+pub fn rhei_plan_file(entry: &Path) -> PathBuf {
+    match workspace_dir(entry) {
+        Some(dir) => dir.join("index.rhei.md"),
+        None => entry.to_path_buf(),
+    }
 }
 
 /// Runtime task metadata lives at `metadata.tasks` inside the frontmatter
