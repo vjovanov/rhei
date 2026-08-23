@@ -404,8 +404,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(not(test))]
 const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_secs(30);
+// Short enough that a hung redactor does not hold a test run for half a minute,
+// long enough that starting an interpreter is not mistaken for a hang: a cold
+// Python on a CI runner takes well past half a second to reach its first line.
 #[cfg(test)]
-const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_millis(500);
+const SNAPSHOT_REDACTOR_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Run the configured snapshot redactor over a transcript.
 ///

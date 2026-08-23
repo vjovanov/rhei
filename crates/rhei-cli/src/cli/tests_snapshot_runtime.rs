@@ -1718,7 +1718,6 @@ transitions:
         opts
     }
 
-    #[cfg(unix)]
     /// A redactor is named by path and spawned as a program, so it has to be
     /// something the platform can execute on its own: a shebang script where
     /// there are shebangs, and a `.cmd` shim beside the program where there are
