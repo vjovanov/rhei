@@ -18,6 +18,15 @@
   down as a goal and a requirement that new work is held to from the start.
   §GOAL-rhei-outcomes §REQ-cross-platform (PR #96)
 
+- Windows now runs the whole test suite — `cargo test --workspace
+  --all-targets --locked --no-fail-fast`, the same command as Linux and macOS —
+  because the end-to-end fixtures no longer need a shell. The mock agents,
+  programs, callbacks, and validators the suite stands up were `#!/bin/sh`
+  scripts, and that alone kept the CLI's e2e target off Windows; they are
+  Python scripts now, spawned directly with no shell, no `chmod`, and no
+  shebang. The three carved-out Windows test steps are gone with them.
+  §AR-ci-release.1 (PR #97)
+
 - Windows CI now runs the test suite it can: every crate's unit tests,
   `rhei-core`'s integration tests, and the CLI's integration target, which
   spawns the built `rhei` and reads what it wrote. Together they cover the
