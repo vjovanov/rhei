@@ -4,7 +4,14 @@
 mod error_guidance_tests {
     use super::super::*;
 
-    /// Quoting a word so a shell hands it back unchanged. §FS-rhei-errors.2
+    /// Quoting a word so a shell hands it back unchanged.
+    ///
+    /// Which quote a platform uses is `rhei_core::platform`'s question and is
+    /// pinned there, both halves, on every platform. What is asked here is the
+    /// decision this CLI depends on: bare when the shell would not touch it,
+    /// quoted when it would.
+
+    // §FS-rhei-errors.2
     mod shell_quote {
         use super::*;
 
@@ -16,39 +23,25 @@ mod error_guidance_tests {
         }
 
         #[test]
-        fn quotes_the_empty_string_so_it_survives_as_an_argument() {
-            assert_eq!(shell_quote(""), "''");
+        fn quotes_what_a_shell_would_otherwise_read() {
+            // The motivating case is the selector: unquoted, zsh fails with
+            // `no matches found` before rhei is executed at all.
+            for value in
+                ["", "codex[yolo]:openai:gpt-5.5", "*.md", "a b", "~/plans", "it's", "one\ntwo"]
+            {
+                let quoted = shell_quote(value);
+                assert_ne!(quoted, value, "{value:?} must not be printed bare");
+                assert!(quoted.len() > value.len(), "{value:?} came back as {quoted:?}");
+            }
         }
 
         #[test]
-        fn quotes_glob_characters() {
-            // The motivating case: unquoted, zsh fails with `no matches found`
-            // before rhei is executed at all.
-            assert_eq!(
-                shell_quote("codex[yolo]:openai:gpt-5.5"),
-                "'codex[yolo]:openai:gpt-5.5'"
-            );
-            assert_eq!(shell_quote("*.md"), "'*.md'");
-            assert_eq!(shell_quote("a b"), "'a b'");
-            assert_eq!(shell_quote("~/plans"), "'~/plans'");
-        }
-
-        #[test]
-        fn quotes_a_leading_equals_because_zsh_expands_it() {
+        fn quotes_a_leading_equals_where_the_shell_expands_it() {
             // zsh EQUALS expansion turns a leading `=word` into the path of
-            // `word`, even though `=` is harmless elsewhere in a word.
-            assert_eq!(shell_quote("=less"), "'=less'");
+            // `word`, even though `=` is harmless elsewhere in a word. `cmd`
+            // has no such expansion, so there the word stands as written.
+            assert_eq!(shell_quote("=less"), if cfg!(windows) { "=less" } else { "'=less'" });
             assert_eq!(shell_quote("a=b"), "a=b");
-        }
-
-        #[test]
-        fn escapes_embedded_single_quotes() {
-            assert_eq!(shell_quote("it's"), r#"'it'"'"'s'"#);
-        }
-
-        #[test]
-        fn quotes_a_newline() {
-            assert_eq!(shell_quote("one\ntwo"), "'one\ntwo'");
         }
     }
 
@@ -58,11 +51,13 @@ mod error_guidance_tests {
 
         #[test]
         fn quotes_only_the_value_of_an_assignment() {
+            // Built with the quoting the product would use, because what this
+            // function decides is *where* the quotes go, not which they are.
             assert_eq!(
                 shell_arg("agent=codex[yolo]:openai:gpt-5.5"),
-                "agent='codex[yolo]:openai:gpt-5.5'"
+                format!("agent={}", shell_quote("codex[yolo]:openai:gpt-5.5"))
             );
-            assert_eq!(shell_arg("subject=<value>"), "subject='<value>'");
+            assert_eq!(shell_arg("subject=<value>"), format!("subject={}", shell_quote("<value>")));
         }
 
         #[test]
@@ -80,7 +75,7 @@ mod error_guidance_tests {
         fn treats_a_non_identifier_left_hand_side_as_a_plain_word() {
             // A path that happens to contain `=` is not an assignment.
             assert_eq!(shell_arg("/tmp/a=b/c"), "/tmp/a=b/c");
-            assert_eq!(shell_arg("=x"), "'=x'");
+            assert_eq!(shell_arg("=x"), shell_quote("=x"));
         }
 
         #[test]
@@ -89,7 +84,8 @@ mod error_guidance_tests {
             // the original argument.
             let original = "agent=codex[yolo]:openai:gpt-5.5";
             let rendered = shell_arg(original);
-            let unquoted = rendered.replace('\'', "");
+            let quote = if cfg!(windows) { '"' } else { '\'' };
+            let unquoted = rendered.replace(quote, "");
             assert_eq!(unquoted, original);
         }
     }
@@ -98,7 +94,7 @@ mod error_guidance_tests {
     fn shell_command_joins_quoted_parts() {
         assert_eq!(
             shell_command(["rhei", "instantiate", "guided", "agent=a[b]:c:d"]),
-            "rhei instantiate guided agent='a[b]:c:d'"
+            format!("rhei instantiate guided agent={}", shell_quote("a[b]:c:d"))
         );
     }
 
@@ -331,7 +327,7 @@ mod error_guidance_tests {
         fn a_path_needing_quotes_is_quoted() {
             let help =
                 io_error_help(&PathBuf::from("/tmp/a b/plan.md"), ErrorKind::PermissionDenied);
-            assert!(help.contains("'/tmp/a b/plan.md'"), "got: {help}");
+            assert!(help.contains(&shell_quote("/tmp/a b/plan.md")), "got: {help}");
         }
     }
 }

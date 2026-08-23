@@ -557,13 +557,19 @@ transitions:
         result.stderr
     );
     assert!(
-        stderr.contains("rhei --state-machine='")
-            && stderr.contains("custom states.yaml' transition"),
+        stderr.contains(&format!(
+            "rhei --state-machine={} transition",
+            shell_quote(&machine_path.display().to_string())
+        )),
         "expected suggested command to include quoted custom state-machine path; got:\n{}",
         result.stderr
     );
     assert!(
-        stderr.contains("--from='in progress' --to='done now'"),
+        stderr.contains(&format!(
+            "--from={} --to={}",
+            shell_quote("in progress"),
+            shell_quote("done now")
+        )),
         "expected suggested command to quote state names; got:\n{}",
         result.stderr
     );
