@@ -48,12 +48,17 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     // Held for the whole invocation: numbering, writing, verifying, and rolling
     // back all touch the same file, so a narrower lock still loses tickets.
     // §FS-rhei-new.4
-    let _create_lock = lock_new_create(&target)?;
+    let scope_lock = lock_new_create(&target)?;
 
     let write = match options.under.as_deref() {
         Some(parent) => new_ticket_write(&target, options, parent, description.as_deref())?,
         None => new_rhei_write(&target, options, description.as_deref())?,
     };
+
+    // Only now is the destination known, which is why this lock comes second.
+    // It is the object the other commands lock, and the scope lock is not.
+    // §FS-rhei-new.4
+    let _destination_lock = lock_new_destination(&scope_lock, &write.path)?;
 
     if options.dry_run {
         report_new_dry_run(&write, options.json);

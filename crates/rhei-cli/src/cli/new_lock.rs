@@ -17,6 +17,9 @@
 // §FS-rhei-new.4
 struct NewCreateLock {
     file: fs::File,
+    /// The path this lock was taken on, so a second lock can tell whether it
+    /// would be locking the same file twice from the same process.
+    path: PathBuf,
 }
 
 impl Drop for NewCreateLock {
@@ -32,12 +35,47 @@ impl Drop for NewCreateLock {
 /// race the lock exists to remove.
 // §FS-rhei-new.4
 fn lock_new_create(target: &Path) -> MietteResult<NewCreateLock> {
-    let path = new_create_lock_path(target);
-    let file = fs::File::open(&path)
-        .map_err(|err| file_io_report(&path, "failed to open for locking", err))?;
+    lock_plan_path(&new_create_lock_path(target))
+}
+
+/// Take the destination plan file's own lock, on top of the scope lock.
+///
+/// The scope lock makes sibling numbering safe, but no other command takes it:
+/// `rhei complete`, `rhei transition`, `rhei reset`, and `rhei run` all lock the
+/// *plan file* they rewrite, so a create holding only the scope lock serializes
+/// against other creates and against nothing else — and a create that reads,
+/// splices, and writes a whole file while a completion rewrites a `**State:**`
+/// line in it silently drops the completion.
+///
+/// Always taken second, so the two locks are only ever acquired scope-first and
+/// no cycle is possible. `None` in the two cases where taking it would be wrong
+/// rather than merely unnecessary:
+///
+/// - the destination *is* the scope file (a lone plan), and `fs2` does not
+///   define what a second exclusive lock on the same file from the same process
+///   does;
+/// - the destination does not exist yet, so it holds no ticket any other
+///   command could be rewriting, and the scope lock already serializes the
+///   creates that might race to make it.
+// §FS-rhei-new.4
+fn lock_new_destination(
+    scope: &NewCreateLock,
+    destination: &Path,
+) -> MietteResult<Option<NewCreateLock>> {
+    if !destination.is_file() || same_path(&scope.path, destination) {
+        return Ok(None);
+    }
+    lock_plan_path(destination).map(Some)
+}
+
+/// Take an exclusive advisory lock on one existing file.
+// §FS-rhei-new.4
+fn lock_plan_path(path: &Path) -> MietteResult<NewCreateLock> {
+    let file = fs::File::open(path)
+        .map_err(|err| file_io_report(path, "failed to open for locking", err))?;
     file.lock_exclusive()
-        .map_err(|err| file_io_report(&path, "failed to acquire file lock", err))?;
-    Ok(NewCreateLock { file })
+        .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
+    Ok(NewCreateLock { file, path: path.to_path_buf() })
 }
 
 /// The file that stands for the whole create scope: the project manifest for a
