@@ -641,9 +641,9 @@ fn execute_transition_with_origin(
     };
 
     // Atomic write(s): write to temp file in the same directory, then rename.
-    write_file_atomic(metadata_file, &metadata_raw_updated)?;
+    write_file_atomic_locked(metadata_file, &metadata_raw_updated, Some(&metadata_handle))?;
     if let Some(ref task_raw_updated) = task_raw_updated {
-        write_file_atomic(task_file, task_raw_updated)?;
+        write_file_atomic_locked(task_file, task_raw_updated, task_handle.as_ref())?;
     }
 
     // Execute on_enter callback after the state change (not model-looped).
@@ -686,9 +686,11 @@ fn execute_transition_with_origin(
                 // write to the original, then the error_handling policy
                 // applies. We implement the rollback; policy execution is
                 // a follow-up.
-                let rollback_err = write_file_atomic(metadata_file, &metadata_raw).err();
+                let rollback_err =
+                    write_file_atomic_locked(metadata_file, &metadata_raw, Some(&metadata_handle))
+                        .err();
                 let task_rollback_err = if task_raw_updated.is_some() {
-                    write_file_atomic(task_file, &task_raw).err()
+                    write_file_atomic_locked(task_file, &task_raw, task_handle.as_ref()).err()
                 } else {
                     None
                 };
