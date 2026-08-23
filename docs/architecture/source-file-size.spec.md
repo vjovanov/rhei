@@ -93,10 +93,11 @@ under `crates/rhei-cli/src/cli/`:
   `agent_command`, `agent_spawn`, and `programs` contain run configuration,
   settings merge/validation, tooling resolution, agent command construction,
   agent spawning, and program-state execution.
-- `snapshot_records`, `snapshot_list_show`, `snapshot_refs_gc`,
-  `snapshot_continue_lock`, `snapshot_runtime_emit`, and
-  `snapshot_runtime_preload` contain snapshot CLI/cache handling and run-loop
-  snapshot emit/preload hooks.
+- `snapshot_pointer`, `snapshot_records`, `snapshot_list_show`,
+  `snapshot_refs_gc`, `snapshot_continue_lock`, `snapshot_runtime_emit`, and
+  `snapshot_runtime_preload` contain the `current`-pointer reader and writers
+  every generation shares, snapshot CLI/cache handling, and run-loop snapshot
+  emit/preload hooks.
 - `run_command`, `run_git_consistency`, `run_agent_mode`, `run_work_items`,
   `run_program_sequential`, `run_agent_sequential`,
   `run_agent_sequential_completion`, `run_parallel_spawn`,
