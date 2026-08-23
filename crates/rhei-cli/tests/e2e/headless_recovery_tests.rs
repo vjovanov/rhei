@@ -313,19 +313,20 @@ fn chatty_agent_workspace(
     )
     .expect("plan");
 
-    let agent = write_fixture_file(
+    let agent = super::write_python_agent(
         &dir,
-        "chatty-agent.sh",
-        "#!/bin/sh\nset -eu\necho \"agent line one\"\necho \"agent line two\"\n\
-         mkdir -p \"$(dirname \"${RHEI_RESULT_PATH:?}\")\"\n\
-         printf '## Result\\n\\nDone.\\n' > \"$RHEI_RESULT_PATH\"\n",
+        "chatty-agent.py",
+        r#"print('agent line one', flush=True)
+print('agent line two', flush=True)
+result('## Result\n\nDone.\n')
+"#,
     );
-    let script = serde_json::to_string(&agent.display().to_string()).expect("script path");
+    let command = super::fixture_command(&agent);
     fs::write(
         workspace.join(".agents/rhei/settings.json"),
         format!(
             "{{\n  \"defaults\": {{ \"agent\": \"mock\" }},\n  \"agents\": \
-             {{ \"mock\": {{ \"command\": [\"sh\", {script}], \"timeout\": \"2m\" }} }}\n}}"
+             {{ \"mock\": {{ \"command\": {command}, \"timeout\": \"2m\" }} }}\n}}"
         ),
     )
     .expect("settings");

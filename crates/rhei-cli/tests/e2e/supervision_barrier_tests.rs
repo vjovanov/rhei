@@ -37,11 +37,34 @@ structure:
 /// it left behind is what `openDescendants` reads on the way out.
 #[test]
 fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
-    let cancel = r#"    if [ "$visit" = "1" ]; then
-      "RHEI_BIN" --state-machine "$RHEI_STATE_MACHINE_PATH" transition "$RHEI_PLAN_PATH" \
-        --task "$task.2" --from fix --to cancelled --result "made unnecessary" --no-callbacks
-    fi"#
-    .replace("RHEI_BIN", env!("CARGO_BIN_EXE_rhei"));
+    // The binary path is JSON-encoded rather than pasted: on Windows it is
+    // full of backslashes, which a plain Python literal would read as escapes.
+    let cancel = r#"    if visit == '1':
+        import subprocess
+
+        subprocess.run(
+            [
+                RHEI_BIN,
+                '--state-machine',
+                env('RHEI_STATE_MACHINE_PATH'),
+                'transition',
+                env('RHEI_PLAN_PATH'),
+                '--task',
+                task + '.2',
+                '--from',
+                'fix',
+                '--to',
+                'cancelled',
+                '--result',
+                'made unnecessary',
+                '--no-callbacks',
+            ],
+            check=True,
+        )"#
+    .replace(
+        "RHEI_BIN",
+        &serde_json::to_string(env!("CARGO_BIN_EXE_rhei")).expect("binary path json"),
+    );
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-cancel",
         TWO_CHILD_PLAN,

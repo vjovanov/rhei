@@ -1144,13 +1144,13 @@ transitions:
 /// target: a no-op script, so `run` exercises machine dispatch, not agents.
 fn write_mock_agent_settings(dir: &std::path::Path) {
     // §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-    let script = write_fixture_file(
+    let script = write_python_agent(
         dir,
-        "mock-agent.sh",
-        "#!/bin/sh\nset -eu\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\n\
-         printf '## Result\\n\\nMock agent finished %s.\\n' \"$RHEI_STATE\" > \"$RHEI_RESULT_PATH\"\n",
+        "mock-agent.py",
+        r#"result('## Result\n\nMock agent finished {}.\n'.format(env('RHEI_STATE')))
+"#,
     );
-    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    let command = fixture_command(&script);
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     fs::write(
@@ -1159,7 +1159,7 @@ fn write_mock_agent_settings(dir: &std::path::Path) {
             r#"{{
   "agents": {{
     "mock": {{
-      "command": ["sh", {script_json}],
+      "command": {command},
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}

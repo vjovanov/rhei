@@ -18,7 +18,10 @@
 struct LockedPlanFile {
     /// `None` once released. A refused replace releases it early and the caller
     /// releases it again on its way out, so taking it has to be idempotent.
-    file: std::cell::RefCell<Option<fs::File>>,
+    ///
+    /// Shared rather than owned, because the same handle is what
+    /// [`HELD_PLAN_LOCKS`] hands to a reader that has no lock object of its own.
+    file: PlanLockHandle,
     path: PathBuf,
 }
 
@@ -29,7 +32,9 @@ impl LockedPlanFile {
             .map_err(|err| file_io_report(path, "failed to open plan file", err))?;
         file.lock_exclusive()
             .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
-        Ok(Self { file: std::cell::RefCell::new(Some(file)), path: path.to_path_buf() })
+        let file = Arc::new(Mutex::new(Some(file)));
+        held_plan_locks().lock().expect("held plan locks").push((path.to_path_buf(), file.clone()));
+        Ok(Self { file, path: path.to_path_buf() })
     }
 
     /// Read the locked file, by path first.
@@ -56,25 +61,94 @@ impl LockedPlanFile {
         if !lock_is_contended(&err) {
             return Err(file_io_report(&self.path, action, err));
         }
-        let borrowed = self.file.borrow();
-        let Some(handle) = borrowed.as_ref() else {
-            return Err(file_io_report(&self.path, action, err));
-        };
-        let mut reader = handle;
-        reader
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|err| file_io_report(&self.path, action, err))?;
-        let mut raw = String::new();
-        reader.read_to_string(&mut raw).map_err(|err| file_io_report(&self.path, action, err))?;
-        Ok(raw)
+        read_through_handle(&self.file, &self.path, action)
+            .unwrap_or_else(|| Err(file_io_report(&self.path, action, err)))
     }
 
     /// Release the lock and close the handle. Idempotent, and a no-op once a
     /// refused replace has already done it.
     fn release(&self) {
-        if let Some(file) = self.file.borrow_mut().take() {
+        if let Some(file) = self.file.lock().expect("plan lock handle").take() {
             let _ = fs2::FileExt::unlock(&file);
         }
+        held_plan_locks()
+            .lock()
+            .expect("held plan locks")
+            .retain(|(_, handle)| !Arc::ptr_eq(handle, &self.file));
+    }
+}
+
+impl Drop for LockedPlanFile {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// Every plan file this process currently holds locked.
+///
+/// On Windows a byte-range lock belongs to the handle that took it, so a second
+/// open of the same file — from this very process — is refused. A command that
+/// locks a plan and then hands the *path* to something that reads it therefore
+/// reads nothing: `rhei new` locks the plan and then asks the loader to
+/// validate it, and the loader knows about paths, not about locks. This is
+/// where such a reader finds the handle that already holds the file.
+// §FS-rhei-new.4
+fn held_plan_locks() -> &'static Mutex<Vec<(PathBuf, PlanLockHandle)>> {
+    static HELD_PLAN_LOCKS: OnceLock<Mutex<Vec<(PathBuf, PlanLockHandle)>>> = OnceLock::new();
+    HELD_PLAN_LOCKS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// The open, locked file, shared between the lock object and the registry.
+type PlanLockHandle = Arc<Mutex<Option<fs::File>>>;
+
+/// Read the whole file behind a lock handle, from the start.
+///
+/// `None` when the lock has already been released, which leaves the caller with
+/// the original refusal to report.
+fn read_through_handle(
+    handle: &Mutex<Option<fs::File>>,
+    path: &Path,
+    action: &str,
+) -> Option<MietteResult<String>> {
+    let guard = handle.lock().expect("plan lock handle");
+    let file = guard.as_ref()?;
+    let mut reader = file;
+    Some((|| {
+        reader
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|err| file_io_report(path, action, err))?;
+        let mut raw = String::new();
+        reader.read_to_string(&mut raw).map_err(|err| file_io_report(path, action, err))?;
+        Ok(raw)
+    })())
+}
+
+/// Read `path`, by path first and through this process's own lock when the path
+/// read is the one that lock refuses.
+///
+/// The ordering is [`LockedPlanFile::read_to_string`]'s, for its reasons: a
+/// writer that took the lock before us has left a different file at `path`, and
+/// only reading by path sees it. The fallback covers the case that reading by
+/// path cannot: the file is one *we* locked, and Windows will not open it twice.
+// §FS-rhei-new.4
+fn read_plan_source(path: &Path, action: &str) -> MietteResult<String> {
+    let err = match fs::read_to_string(path) {
+        Ok(raw) => return Ok(raw),
+        Err(err) => err,
+    };
+    if !lock_is_contended(&err) {
+        return Err(file_io_report(path, action, err));
+    }
+    let held = {
+        let locks = held_plan_locks().lock().expect("held plan locks");
+        locks
+            .iter()
+            .find(|(locked_path, _)| same_path(locked_path, path))
+            .map(|(_, handle)| handle.clone())
+    };
+    match held.as_deref().and_then(|handle| read_through_handle(handle, path, action)) {
+        Some(result) => result,
+        None => Err(file_io_report(path, action, err)),
     }
 }
 

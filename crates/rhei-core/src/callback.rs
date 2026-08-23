@@ -338,6 +338,44 @@ mod tests {
         }
     }
 
+    /// The interpreter these callbacks are written in.
+    ///
+    /// A callback is a command line for the platform's own shell, and the two
+    /// shells share almost no vocabulary: `printf`, `true`, and `$VAR` are `sh`,
+    /// not `cmd`. Python is on both, so what a callback *does* can be pinned
+    /// once instead of twice. Every command below stays inside one pair of
+    /// double quotes and uses `'…'` for its own strings, which both shells hand
+    /// through unchanged.
+    fn python() -> &'static str {
+        static PYTHON: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+        PYTHON.get_or_init(|| {
+            let candidates =
+                if cfg!(windows) { ["python", "python3"] } else { ["python3", "python"] };
+            for candidate in candidates {
+                let runs = Command::new(candidate)
+                    .arg("-c")
+                    .arg("pass")
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .map(|status| status.success())
+                    .unwrap_or(false);
+                if runs {
+                    return candidate;
+                }
+            }
+            panic!(
+                "these tests run their callbacks under Python: put `python3` or `python` on PATH"
+            )
+        })
+    }
+
+    /// `cli:<python> -c "<code>"`.
+    fn python_callback(code: &str) -> CallbackRef {
+        CallbackRef(format!("cli:{} -c \"{code}\"", python()))
+    }
+
     fn ctx<'a>(plan_path: &'a Path, cwd: &'a Path) -> CallbackContext<'a> {
         CallbackContext {
             task_id: "1",
@@ -366,7 +404,7 @@ mod tests {
     #[test]
     fn shell_executor_runs_successful_command_with_empty_stdout() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef("cli:true".to_string());
+        let callback = python_callback("pass");
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -403,8 +441,9 @@ mod tests {
     #[test]
     fn shell_executor_parses_success_json_result() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef(r#"cli:printf '{"success": true, "data": {"k":"v"}}'"#.to_string());
+        let callback = python_callback(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'data': {'k': 'v'}}))",
+        );
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -416,8 +455,9 @@ mod tests {
     #[test]
     fn shell_executor_parses_rejection_with_error_message() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef(r#"cli:printf '{"success": false, "error": "dep missing"}'"#.to_string());
+        let callback = python_callback(
+            "import json,sys;sys.stdout.write(json.dumps({'success': False, 'error': 'dep missing'}))",
+        );
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -429,8 +469,9 @@ mod tests {
     #[test]
     fn shell_executor_parses_next_state_redirect() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef(r#"cli:printf '{"success": true, "nextState": "rejected"}'"#.to_string());
+        let callback = python_callback(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'rejected'}))",
+        );
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -441,8 +482,9 @@ mod tests {
     #[test]
     fn shell_executor_downgrades_rejection_with_next_state() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef(r#"cli:printf '{"success": false, "nextState": "somewhere"}'"#.to_string());
+        let callback = python_callback(
+            "import json,sys;sys.stdout.write(json.dumps({'success': False, 'nextState': 'somewhere'}))",
+        );
         let context = ctx(Path::new("plan.rhei.md"), Path::new("."));
 
         let result = executor.execute(&callback, &context).unwrap();
@@ -453,8 +495,9 @@ mod tests {
     #[test]
     fn shell_executor_passes_env_vars() {
         let executor = ShellCallbackExecutor;
-        let callback =
-            CallbackRef("cli:echo $RHEI_TASK_ID $RHEI_FROM_STATE $RHEI_TO_STATE".to_string());
+        let callback = python_callback(
+            "import os;print(os.environ['RHEI_TASK_ID'], os.environ['RHEI_FROM_STATE'], os.environ['RHEI_TO_STATE'])",
+        );
         let mut context = ctx(Path::new("my-plan.rhei.md"), Path::new("."));
         context.task_id = "42";
 
@@ -466,7 +509,8 @@ mod tests {
     #[test]
     fn shell_executor_delivers_context_json_on_stdin() {
         let executor = ShellCallbackExecutor;
-        let callback = CallbackRef(r#"cli:jq -r '.task.id' | tr -d '\n'"#.to_string());
+        let callback =
+            python_callback("import json,sys;sys.stdout.write(json.load(sys.stdin)['task']['id'])");
         let payload = json!({
             "task": { "id": "99", "title": "demo" },
             "transition": { "from": "pending", "to": "in-progress" },
@@ -474,21 +518,8 @@ mod tests {
         let mut context = ctx(Path::new("plan.rhei.md"), Path::new("."));
         context.context_json = Some(&payload);
 
-        let result = match executor.execute(&callback, &context) {
-            Ok(r) => r,
-            Err(err) => {
-                // If jq isn't available, skip this test rather than fail.
-                eprintln!("skipping stdin test (jq unavailable): {err}");
-                return;
-            }
-        };
-        if !result.success {
-            eprintln!("skipping stdin test (jq failed): {:?}", result.error);
-            return;
-        }
-        // stdout carries the printed id; our jq query strips newlines. The
-        // trailing trim is for the shells that end a line with CRLF, where
-        // `tr -d '\n'` leaves the carriage return behind.
+        let result = executor.execute(&callback, &context).unwrap();
+        assert!(result.success, "{:?}", result.error);
         assert_eq!(result.stdout.trim_end(), "99");
     }
 

@@ -169,21 +169,19 @@ fn a_bare_relative_plan_name_exports_a_root_to_the_agent() {
 /// A mock agent that saves its prompt under the execution root it was handed
 /// and writes the result the terminal state needs — and touches nothing under
 /// `runtime/logs/`, which is the tree this scenario is about.
-const LOG_MAP_AGENT: &str = r#"#!/bin/sh
-set -eu
-root="${RHEI_ROOT:?}"
-task="${RHEI_TASK_ID:?}"
-state="${RHEI_STATE:?}"
-visit="${RHEI_VISIT_COUNT:-1}"
-mkdir -p "$root/runtime/prompts"
-prompt=""
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--prompt" ]; then shift; prompt="${1:-}"; fi
-  shift || true
-done
-printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state-$visit.md"
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
+const LOG_MAP_AGENT: &str = r#"root = pathlib.Path(env('RHEI_ROOT'))
+task = env('RHEI_TASK_ID')
+state = env('RHEI_STATE')
+visit = env('RHEI_VISIT_COUNT', '1')
+
+prompt = ''
+args = sys.argv[1:]
+while args:
+    if args.pop(0) == '--prompt' and args:
+        prompt = args.pop(0)
+write(root / 'runtime' / 'prompts' / '{}-{}-{}.md'.format(task, state, visit), prompt)
+
+result('## Result\n\nTask {} finished {}.\n'.format(task, state))
 "#;
 
 /// One `rhei run` writes one log tree, under the root it was started from — the
@@ -195,16 +193,16 @@ fn the_map_names_the_log_directory_the_run_writes() {
     let dir = unique_temp_dir("memory-log-map");
     write_fixture_file(&dir, "index.panta.md", "# Panta: Two Roots\n");
     let machine_path = write_fixture_file(&dir, "states.yaml", MEMORY_MACHINE);
-    let script = write_fixture_file(&dir, "mock-agent.sh", LOG_MAP_AGENT);
+    let script = write_python_agent(&dir, "mock-agent.py", LOG_MAP_AGENT);
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("settings dir");
-    let script_json = serde_json::to_string(&script.display().to_string()).expect("script json");
+    let command = fixture_command(&script);
     fs::write(
         settings_dir.join("settings.json"),
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "prompt_flag": "--prompt", "timeout": "30s" }} }}
+  "agents": {{ "mock": {{ "command": {command}, "prompt_flag": "--prompt", "timeout": "30s" }} }}
 }}"#
         ),
     )
