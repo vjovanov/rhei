@@ -129,7 +129,7 @@ pub trait CallbackExecutor {
 /// callback died looking for a program named `sh` before its first own
 /// instruction.
 
-// §FS-rhei-programs.1.1
+// §FS-rhei-programs.1.1 §REQ-cross-platform.2
 pub fn system_shell_command(command: &str) -> Command {
     let mut cmd = if cfg!(windows) {
         let mut cmd = Command::new("cmd");

@@ -14,7 +14,7 @@
 //! section) and commit the result.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::*;
 
@@ -30,8 +30,18 @@ const TEMPLATE_EXAMPLES: &[(&str, &str)] = &[
 /// Example-owned files that the rendered template output does not include.
 /// The spec-review fixture is demo data for the committed example — a user's
 /// instantiation reviews the user's own spec, so the template must not ship it.
-const EXAMPLE_ONLY_FILES: &[&str] =
-    &["README.md", "instantiation-values.yaml", "specs/template-review-fixture.spec.md"];
+/// Spelled a segment at a time: `relative_files` compares against
+/// `strip_prefix`'s output, which uses the host's separator.
+fn example_only_files() -> Vec<String> {
+    [
+        PathBuf::from("README.md"),
+        PathBuf::from("instantiation-values.yaml"),
+        Path::new("specs").join("template-review-fixture.spec.md"),
+    ]
+    .iter()
+    .map(|path| path.display().to_string())
+    .collect()
+}
 
 /// Sorted, root-relative paths of every file under `root`, skipping any whose
 /// relative path appears in `skip`.
@@ -108,7 +118,9 @@ fn committed_examples_match_template_instantiation() {
         // Same set of rendered files (the template README is excluded; the
         // example overrides it and ships its own instantiation-values.yaml).
         let generated = relative_files(&out, &["README.md"]);
-        let committed = relative_files(&example_dir, EXAMPLE_ONLY_FILES);
+        let example_only = example_only_files();
+        let example_only: Vec<&str> = example_only.iter().map(String::as_str).collect();
+        let committed = relative_files(&example_dir, &example_only);
         assert_eq!(
             generated, committed,
             "rendered file set for {example_name} drifted from template \

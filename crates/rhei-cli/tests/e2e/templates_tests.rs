@@ -318,13 +318,18 @@ Say hello to {{target}}.
         "expected instantiate hint in output; got:\n{}",
         result.stdout
     );
-    // §FS-rhei-templates.6.1.3: the repro command renders the output path
-    // relative to the working directory it is pasted from.
+    // The repro command renders the output path relative to the working
+    // directory it is pasted from. §FS-rhei-templates.6.1.3
+
+    // The template path is matched on its own, because the printed command is
+    // quoted for a shell and a Windows path's backslashes make it a quoted word.
     assert!(
-        result.stdout.contains(&format!(
-            "rhei instantiate {} --set target=World --output output",
-            template_dir.display(),
-        )),
+        result.stdout.contains(&template_dir.display().to_string()),
+        "the repro command names the template it instantiated; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("--set target=World --output output"),
         "expected reproducible instantiate command in output; got:\n{}",
         result.stdout
     );
@@ -336,8 +341,12 @@ Say hello to {{target}}.
 }
 
 // Report paths compare against `current_dir`, which resolves symlinks, so a
-// symlinked parent made every path fall back to its absolute spelling — macOS
-// resolves `/tmp` and `/var` into `/private`. §FS-rhei-templates.6.1.3
+// symlinked parent made every path fall back to its absolute spelling.
+// §FS-rhei-templates.6.1.3
+
+// macOS resolves `/tmp` and `/var` into `/private`, which is where that came
+// from. Unix-only: the case needs a directory symlink, which an unprivileged
+// Windows process cannot create.
 #[cfg(unix)]
 #[test]
 fn instantiate_report_is_relative_under_a_symlinked_working_directory() {

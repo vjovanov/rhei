@@ -62,7 +62,8 @@ fn rhei_next_renders_every_memory_path_absolute() {
     // The bullets after the map are literal artifact templates, not paths.
     let map = map.split("- Under each execution root:").next().expect("the map ends");
     let quoted: Vec<&str> = map.split('`').skip(1).step_by(2).collect();
-    let paths: Vec<&str> = quoted.iter().copied().filter(|token| token.contains('/')).collect();
+    let paths: Vec<&str> =
+        quoted.iter().copied().filter(|token| token.contains(std::path::MAIN_SEPARATOR)).collect();
     assert!(paths.len() >= 6, "the map names every rhei's root; got:\n{map}");
     for path in &paths {
         assert!(Path::new(path).is_absolute(), "`{path}` is not absolute; got:\n{map}");

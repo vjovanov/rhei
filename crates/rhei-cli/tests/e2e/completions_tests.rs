@@ -709,5 +709,12 @@ fn dry_run_reports_system_install_path_without_writing() {
         result.stderr
     );
     assert!(result.stdout.contains("Would install zsh completions to"));
-    assert!(result.stdout.contains("/usr/local/share/zsh/site-functions/_rhei"));
+    // The system prefix is a fixed Unix path, but the leaf is joined onto it,
+    // and `Path::join` spells the separator the host's way.
+    let expected = Path::new("/usr/local/share/zsh/site-functions").join("_rhei");
+    assert!(
+        result.stdout.contains(&expected.display().to_string()),
+        "expected the system install path in the output; got:\n{}",
+        result.stdout
+    );
 }

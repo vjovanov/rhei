@@ -273,11 +273,17 @@ fn render_supervisor_brief(render_context: &RuntimeTemplateContext<'_>) -> Miett
 // §FS-rhei-supervision.5.1 §FS-rhei-supervision.5.2
 fn supervisor_brief_directions(root: &Path) -> String {
     let relative = root.join("runtime").join("supervise");
-    let supervise =
-        std::path::absolute(&relative).unwrap_or(relative).display().to_string();
+    let supervise = std::path::absolute(&relative).unwrap_or(relative);
+    // The placeholders are path segments, so they are joined rather than pasted
+    // after a `/`. §REQ-cross-platform.5
+
+    // On Windows the prefix is spelled with `\`, and a sentence that mixed the
+    // two read as two different directories.
+    let per_task = supervise.join("<task-id>.md").display().to_string();
+    let per_state = supervise.join("<task-id>").join("<state>.md").display().to_string();
     format!(
-        "Steer the next step by writing {supervise}/<task-id>.md (read by every state of \
-         that descendant) or {supervise}/<task-id>/<state>.md (that state only)."
+        "Steer the next step by writing {per_task} (read by every state of \
+         that descendant) or {per_state} (that state only)."
     )
 }
 
