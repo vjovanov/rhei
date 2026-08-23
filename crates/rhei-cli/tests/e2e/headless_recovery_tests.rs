@@ -7,13 +7,20 @@
 // §FS-rhei-run-headless.2 §FS-rhei-run-headless.3 §FS-rhei-run-headless.5
 
 use std::fs;
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use super::headless_support::{parse_records, stderr, stdout, wait_until, Workspace};
+#[cfg(unix)]
+use super::headless_support::wait_until;
+use super::headless_support::{parse_records, stderr, stdout, Workspace};
 
 /// A run reference's registry entry, read straight from the isolated state
 /// directory the workspace pins.
+// Only the detached-run cases use it, and those are Unix-only.
+// §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 fn registry_entry(ws: &Workspace, id: &str) -> Option<serde_json::Value> {
     let path = registry_path(ws, id);
     serde_json::from_str(&fs::read_to_string(path).ok()?).ok()
@@ -24,6 +31,9 @@ fn registry_path(ws: &Workspace, id: &str) -> std::path::PathBuf {
 }
 
 /// Launch, then wait for the run to record its own end.
+// Only the detached-run cases use it, and those are Unix-only.
+// §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 fn run_to_completion(ws: &Workspace) -> String {
     let id = ws.launch_headless();
     wait_until("the detached run to finish", Duration::from_secs(60), || {
@@ -40,6 +50,7 @@ fn run_to_completion(ws: &Workspace) -> String {
 /// runs it: the answer is asked for after it exists.
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn attach_json_wait_replays_a_run_that_has_already_ended() {
     let ws = Workspace::new("headless-replay", 0);
@@ -65,6 +76,7 @@ fn attach_json_wait_replays_a_run_that_has_already_ended() {
 /// read back. §FS-rhei-run-json.2
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn attach_json_preserves_each_records_original_timestamp() {
     let ws = Workspace::new("headless-ts", 0);
@@ -87,6 +99,7 @@ fn attach_json_preserves_each_records_original_timestamp() {
 // §FS-rhei-run-headless.3
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn a_shared_prefix_resolves_to_the_live_run_not_an_ended_one() {
     let ws = Workspace::new("headless-prefix", 20);
@@ -163,6 +176,7 @@ unsafe fn libc_kill(pid: i32, signal: i32) {
 /// This is one of the only two conditions that prune. §FS-rhei-run-headless.2
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn a_deleted_workspace_prunes_the_entry() {
     let ws = Workspace::new("headless-pruned", 0);
@@ -225,6 +239,7 @@ fn an_unparseable_entry_is_kept_rather_than_deleted() {
 /// second run appears later. §FS-rhei-run-headless.1.1
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn simultaneous_headless_launches_start_exactly_one_run() {
     let ws = Workspace::new("headless-race", 20);
@@ -268,6 +283,7 @@ fn simultaneous_headless_launches_start_exactly_one_run() {
 // §FS-rhei-run.2.6 §FS-rhei-run-headless.1.1
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn a_child_that_loses_the_run_lock_fails_fast_with_the_lock_diagnostic() {
     let ws = Workspace::new("headless-childlock", 20);
@@ -405,6 +421,7 @@ fn inlined_agent_output_leaves_the_structural_sequence_alone() {
 // §FS-rhei-run-headless.1.2
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn the_detached_child_marker_does_not_reach_supervised_work() {
     let ws = Workspace::new("headless-marker", 0);
@@ -426,6 +443,7 @@ fn the_detached_child_marker_does_not_reach_supervised_work() {
 /// cannot be in. §FS-rhei-run-headless.5
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn the_descriptor_records_the_state_machine_the_run_resolved() {
     let ws = Workspace::new("headless-machine", 0);
@@ -448,6 +466,7 @@ fn the_descriptor_records_the_state_machine_the_run_resolved() {
 /// nothing was writing, forever.
 // Unix-only: `--headless` needs a POSIX session to detach into, and says so
 // on every other platform. §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 #[test]
 fn attach_json_refuses_a_live_run_with_no_event_log() {
     let ws = Workspace::new("headless-nolog", 20);
@@ -464,6 +483,9 @@ fn attach_json_refuses_a_live_run_with_no_event_log() {
     assert!(message.contains(&path_fragment(&events)), "the diagnostic names the file: {message}");
 }
 
+// Only the detached-run cases use it, and those are Unix-only.
+// §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 fn path_fragment(path: &Path) -> String {
     path.file_name().expect("file name").to_string_lossy().into_owned()
 }

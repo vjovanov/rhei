@@ -1728,7 +1728,9 @@ transitions:
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::write(&script, format!("#!/usr/bin/env python3\n{body}"))
+            // The interpreter's absolute path: a redactor is spawned with
+            // `env_clear()`, and `env` would have no `PATH` to search.
+            fs::write(&script, format!("#!{}\n{body}", test_python_executable()))
                 .expect("write redactor");
             let mut permissions = fs::metadata(&script).expect("redactor metadata").permissions();
             permissions.set_mode(0o755);
@@ -1739,13 +1741,13 @@ transitions:
         {
             fs::write(&script, body).expect("write redactor");
             let shim = dir.join(format!("{name}.cmd"));
-            // The probed interpreter, not a hardcoded `python`: which of the two
-            // names exists is a fact about the host.
+            // The interpreter's absolute path, not its name: a redactor is
+            // spawned with `env_clear()`, so the shim has no `PATH` to search.
             fs::write(
                 &shim,
                 format!(
-                    "@echo off\r\n{} \"%~dp0{name}.py\" %*\r\n",
-                    test_python_command()
+                    "@echo off\r\n\"{}\" \"%~dp0{name}.py\" %*\r\n",
+                    test_python_executable()
                 ),
             )
             .expect("write redactor shim");

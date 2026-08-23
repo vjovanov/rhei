@@ -539,7 +539,7 @@ write(plan_path.parent / 'runtime' / 'plan-path.txt', str(plan_path) + '\n')
         .expect("read callback output");
     assert_eq!(
         Path::new(recorded_plan_path.trim()),
-        plan_path.canonicalize().expect("canonicalize plan path"),
+        rhei_core::platform::canonical_path(&plan_path).expect("canonicalize plan path"),
         "callbacks should receive an absolute plan path",
     );
 }

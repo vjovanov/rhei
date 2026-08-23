@@ -143,7 +143,8 @@ fn a_program_that_owes_the_result_is_reported_as_missing_outputs() {
             "--parallel {parallel}: not the nameless stall; got:\n{report}"
         );
         assert!(
-            report.contains("plan.rhei.md --task plan.1 --from probe"),
+            report.contains(&plan_path.display().to_string())
+                && report.contains("--task plan.1 --from probe"),
             "--parallel {parallel}: the suggested command carries the plan; got:\n{report}"
         );
     }

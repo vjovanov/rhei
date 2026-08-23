@@ -254,13 +254,13 @@ fn a_descendant_terminal_supervisor_is_woken_between_its_children_and_finishes_a
     );
     // §FS-rhei-supervision.5.1: the constructive lever is named before the
     // destructive ones, with the paths this run resolves.
-    let supervise_dir = dir.join("runtime/supervise");
+    let supervise_dir = dir.join("runtime").join("supervise");
     assert!(
         first.contains(&format!(
-            "Steer the next step by writing {}/<task-id>.md (read by every state of \
-             that descendant) or {}/<task-id>/<state>.md (that state only).",
-            supervise_dir.display(),
-            supervise_dir.display()
+            "Steer the next step by writing {} (read by every state of \
+             that descendant) or {} (that state only).",
+            supervise_dir.join("<task-id>.md").display(),
+            supervise_dir.join("<task-id>").join("<state>.md").display()
         )),
         "got:\n{first}"
     );

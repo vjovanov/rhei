@@ -99,11 +99,16 @@ elif state == 'prepare-worktree':
             stderr=subprocess.DEVNULL,
         )
 
+    added = False
     if git('rev-parse', '--is-inside-work-tree').returncode == 0:
         shutil.rmtree(worktree, ignore_errors=True)
         git('worktree', 'prune')
-        git('worktree', 'add', '--detach', str(worktree), 'HEAD')
-    else:
+        # A checkout is not always possible where the example runs: Windows
+        # refuses a path past MAX_PATH, and this one is a temp directory plus a
+        # workspace plus a task id. The directory alone is what the example's
+        # contract needs.
+        added = git('worktree', 'add', '--detach', str(worktree), 'HEAD').returncode == 0
+    if not added:
         worktree.mkdir(parents=True, exist_ok=True)
     write(
         runtime / 'worktree-refs' / (task + '.yaml'),

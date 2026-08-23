@@ -45,6 +45,13 @@ transitions:
     to: cancelled
 "#;
 
+/// What the run captured from one agent invocation, for a failure message: a
+/// prompt that never arrived leaves its reason here and nowhere else.
+fn agent_log(dir: &Path, task_id: &str, state: &str) -> String {
+    let log = dir.join("runtime").join("logs").join(format!("task-{task_id}-{state}.log"));
+    fs::read_to_string(&log).unwrap_or_else(|err| format!("{}: {err}", log.display()))
+}
+
 /// Install a fake agent that reads its prompt from stdin and runs `body`.
 fn write_fake_agent(dir: &Path, name: &str, body: &str) {
     let script_path = write_python_agent(dir, name, body);
@@ -125,11 +132,12 @@ fn state_handoff_reaches_the_successor_prompt_through_a_run() {
         result.stderr
     );
 
-    let review_prompt =
-        fs::read_to_string(dir.join("runtime/review-prompt.txt")).expect("review prompt recorded");
+    let review_prompt = fs::read_to_string(dir.join("runtime").join("review-prompt.txt"))
+        .expect("review prompt recorded");
     assert!(
         review_prompt.contains("## Handoff from implement"),
-        "review prompt should carry the handoff section:\n{review_prompt}"
+        "review prompt should carry the handoff section:\n{review_prompt}\n\nagent log:\n{}",
+        agent_log(&dir, "plan.1", "review")
     );
     assert!(
         review_prompt.contains("Rewrote the tokenizer; two edge cases still fail."),
@@ -384,7 +392,12 @@ result('## Result\n\nBuilt on the groundwork.\n')
         result.stderr
     );
 
-    let prompt = fs::read_to_string(dir.join("runtime/implement-prompt.txt")).expect("prompt");
-    assert!(prompt.contains("## Prior Task Results"), "{prompt}");
+    let prompt =
+        fs::read_to_string(dir.join("runtime").join("implement-prompt.txt")).expect("prompt");
+    assert!(
+        prompt.contains("## Prior Task Results"),
+        "{prompt}\n\nagent log:\n{}",
+        agent_log(&dir, "plan.2", "implement")
+    );
     assert!(prompt.contains("Chose the streaming parser."), "{prompt}");
 }

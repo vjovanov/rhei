@@ -348,16 +348,24 @@ fn spawn_and_wait_agent(
         )
     });
 
-    // Write the prompt to stdin. EOF-driven agents (e.g. `codex exec`) must see
-    // EOF before starting, so stdin is closed after the prompt unless the
-    // profile opts into streaming interventions. §FS-rhei-agents.1.1.2
+    // Write the prompt to stdin. EOF-driven agents must see EOF before starting,
+    // so stdin is closed after the prompt. §FS-rhei-agents.1.1.2
+
+    // `codex exec` is one of those; a profile opting into streaming
+    // interventions is the exception. A failed write is said out loud: an agent
+    // handed no prompt does whatever it does with nothing, and the run has no
+    // other way of telling anyone why. Not fatal — the agent is already running.
+    let deliver_prompt = |stdin: &mut std::process::ChildStdin, bytes: &[u8]| {
+        use std::io::Write as _;
+        if let Err(err) = stdin.write_all(bytes).and_then(|()| stdin.flush()) {
+            diag_warn!("could not deliver the prompt on stdin for task {task_id}: {err}");
+        }
+    };
     let mut registered_intervene = false;
     let stdin_format = agent_stdin_format(resolved);
     if stdin_format == AgentStdinFormat::ClaudeCodeStreamJson {
         if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write as _;
-            let _ = stdin.write_all(&stdin_message_bytes(stdin_format, prompt));
-            let _ = stdin.flush();
+            deliver_prompt(&mut stdin, &stdin_message_bytes(stdin_format, prompt));
             match (resolved.profile.intervene_stdin, intervene) {
                 (true, Some(registry)) => {
                     registry.register(
@@ -375,9 +383,7 @@ fn spawn_and_wait_agent(
         }
     } else if resolved.profile.stdin_prompt {
         if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write as _;
-            let _ = stdin.write_all(prompt.as_bytes());
-            let _ = stdin.flush();
+            deliver_prompt(&mut stdin, prompt.as_bytes());
             match (resolved.profile.intervene_stdin, intervene) {
                 (true, Some(registry)) => {
                     registry.register(

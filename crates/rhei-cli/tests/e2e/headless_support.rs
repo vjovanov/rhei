@@ -8,6 +8,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use super::{fixture_command, unique_temp_dir, write_python_agent, TestDir};
@@ -101,6 +102,9 @@ print("done " + task, flush=True)
         serde_json::from_str(&raw).ok()
     }
 
+    // Only the detached-run cases use it, and those are Unix-only.
+    // §FS-rhei-run-headless.1.3
+    #[cfg(unix)]
     pub fn plan_text(&self) -> String {
         fs::read_to_string(self.plan()).expect("plan is readable")
     }
@@ -144,6 +148,9 @@ print("done " + task, flush=True)
     }
 
     /// Start a run detached and return its id.
+    // Only the detached-run cases use it, and those are Unix-only.
+    // §FS-rhei-run-headless.1.3
+    #[cfg(unix)]
     pub fn launch_headless(&self) -> String {
         let out = self.run(&["--headless"]);
         assert!(
@@ -201,6 +208,9 @@ pub fn kinds(records: &[serde_json::Value]) -> Vec<String> {
 }
 
 /// Poll `condition` until it holds or the deadline passes.
+// Only the detached-run cases use it, and those are Unix-only.
+// §FS-rhei-run-headless.1.3
+#[cfg(unix)]
 pub fn wait_until(what: &str, timeout: Duration, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
