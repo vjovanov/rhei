@@ -234,16 +234,25 @@ mod intervene_tests {
     use super::*;
     use std::time::Duration;
 
+    /// A sink for the writes a delivery makes, in a directory this harness
+    /// empties on the way in.
+    ///
+    /// One fixed name rather than one per process: these files are never read
+    /// back, and a name carrying the pid left one more of them in the system
+    /// temp directory after every `cargo test`.
     fn temp_log(name: &str) -> Arc<Mutex<fs::File>> {
-        let path = std::env::temp_dir().join(format!(
-            "rhei-intervene-{}-{name}.log",
-            std::process::id()
-        ));
+        static LOGS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let dir = LOGS.get_or_init(|| {
+            let dir = std::env::temp_dir().join("rhei-intervene-logs");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("intervention log directory");
+            dir
+        });
         Arc::new(Mutex::new(
             fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(path)
+                .open(dir.join(format!("{name}.log")))
                 .expect("open temp intervention log"),
         ))
     }
