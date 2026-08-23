@@ -348,6 +348,10 @@ struct LoadedPlan {
     rhei_machines: HashMap<String, String>,
     /// Execution root of each rhei, keyed by rhei id. §AR-rhei-panta.4
     rhei_roots: HashMap<String, PathBuf>,
+    /// Title of each rhei, keyed by rhei id. §FS-rhei-memory.3.1
+    rhei_titles: HashMap<String, String>,
+    /// Plan document of each rhei, keyed by rhei id. §FS-rhei-memory.3.4
+    rhei_plans: HashMap<String, PathBuf>,
     /// Rheis a lenient load skipped, one message each; empty for a strict load.
     unloadable: Vec<String>,
 }
@@ -882,6 +886,8 @@ fn load_plan_with(path: &Path, lenient: bool) -> MietteResult<LoadedPlan> {
             rhei_ids: project.rhei_ids,
             rhei_machines: project.rhei_machines,
             rhei_roots: project.rhei_roots,
+            rhei_titles: project.rhei_titles,
+            rhei_plans: project.rhei_plans,
             unloadable: project.unloadable,
         })
     } else if let Some(ws_dir) = workspace::workspace_dir(path) {
@@ -917,6 +923,8 @@ fn implicit_loaded_plan(
         rhei_ids: project.rhei_ids,
         rhei_machines: project.rhei_machines,
         rhei_roots: project.rhei_roots,
+        rhei_titles: project.rhei_titles,
+        rhei_plans: project.rhei_plans,
         unloadable: project.unloadable,
     }
 }
@@ -936,6 +944,8 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
             rhei_ids: project.rhei_ids,
             rhei_machines: project.rhei_machines,
             rhei_roots: project.rhei_roots,
+            rhei_titles: project.rhei_titles,
+            rhei_plans: project.rhei_plans,
             unloadable: project.unloadable,
         });
     }
