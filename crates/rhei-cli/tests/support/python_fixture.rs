@@ -1,3 +1,5 @@
+// §REQ-cross-platform.4
+
 // The mock agents, programs, callbacks, and redactors the CLI's test harnesses
 // stand up.
 //
@@ -51,6 +53,14 @@ import pathlib
 import sys
 import time
 
+# Every stream a fixture writes is opened with `newline=''`, so a line ends with
+# one `\n` on every platform. Python's text mode would otherwise translate it to
+# `\r\n` on Windows, and a test comparing a fixture's output byte for byte would
+# see two different files for one program.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(newline='\n')
+    sys.stderr.reconfigure(newline='\n')
+
 
 def env(name, default=''):
     """`${NAME:-default}`: an empty value counts as unset, as it does in sh."""
@@ -61,13 +71,14 @@ def env(name, default=''):
 def write(path, text):
     target = pathlib.Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding='utf-8')
+    with target.open('w', encoding='utf-8', newline='') as handle:
+        handle.write(text)
 
 
 def append(path, text):
     target = pathlib.Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open('a', encoding='utf-8') as handle:
+    with target.open('a', encoding='utf-8', newline='') as handle:
         handle.write(text)
 
 

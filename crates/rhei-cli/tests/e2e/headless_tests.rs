@@ -319,6 +319,8 @@ fn stopping_a_run_that_already_ended_is_not_an_error() {
 /// The point of the feature: the run is its own session leader, so the
 /// terminal that launched it can go away without taking it down.
 // §FS-rhei-run-headless.1 §FS-rhei-run-headless.8
+// Unix-only: a session leader is a POSIX session, and `setsid` is what makes
+// one.
 #[cfg(unix)]
 #[test]
 fn a_detached_run_is_its_own_session_leader() {

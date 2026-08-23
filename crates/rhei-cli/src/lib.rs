@@ -128,6 +128,7 @@ include!("cli/diagnostics.rs");
 
 #[cfg(test)]
 mod tests {
+    include!("cli/tests_python_fixture.rs");
     include!("cli/tests_path_guards.rs");
     include!("cli/tests_cli_render.rs");
     include!("cli/tests_error_guidance.rs");

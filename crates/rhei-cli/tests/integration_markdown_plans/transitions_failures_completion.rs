@@ -427,7 +427,8 @@ fn complete_succeeds_when_all_subtasks_are_terminal() {
 
 #[test]
 fn complete_redirected_to_non_terminal_state_does_not_write_completion_artifacts() {
-    let machine_yaml = r#"name: complete-redirect
+    let machine_yaml = format!(
+        r#"name: complete-redirect
 version: 1
 states:
   pending:
@@ -440,10 +441,14 @@ states:
 transitions:
   - from: pending
     to: completed
-    on_leave: 'cli:printf ''{"success": true, "nextState": "in-progress"}'''
+    on_leave: {callback}
   - from: pending
     to: in-progress
-"#;
+"#,
+        callback = python_callback_yaml(
+            "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'in-progress'}))"
+        )
+    );
     let plan = r#"# Rhei: Completion Redirect
 
 ## Tasks
@@ -455,7 +460,7 @@ transitions:
 
     let dir = unique_temp_dir("complete-redirect-non-terminal");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine_yaml);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine_yaml);
 
     let output = rhei_command()
         .arg("--state-machine")

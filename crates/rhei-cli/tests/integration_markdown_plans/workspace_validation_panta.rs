@@ -815,8 +815,6 @@ fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
     );
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
     let project = create_panta_project(
@@ -833,20 +831,23 @@ fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
     );
 
     // The fake agent records every ticket it is spawned for.
-    let script = project.join("fake-agent.sh");
-    fs::write(
-        &script,
+    let script = write_python_agent(
+        &project,
+        "fake-agent.py",
         // §FS-rhei-states.3.3: `pending -> completed` is terminal, so the agent
         // writes the ticket's result before it exits.
-        "#!/usr/bin/env bash\nset -euo pipefail\nprintf '%s\\n' \"$RHEI_TASK_ID\" >> \"$RHEI_ROOT/agent-invocations.txt\"\nmkdir -p \"$(dirname \"$RHEI_RESULT_PATH\")\"\nprintf '## Result\\n\\nDone.\\n' > \"$RHEI_RESULT_PATH\"\n",
-    )
-    .expect("write fake agent");
-    make_run_agent_script_executable(&script);
+        r#"append(
+    pathlib.Path(env('RHEI_ROOT')) / 'agent-invocations.txt',
+    env('RHEI_TASK_ID') + '\n',
+)
+result('## Result\n\nDone.\n')
+"#,
+    );
     write_run_agent_settings(
         &project,
         &format!(
-            r#"{{ "agents": {{ "fake": {{ "command": [{}], "timeout": "5s" }} }} }}"#,
-            serde_json::to_string(&script.display().to_string()).expect("script path json")
+            r#"{{ "agents": {{ "fake": {{ "command": {}, "timeout": "5s" }} }} }}"#,
+            fixture_command(&script)
         ),
     );
 

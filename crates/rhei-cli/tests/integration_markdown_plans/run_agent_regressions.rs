@@ -4,14 +4,10 @@ fn write_run_agent_settings(dir: &Path, settings: &str) {
     fs::write(settings_dir.join("settings.json"), settings).expect("write settings");
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn canonical_path_text(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
     recorded
         .lines()
@@ -19,23 +15,10 @@ fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
         .unwrap_or_else(|| panic!("recorded output missing {prefix:?}: {recorded}"))
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn assert_recorded_path_eq(recorded: &str, expected: &Path) {
     assert_eq!(canonical_path_text(Path::new(recorded)), canonical_path_text(expected));
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
-fn make_run_agent_script_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(path).expect("stat agent script").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("chmod agent script");
-}
-
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn collect_run_agent_snapshot_manifests(dir: &Path) -> Vec<serde_json::Value> {
     fn visit(path: &Path, manifests: &mut Vec<serde_json::Value>) {
         for entry in fs::read_dir(path).unwrap_or_else(|_| panic!("read dir {}", path.display())) {
@@ -59,8 +42,6 @@ fn collect_run_agent_snapshot_manifests(dir: &Path) -> Vec<serde_json::Value> {
     manifests
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn assert_run_agent_snapshot(
     manifests: &[serde_json::Value],
     snapshot_name: &str,
@@ -77,8 +58,6 @@ fn assert_run_agent_snapshot(
     );
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 const CHECKOUT_ROOT_MACHINE: &str = r#"name: checkout-root-agent
 version: 1
 states:
@@ -92,8 +71,6 @@ transitions:
     to: completed
 "#;
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
 
 ## Tasks
@@ -102,64 +79,90 @@ const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
 **State:** review
 "#;
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
+/// A fixture that records the directory it was spawned in and the roots it was
+/// handed, one `name=value` line at a time.
 fn write_checkout_recording_script(dir: &Path) -> PathBuf {
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-mkdir -p "$RHEI_ROOT/runtime"
-{
-  pwd
-  printf 'rhei=%s\n' "$RHEI_ROOT"
-  printf 'checkout=%s\n' "$RHEI_CHECKOUT_ROOT"
-  printf 'worktree=%s\n' "${RHEI_WORKTREE_ROOT:-}"
-} > "$RHEI_ROOT/runtime/checkout-root.txt"
+    let body = r#"write(
+    pathlib.Path(env('RHEI_ROOT')) / 'runtime' / 'checkout-root.txt',
+    '{}\nrhei={}\ncheckout={}\nworktree={}\n'.format(
+        os.getcwd(),
+        env('RHEI_ROOT'),
+        env('RHEI_CHECKOUT_ROOT'),
+        env('RHEI_WORKTREE_ROOT'),
+    ),
+)
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
-    let script_path = write_fixture_file(dir, "record-checkout.sh", script);
-    make_run_agent_script_executable(&script_path);
-    script_path
+    write_python_agent(dir, "record-checkout.py", body)
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
-fn write_absolute_fake_agent_settings(dir: &Path, script_path: &Path) {
+fn write_fake_agent_settings(dir: &Path, script_path: &Path) {
+    let command = fixture_command(script_path);
     let settings = format!(
         r#"{{
   "agents": {{
     "fake": {{
-      "command": [{}],
+      "command": {command},
       "timeout": "5s"
     }}
   }}
-}}"#,
-        serde_json::to_string(&script_path.display().to_string()).expect("script path json")
+}}"#
     );
     write_run_agent_settings(dir, &settings);
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn write_stdin_fake_agent_settings(dir: &Path, script_path: &Path) {
+    let command = fixture_command(script_path);
     let settings = format!(
         r#"{{
   "agents": {{
     "fake": {{
-      "command": [{}],
+      "command": {command},
       "stdin_prompt": true,
       "timeout": "5s"
     }}
   }}
-}}"#,
-        serde_json::to_string(&script_path.display().to_string()).expect("script path json")
+}}"#
     );
     write_run_agent_settings(dir, &settings);
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
+/// A fixture that writes the session file its `--session-dir` flag names, so a
+/// snapshot of the invocation has something to capture. `tail` is appended
+/// verbatim, which is how a scenario makes the fixture fail or hang.
+fn write_session_recording_script(dir: &Path, tail: &str) -> PathBuf {
+    let body = format!(
+        r#"session_dir = ''
+args = sys.argv[1:]
+while args:
+    if args.pop(0) == '--session-dir' and args:
+        session_dir = args.pop(0)
+write(pathlib.Path(session_dir) / 'session.jsonl', '{{"provider":"openai","model":"model"}}\n')
+{tail}"#
+    );
+    write_python_agent(dir, "agent.py", &body)
+}
+
+fn write_session_fake_agent_settings(dir: &Path, script_path: &Path, timeout: &str) {
+    let command = fixture_command(script_path);
+    let settings = format!(
+        r#"{{
+  "agents": {{
+    "fake": {{
+      "command": {command},
+      "timeout": "{timeout}",
+      "session": {{
+        "session_dir_flag": "--session-dir",
+        "layout": {{ "kind": "FlatById", "ext": "jsonl" }}
+      }}
+    }}
+  }}
+}}"#
+    );
+    write_run_agent_settings(dir, &settings);
+}
+
 fn run_git(args: &[&str]) {
     let output = Command::new("git").args(args).output().expect("git should run");
     assert!(
@@ -171,8 +174,6 @@ fn run_git(args: &[&str]) {
     );
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn git_stdout(args: &[&str]) -> String {
     let output = Command::new("git").args(args).output().expect("git should run");
     assert!(
@@ -185,20 +186,22 @@ fn git_stdout(args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-// Only the Unix-gated tests here use it. #91
-#[cfg(unix)]
 fn init_git_repo(repo: &Path) {
     fs::create_dir_all(repo).expect("create repo");
     run_git(&["-C", repo.to_str().expect("repo path"), "init"]);
-    run_git(&["-C", repo.to_str().expect("repo path"), "config", "user.email", "rhei@example.test"]);
+    run_git(&[
+        "-C",
+        repo.to_str().expect("repo path"),
+        "config",
+        "user.email",
+        "rhei@example.test",
+    ]);
     run_git(&["-C", repo.to_str().expect("repo path"), "config", "user.name", "Rhei Test"]);
     fs::write(repo.join("README.md"), "repo\n").expect("write readme");
     run_git(&["-C", repo.to_str().expect("repo path"), "add", "README.md"]);
     run_git(&["-C", repo.to_str().expect("repo path"), "commit", "-m", "initial"]);
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     let root = unique_temp_dir("run-agent-git-checkout-root");
@@ -211,7 +214,7 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
     let script_path = write_checkout_recording_script(&plan_dir);
-    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    write_fake_agent_settings(&plan_dir, &script_path);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -230,8 +233,6 @@ fn run_agent_uses_enclosing_git_root_as_checkout_root() {
     assert!(plan_dir.join("runtime/logs/task-plan.1-review.log").exists());
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_fails_when_agent_commit_leaves_orchestrator_transition_uncommitted() {
     let root = unique_temp_dir("run-agent-commit-dirty-transition");
@@ -242,18 +243,16 @@ fn run_agent_fails_when_agent_commit_leaves_orchestrator_transition_uncommitted(
     fs::create_dir_all(&plan_dir).expect("create plan dir");
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-printf 'agent work\n' > agent-work.txt
-git add agent-work.txt
-git commit -m 'agent work'
+    let script = r#"import subprocess
+
+write('agent-work.txt', 'agent work\n')
+subprocess.check_call(['git', 'add', 'agent-work.txt'])
+subprocess.check_call(['git', 'commit', '-m', 'agent work'])
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
-    let script_path = write_fixture_file(&plan_dir, "commit-work.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    let script_path = write_python_agent(&plan_dir, "commit-work.py", script);
+    write_fake_agent_settings(&plan_dir, &script_path);
     run_git(&["-C", repo.to_str().expect("repo path"), "add", ".agents"]);
     run_git(&["-C", repo.to_str().expect("repo path"), "commit", "-m", "add rhei plan"]);
 
@@ -293,8 +292,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     assert!(head_plan.contains("**State:** review"), "{head_plan}");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_renders_artifact_paths_at_rhei_root_when_checkout_root_differs() {
     let root = unique_temp_dir("run-agent-artifact-path-checkout-root");
@@ -321,20 +318,17 @@ transitions:
     fs::create_dir_all(&plan_dir).expect("create plan dir");
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     let machine_path = write_fixture_file(&plan_dir, "states.yaml", machine);
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-prompt="$(cat)"
-path="$(printf '%s\n' "$prompt" | sed -n 's/^ARTIFACT=//p' | head -n 1)"
-mkdir -p "$(dirname "$path")"
-printf done > "$path"
-mkdir -p "$RHEI_ROOT/runtime"
-printf '%s\n' "$path" > "$RHEI_ROOT/runtime/rendered-artifact-path.txt"
+    let script = r#"path = ''
+for line in sys.stdin.read().splitlines():
+    if line.startswith('ARTIFACT='):
+        path = line[len('ARTIFACT='):]
+        break
+write(path, 'done')
+write(pathlib.Path(env('RHEI_ROOT')) / 'runtime' / 'rendered-artifact-path.txt', path + '\n')
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
-    let script_path = write_fixture_file(&plan_dir, "write-rendered-artifact.sh", script);
-    make_run_agent_script_executable(&script_path);
+    let script_path = write_python_agent(&plan_dir, "write-rendered-artifact.py", script);
     write_stdin_fake_agent_settings(&plan_dir, &script_path);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
@@ -357,8 +351,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     );
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     let root = unique_temp_dir("run-agent-cwd-checkout-root");
@@ -369,7 +361,7 @@ fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
     let script_path = write_checkout_recording_script(&plan_dir);
-    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    write_fake_agent_settings(&plan_dir, &script_path);
 
     let result = run_run_command_in_dir(&cwd, &plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -387,8 +379,6 @@ fn run_agent_falls_back_to_invocation_cwd_when_no_git_root_exists() {
     assert_recorded_path_eq(recorded_value(&recorded, "checkout="), &cwd);
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     let root = unique_temp_dir("run-agent-clear-stale-worktree-env");
@@ -397,7 +387,7 @@ fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     let plan_path = write_fixture_file(&plan_dir, "plan.rhei.md", CHECKOUT_ROOT_PLAN);
     let machine_path = write_fixture_file(&plan_dir, "states.yaml", CHECKOUT_ROOT_MACHINE);
     let script_path = write_checkout_recording_script(&plan_dir);
-    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    write_fake_agent_settings(&plan_dir, &script_path);
 
     let result = run_run_command_with_env(
         &plan_path,
@@ -415,12 +405,10 @@ fn run_agent_clears_inherited_worktree_env_without_task_worktree_ref() {
     let recorded =
         fs::read_to_string(plan_dir.join("runtime/checkout-root.txt")).expect("read checkout log");
     // §FS-rhei-agents.4: RHEI_WORKTREE_ROOT is unset unless a task worktree ref applies.
-    assert!(recorded.contains("worktree=\n"), "{recorded}");
+    assert_eq!(recorded_value(&recorded, "worktree="), "", "{recorded}");
     assert!(!recorded.contains("/stale/worktree"), "{recorded}");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     let root = unique_temp_dir("run-agent-task-worktree-root");
@@ -449,7 +437,7 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     )
     .expect("write worktree ref");
     let script_path = write_checkout_recording_script(&plan_dir);
-    write_absolute_fake_agent_settings(&plan_dir, &script_path);
+    write_fake_agent_settings(&plan_dir, &script_path);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -467,8 +455,6 @@ fn run_agent_prefers_task_worktree_ref_over_repository_root() {
     assert_recorded_path_eq(recorded_value(&recorded, "worktree="), &worktree);
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_spawns_agent_state_without_outputs() {
     let machine = r#"name: no-output-agent
@@ -490,29 +476,16 @@ transitions:
 ### Task 1: Review without artifacts
 **State:** review
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s"
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-mkdir -p runtime
-printf invoked > runtime/agent-invoked.txt
+    let script = r#"write(pathlib.Path('runtime') / 'agent-invoked.txt', 'invoked')
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
 
     let dir = unique_temp_dir("run-agent-no-outputs");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_python_agent(&dir, "agent.py", script);
+    write_fake_agent_settings(&dir, &script_path);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -534,8 +507,6 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
     assert_eq!(task.state.as_str(), "completed");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_auto_advances_nested_agent_task_after_outputs_exist() {
     let machine = r#"name: nested-agent-output
@@ -565,29 +536,16 @@ transitions:
 #### Task 1.1: Child agent work
 **State:** pending
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s"
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-mkdir -p runtime/reports
-printf done > runtime/reports/plan.1.1.md
+    let script = r#"write(pathlib.Path('runtime') / 'reports' / 'plan.1.1.md', 'done')
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
 
     let dir = unique_temp_dir("run-nested-agent-output");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_python_agent(&dir, "agent.py", script);
+    write_fake_agent_settings(&dir, &script_path);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -597,10 +555,7 @@ printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
         result.stdout,
         result.stderr
     );
-    assert!(
-        dir.join("runtime/reports/plan.1.1.md").exists(),
-        "agent should write required output"
-    );
+    assert!(dir.join("runtime/reports/plan.1.1.md").exists(), "agent should write required output");
     // §FS-rhei-run.3: Successful agent output on a child task still applies the selected transition.
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     let rhei = parse(&updated).expect("parse plan");
@@ -666,12 +621,19 @@ transitions:
 
 #[test]
 fn run_program_exit_zero_missing_outputs_fails_run_and_leaves_task_in_place() {
-    let machine = r#"name: program-missing-output
+    let dir = unique_temp_dir("run-program-missing-output");
+    // The program that does nothing but succeed: `true` is a shell builtin, and
+    // a state machine names a command, not a shell.
+    let program = write_python_agent(&dir, "true-program.py", "sys.exit(0)\n");
+    let command = fixture_command(&program);
+    let machine = format!(
+        r#"name: program-missing-output
 version: 1
 states:
   build:
     initial: true
-    program: "true"
+    program:
+      command: {command}
     outputs:
       - name: bundle
         path: runtime/bundle.txt
@@ -681,7 +643,8 @@ transitions:
   - from: build
     to: completed
     exit_code: 0
-"#;
+"#
+    );
     let plan = r#"# Rhei: Program Missing Output
 
 ## Tasks
@@ -690,9 +653,8 @@ transitions:
 **State:** build
 "#;
 
-    let dir = unique_temp_dir("run-program-missing-output");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -728,8 +690,6 @@ transitions:
     assert_eq!(task.state.as_str(), "build");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_exit_zero_missing_outputs_emits_failure_snapshots_and_fails_run() {
     let machine = r#"name: agent-missing-output-snapshot
@@ -758,34 +718,12 @@ transitions:
 ### Task 1: Build
 **State:** build
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s",
-      "session": {
-        "session_dir_flag": "--session-dir",
-        "layout": { "kind": "FlatById", "ext": "jsonl" }
-      }
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-session_dir=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--session-dir" ]; then session_dir="$2"; shift 2; else shift; fi
-done
-mkdir -p "$session_dir"
-printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
-"#;
 
     let dir = unique_temp_dir("run-agent-missing-output-snapshot");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_session_recording_script(&dir, "");
+    write_session_fake_agent_settings(&dir, &script_path, "5s");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -823,8 +761,6 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     assert_eq!(task.state.as_str(), "build");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_exit_zero_without_transition_emits_always_snapshots() {
     let machine = r#"name: agent-no-transition-snapshot
@@ -847,34 +783,12 @@ states:
 ### Task 1: Review
 **State:** review
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s",
-      "session": {
-        "session_dir_flag": "--session-dir",
-        "layout": { "kind": "FlatById", "ext": "jsonl" }
-      }
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-session_dir=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--session-dir" ]; then session_dir="$2"; shift 2; else shift; fi
-done
-mkdir -p "$session_dir"
-printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
-"#;
 
     let dir = unique_temp_dir("run-agent-no-transition-snapshot");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_session_recording_script(&dir, "");
+    write_session_fake_agent_settings(&dir, &script_path, "5s");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -895,8 +809,6 @@ printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
     assert_run_agent_snapshot(&manifests, "always", "success");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_nonzero_exit_without_route_emits_failure_snapshot_before_abort() {
     let machine = r#"name: agent-error-snapshot
@@ -919,35 +831,12 @@ states:
 ### Task 1: Work
 **State:** work
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s",
-      "session": {
-        "session_dir_flag": "--session-dir",
-        "layout": { "kind": "FlatById", "ext": "jsonl" }
-      }
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-session_dir=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--session-dir" ]; then session_dir="$2"; shift 2; else shift; fi
-done
-mkdir -p "$session_dir"
-printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
-exit 7
-"#;
 
     let dir = unique_temp_dir("run-agent-error-snapshot");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_session_recording_script(&dir, "sys.exit(7)\n");
+    write_session_fake_agent_settings(&dir, &script_path, "5s");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -966,8 +855,6 @@ exit 7
     assert_eq!(task.state.as_str(), "work");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_agent_timeout_route_emits_timeout_snapshot_before_transition() {
     let machine = r#"name: agent-timeout-snapshot
@@ -994,37 +881,13 @@ transitions:
 ### Task 1: Work
 **State:** work
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "1s",
-      "session": {
-        "session_dir_flag": "--session-dir",
-        "layout": { "kind": "FlatById", "ext": "jsonl" }
-      }
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-session_dir=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--session-dir" ]; then session_dir="$2"; shift 2; else shift; fi
-done
-mkdir -p "$session_dir"
-printf '{"provider":"openai","model":"model"}\n' > "$session_dir/session.jsonl"
-trap 'exit 143' TERM
-sleep 30 &
-wait
-"#;
 
     let dir = unique_temp_dir("run-agent-timeout-snapshot");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    // Outlives the agent's 1s timeout, so the run has to end the invocation.
+    let script_path = write_session_recording_script(&dir, "time.sleep(30)\n");
+    write_session_fake_agent_settings(&dir, &script_path, "1s");
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
 
@@ -1043,8 +906,6 @@ wait
     assert_eq!(task.state.as_str(), "timed_out");
 }
 
-// A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_spawns_all_fanout_invocations_for_selected_task_despite_parallel_one() {
     let machine = r#"name: fanout-parallel-task-limit
@@ -1073,41 +934,43 @@ transitions:
 ### Task 1: Review across models
 **State:** review
 "#;
-    let settings = r#"{
-  "agents": {
-    "fake": {
-      "command": ["bash", "./agent.sh"],
-      "timeout": "5s"
-    }
-  },
-  "models": {
-    "alpha": {
-      "provider": "test",
-      "model": "alpha-model"
-    },
-    "beta": {
-      "provider": "test",
-      "model": "beta-model"
-    }
-  }
-}"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-: "${RHEI_MODEL:?RHEI_MODEL must be set}"
-mkdir -p runtime
-printf '%s\n' "$RHEI_MODEL" >> runtime/models.txt
-printf done > "runtime/$RHEI_MODEL.txt"
+    let script = r#"model = env('RHEI_MODEL')
+if not model:
+    sys.exit('RHEI_MODEL must be set')
+append(pathlib.Path('runtime') / 'models.txt', model + '\n')
+write(pathlib.Path('runtime') / (model + '.txt'), 'done')
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAgent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
 "#;
 
     let dir = unique_temp_dir("run-fanout-parallel-one");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "agent.sh", script);
-    make_run_agent_script_executable(&script_path);
-    write_run_agent_settings(&dir, settings);
+    let script_path = write_python_agent(&dir, "agent.py", script);
+    let command = fixture_command(&script_path);
+    write_run_agent_settings(
+        &dir,
+        &format!(
+            r#"{{
+  "agents": {{
+    "fake": {{
+      "command": {command},
+      "timeout": "5s"
+    }}
+  }},
+  "models": {{
+    "alpha": {{
+      "provider": "test",
+      "model": "alpha-model"
+    }},
+    "beta": {{
+      "provider": "test",
+      "model": "beta-model"
+    }}
+  }}
+}}"#
+        ),
+    );
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks", "--parallel", "1"]);
 

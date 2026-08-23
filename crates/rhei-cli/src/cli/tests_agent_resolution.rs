@@ -357,19 +357,15 @@
         assert_eq!(format_duration_human(4 * 60 + 23), "4m23s");
     }
 
-    #[cfg(unix)]
     #[test]
     fn agent_log_header_uses_v1_format_and_spec_fields() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let script = write_quiet_fake_agent(dir.path());
+        let command = write_quiet_fake_agent(dir.path());
         let log_path = dir.path().join("agent.log");
         let recorder = Arc::new(RecordingSink::default());
         let resolved = ResolvedAgent {
             agent: AgentConfig::from("claude-code"),
-            profile: CustomAgentProfile {
-                command: vec![script.display().to_string()],
-                ..CustomAgentProfile::default()
-            },
+            profile: CustomAgentProfile { command, ..CustomAgentProfile::default() },
             mode: Some("yolo".to_string()),
             target: None,
             model: Some("impl-fast".to_string()),
@@ -415,15 +411,9 @@
         assert!(!log.contains("\ntimeout: 1800s\n"));
     }
 
-    #[cfg(unix)]
-    fn write_quiet_fake_agent(dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
-        let script = dir.join("quiet-agent.sh");
-        fs::write(&script, "#!/bin/sh\nexit 0\n").expect("write script");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("set perms");
-        script
+    /// An agent that says nothing and succeeds: the log header is the subject.
+    fn write_quiet_fake_agent(dir: &Path) -> Vec<String> {
+        python_fixture_command(dir, "quiet-agent", "import sys\n\nsys.exit(0)\n")
     }
 
     #[test]
@@ -534,39 +524,36 @@
         assert!(!pi.stdin_prompt);
     }
 
-    #[cfg(unix)]
-    fn write_fake_agent(dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
+    /// The agent the transport tests run: it echoes back whichever transport
+    /// carried the prompt — `-p` on the command line, or stdin after a `--`.
+    ///
+    /// Each line is flushed as it is written because the tests read the log
+    /// while the process is still alive, and the trailing `partial` is written
+    /// without a newline so the readers' partial-line path is exercised too.
+    fn write_fake_agent(dir: &Path) -> Vec<String> {
+        python_fixture_command(
+            dir,
+            "fake-agent",
+            r#"import sys
 
-        let script = dir.join("fake-agent");
-        fs::write(
-            &script,
-            r#"#!/usr/bin/env bash
-set -euo pipefail
-printf 'stdout:start\n'
-printf 'stderr:warn\n' >&2
-prev=''
-read_stdin=0
-for arg in "$@"; do
-  if [ "$prev" = "-p" ]; then
-    printf 'prompt:%s\n' "$arg"
-  fi
-  if [ "$arg" = "--" ]; then
-    read_stdin=1
-  fi
-  prev="$arg"
-done
-if [ "$read_stdin" = "1" ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    printf 'stdin:%s\n' "$line"
-  done
-fi
-printf 'partial'
+print('stdout:start', flush=True)
+print('stderr:warn', file=sys.stderr, flush=True)
+
+previous = ''
+read_stdin = False
+for arg in sys.argv[1:]:
+    if previous == '-p':
+        print('prompt:' + arg, flush=True)
+    if arg == '--':
+        read_stdin = True
+    previous = arg
+
+if read_stdin:
+    for line in sys.stdin:
+        print('stdin:' + line.rstrip('\n'), flush=True)
+
+sys.stdout.write('partial')
+sys.stdout.flush()
 "#,
         )
-        .expect("write fake agent");
-        let mut perms = fs::metadata(&script).expect("metadata").permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).expect("chmod");
-        script
     }

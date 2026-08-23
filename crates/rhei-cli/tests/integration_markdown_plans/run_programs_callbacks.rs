@@ -54,16 +54,29 @@ transitions:
     assert_eq!(task.state.as_str(), "completed");
 }
 
-// A `#!/usr/bin/env bash` fixture is the polled program here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_poll_self_loop_schedules_next_attempt_and_clears_on_exit() {
-    let machine = r#"name: run-poll-test
+    let dir = unique_temp_dir("run-poll");
+    let script = write_python_agent(
+        &dir,
+        "poll.py",
+        r#"# §FS-rhei-states.3.3: exit 0 finishes the ticket, so record why first.
+result('## Result\n\nExternal status is ready.\n')
+marker = pathlib.Path('runtime') / 'polled-once'
+if marker.is_file():
+    sys.exit(0)
+write(marker, '')
+sys.exit(75)
+"#,
+    );
+    let machine = format!(
+        r#"name: run-poll-test
 version: 1
 states:
   waiting:
     description: Poll until ready
-    program: "bash ./poll.sh"
+    program:
+      command: {command}
     poll:
       interval: 1s
       max_attempts: 3
@@ -77,7 +90,9 @@ transitions:
   - from: waiting
     to: completed
     exit_code: 0
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Poll Run
 
 ## Tasks
@@ -85,27 +100,9 @@ transitions:
 ### Task 1: Wait for external status
 **State:** waiting
 "#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-# §FS-rhei-states.3.3: exit 0 finishes the ticket, so record why first.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nExternal status is ready.\n' > "$RHEI_RESULT_PATH"
-if [ -f runtime/polled-once ]; then
-  exit 0
-fi
-mkdir -p runtime
-touch runtime/polled-once
-exit 75
-"#;
 
-    let dir = unique_temp_dir("run-poll");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "poll.sh", script);
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(&script_path).expect("stat poll").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms).expect("chmod poll");
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -127,12 +124,22 @@ exit 75
 
 #[test]
 fn run_poll_max_attempts_counts_the_completed_attempt_before_self_looping() {
-    let machine = r#"name: run-poll-max-attempts-test
+    let dir = unique_temp_dir("run-poll-max-attempts");
+    let script = write_python_agent(
+        &dir,
+        "poll.py",
+        r#"append(pathlib.Path('runtime') / 'attempts.txt', 'attempt')
+sys.exit(75)
+"#,
+    );
+    let machine = format!(
+        r#"name: run-poll-max-attempts-test
 version: 1
 states:
   waiting:
     description: Poll once
-    program: "mkdir -p runtime && printf attempt >> runtime/attempts.txt && exit 75"
+    program:
+      command: {command}
     poll:
       interval: 1s
       max_attempts: 1
@@ -146,7 +153,9 @@ transitions:
   - from: waiting
     to: exhausted
     exit_code: 75
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Poll Once
 
 ## Tasks
@@ -155,9 +164,8 @@ transitions:
 **State:** waiting
 "#;
 
-    let dir = unique_temp_dir("run-poll-max-attempts");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -176,12 +184,22 @@ transitions:
 
 #[test]
 fn run_poll_allows_self_loop_until_max_attempt_cap() {
-    let machine = r#"name: run-poll-max-attempts-cap-test
+    let dir = unique_temp_dir("run-poll-max-attempts-cap");
+    let script = write_python_agent(
+        &dir,
+        "poll.py",
+        r#"append(pathlib.Path('runtime') / 'attempts.txt', 'attempt\n')
+sys.exit(75)
+"#,
+    );
+    let machine = format!(
+        r#"name: run-poll-max-attempts-cap-test
 version: 1
 states:
   waiting:
     description: Poll until attempts are exhausted
-    program: "mkdir -p runtime && printf 'attempt\n' >> runtime/attempts.txt && exit 75"
+    program:
+      command: {command}
     poll:
       interval: 0s
       max_attempts: 3
@@ -195,7 +213,9 @@ transitions:
   - from: waiting
     to: exhausted
     exit_code: 75
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Poll Three Times
 
 ## Tasks
@@ -204,9 +224,8 @@ transitions:
 **State:** waiting
 "#;
 
-    let dir = unique_temp_dir("run-poll-max-attempts-cap");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -225,17 +244,24 @@ transitions:
 
 #[test]
 fn run_poll_program_uses_condition_only_transitions_after_success() {
-    let machine = r#"name: run-program-poll-condition-test
+    let dir = unique_temp_dir("run-program-poll-condition");
+    let script = write_python_agent(
+        &dir,
+        "poll.py",
+        r#"append(pathlib.Path('runtime') / 'attempts.txt', 'attempt\n')
+result('## Result\n\nPolled without a verdict.\n')
+"#,
+    );
+    let machine = format!(
+        r#"name: run-program-poll-condition-test
 version: 1
 states:
   waiting:
     description: Poll with successful condition-only transitions
     # §FS-rhei-states.3.3: the exhaustion edge is terminal, so the program —
     # the worker here — records the outcome on every attempt.
-    program: >-
-      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
-      && printf 'attempt\n' >> runtime/attempts.txt
-      && printf '## Result\n\nPolled without a verdict.\n' > "$RHEI_RESULT_PATH"
+    program:
+      command: {command}
     poll:
       interval: 0s
       max_attempts: 3
@@ -249,7 +275,9 @@ transitions:
   - from: waiting
     to: exhausted
     condition: pollAttempts >= pollMaxAttempts
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Poll Success Conditions
 
 ## Tasks
@@ -258,9 +286,8 @@ transitions:
 **State:** waiting
 "#;
 
-    let dir = unique_temp_dir("run-program-poll-condition");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -279,12 +306,16 @@ transitions:
 
 #[test]
 fn run_program_fast_nonzero_with_timeout_uses_exit_code_transition() {
-    let machine = r#"name: run-program-nonzero-timeout-test
+    let dir = unique_temp_dir("run-program-nonzero-timeout");
+    let script = write_python_agent(&dir, "build.py", "sys.exit(2)\n");
+    let machine = format!(
+        r#"name: run-program-nonzero-timeout-test
 version: 1
 states:
   build:
     description: Build artifact
-    program: "exit 2"
+    program:
+      command: {command}
     program_timeout: 30s
     outputs:
       - name: bundle
@@ -302,7 +333,9 @@ transitions:
   - from: build
     to: timed-out
     timeout: 30s
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Fast Failure
 
 ## Tasks
@@ -311,9 +344,8 @@ transitions:
 **State:** build
 "#;
 
-    let dir = unique_temp_dir("run-program-nonzero-timeout");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -330,12 +362,16 @@ transitions:
 
 #[test]
 fn run_program_timeout_transition_ignores_missing_success_outputs() {
-    let machine = r#"name: run-program-timeout-output-test
+    let dir = unique_temp_dir("run-program-timeout-output");
+    let script = write_python_agent(&dir, "build.py", "time.sleep(5)\n");
+    let machine = format!(
+        r#"name: run-program-timeout-output-test
 version: 1
 states:
   build:
     description: Build artifact
-    program: "sleep 5"
+    program:
+      command: {command}
     program_timeout: 1s
     outputs:
       - name: bundle
@@ -347,7 +383,9 @@ transitions:
   - from: build
     to: timed-out
     timeout: 1s
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Timeout Failure
 
 ## Tasks
@@ -356,9 +394,8 @@ transitions:
 **State:** build
 "#;
 
-    let dir = unique_temp_dir("run-program-timeout-output");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks"]);
     assert!(
@@ -375,16 +412,23 @@ transitions:
 
 #[test]
 fn run_defers_program_tasks_in_default_non_concurrent_state() {
-    let machine = r#"name: run-program-concurrency-test
+    let dir = unique_temp_dir("run-program-concurrency");
+    let script = write_python_agent(
+        &dir,
+        "build.py",
+        r#"append(pathlib.Path('runtime') / 'order.txt', env('RHEI_TASK_ID') + '\n')
+result('## Result\n\nBuilt.\n')
+"#,
+    );
+    let machine = format!(
+        r#"name: run-program-concurrency-test
 version: 1
 states:
   build:
     description: Build artifact
     # §FS-rhei-states.3.3: exit 0 finishes the ticket, so record why.
-    program: >-
-      mkdir -p runtime "$(dirname "$RHEI_RESULT_PATH")"
-      && echo $RHEI_TASK_ID >> runtime/order.txt
-      && printf '## Result\n\nBuilt.\n' > "$RHEI_RESULT_PATH"
+    program:
+      command: {command}
   completed:
     description: Done
     final: true
@@ -392,7 +436,9 @@ transitions:
   - from: build
     to: completed
     exit_code: 0
-"#;
+"#,
+        command = fixture_command(&script)
+    );
     let plan = r#"# Rhei: Program Concurrency
 
 ## Tasks
@@ -407,9 +453,8 @@ transitions:
 **State:** build
 "#;
 
-    let dir = unique_temp_dir("run-program-concurrency");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-callbacks", "--parallel", "0"]);
     assert!(
@@ -428,13 +473,11 @@ transitions:
     assert_eq!(order.lines().count(), 3);
 }
 
-// A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_executes_relative_callback_from_state_machine_directory() {
     let dir = unique_temp_dir("run-relative-callback");
     let workspace_dir = dir.join("examples");
-    let machine_dir = workspace_dir.join("bash-agent-team");
+    let machine_dir = workspace_dir.join("script-agent-team");
     fs::create_dir_all(&machine_dir).expect("create machine dir");
 
     let plan = r#"# Rhei: Relative Callback
@@ -444,7 +487,11 @@ fn run_executes_relative_callback_from_state_machine_directory() {
 ### Task 1: Bootstrap
 **State:** pending
 "#;
-    let machine = r#"name: relative-callback
+    // The script path stays relative — resolving it against the state machine's
+    // directory is what this test is about — so only the interpreter's name is
+    // filled in.
+    let machine = format!(
+        r#"name: relative-callback
 version: 1
 states:
   pending:
@@ -454,26 +501,25 @@ states:
 transitions:
   - from: pending
     to: completed
-    on_leave: "cli:bash ./workflow.sh"
-"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-mkdir -p "$(dirname "$RHEI_PLAN_PATH")/runtime"
-printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-path.txt"
-"#;
+    on_leave: "cli:{python} ./workflow.py"
+"#,
+        python = python_command()
+    );
 
     let plan_path = write_fixture_file(&workspace_dir, "release-automation.rhei.md", plan);
-    write_fixture_file(&machine_dir, "team-states.yaml", machine);
-    let script_path = write_fixture_file(&machine_dir, "workflow.sh", script);
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms).expect("chmod workflow");
+    write_fixture_file(&machine_dir, "team-states.yaml", &machine);
+    write_python_agent(
+        &machine_dir,
+        "workflow.py",
+        r#"plan_path = pathlib.Path(env('RHEI_PLAN_PATH'))
+write(plan_path.parent / 'runtime' / 'plan-path.txt', str(plan_path) + '\n')
+"#,
+    );
 
     let result = run_run_command_in_dir(
         &workspace_dir,
         Path::new("release-automation.rhei.md"),
-        Path::new("bash-agent-team/team-states.yaml"),
+        Path::new("script-agent-team/team-states.yaml"),
         &[],
     );
 
@@ -498,8 +544,6 @@ printf '%s\n' "$RHEI_PLAN_PATH" > "$(dirname "$RHEI_PLAN_PATH")/runtime/plan-pat
     );
 }
 
-// A `#!/usr/bin/env bash` fixture is the callback here: Unix-only. #91
-#[cfg(unix)]
 #[test]
 fn run_executes_all_models_callbacks_without_agent_configuration() {
     let dir = unique_temp_dir("run-all-models-callback");
@@ -510,7 +554,8 @@ fn run_executes_all_models_callbacks_without_agent_configuration() {
 ### Task review-seed: Review specs
 **State:** review
 "#;
-    let machine = r#"name: multi-model-callback
+    let machine = format!(
+        r#"name: multi-model-callback
 version: 1
 models:
   - claude
@@ -521,30 +566,31 @@ states:
     all_models: [claude, codex]
     outputs:
       - name: findings
-        path: runtime/{model}-findings.md
+        path: runtime/{{model}}-findings.md
   completed:
     final: true
 transitions:
   - from: review
     to: completed
-    on_leave: "cli:bash ./workflow.sh"
-"#;
-    let script = r#"#!/usr/bin/env bash
-set -euo pipefail
-: "${RHEI_MODEL:?RHEI_MODEL must be set}"
-runtime_dir="$(dirname "$RHEI_PLAN_PATH")/runtime"
-mkdir -p "$runtime_dir"
-printf '%s\n' "$RHEI_MODEL" >> "$runtime_dir/models.txt"
-printf '# Findings for %s\n' "$RHEI_MODEL" > "$runtime_dir/$RHEI_MODEL-findings.md"
-"#;
+    on_leave: "cli:{python} ./workflow.py"
+"#,
+        python = python_command()
+    );
 
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script_path = write_fixture_file(&dir, "workflow.sh", script);
-    use std::os::unix::fs::PermissionsExt;
-    let mut perms = fs::metadata(&script_path).expect("stat workflow").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&script_path, perms).expect("chmod workflow");
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
+    write_python_agent(
+        &dir,
+        "workflow.py",
+        r#"model = env('RHEI_MODEL')
+if not model:
+    print('RHEI_MODEL must be set', file=sys.stderr)
+    sys.exit(1)
+runtime_dir = pathlib.Path(env('RHEI_PLAN_PATH')).parent / 'runtime'
+append(runtime_dir / 'models.txt', model + '\n')
+write(runtime_dir / (model + '-findings.md'), '# Findings for {}\n'.format(model))
+"#,
+    );
 
     let result = run_run_command(&plan_path, &machine_path, &["--no-agent"]);
 

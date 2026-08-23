@@ -25,6 +25,9 @@ mod supervision_tests;
 mod template_example_sync_tests;
 mod templates_render_tests;
 mod templates_tests;
+mod terminal_result_fanout_tests;
+mod terminal_result_redirect_tests;
+mod terminal_result_stall_tests;
 mod terminal_result_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;
@@ -36,7 +39,23 @@ mod python_fixture;
 #[path = "../support/test_dir.rs"]
 mod test_dir;
 
-pub use python_fixture::{fixture_command, fixture_command_line, write_python_agent};
+pub use python_fixture::{
+    fixture_command, fixture_command_line, python_command, write_python_agent,
+};
+
+/// A `cli:` callback that runs one line of Python, spelled as a YAML scalar.
+///
+/// A callback is a command line for the platform's own shell, and the two
+/// shells share almost no vocabulary — `printf` is `sh`, not `cmd`. The code
+/// goes inside one pair of double quotes and quotes its own strings with
+/// `'…'`, which both shells hand through unchanged, and `serde_json` spells
+/// the result as a YAML double-quoted scalar.
+
+// §FS-rhei-programs.1.1
+pub fn python_callback_yaml(code: &str) -> String {
+    serde_json::to_string(&format!("cli:{} -c \"{code}\"", python_command()))
+        .expect("callback should serialize")
+}
 pub use test_dir::TestDir;
 
 use std::fs;
@@ -240,6 +259,13 @@ pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (TestDir, Pat
     let workspace_path = dir.join(fixture_name);
     copy_dir_recursive(&fixture_path(fixture_name), &workspace_path);
     let machine_path = workspace_path.join("team-states.yaml");
+    // A fixture's `cli:` callbacks name their interpreter as
+    // `RHEI_FIXTURE_PYTHON`, because which of `python3` and `python` exists is
+    // a fact about the host and not about the fixture. The committed machine
+    // is the template; the copy is what runs.
+    let machine = fs::read_to_string(&machine_path).expect("fixture state machine");
+    fs::write(&machine_path, machine.replace("RHEI_FIXTURE_PYTHON", python_command()))
+        .expect("fixture state machine with the host's interpreter");
     (dir, workspace_path, machine_path)
 }
 
