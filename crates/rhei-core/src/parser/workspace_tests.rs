@@ -168,3 +168,40 @@ Context
     assert_eq!(tasks[0].children[0].children.len(), 1);
     assert_eq!(tasks[0].children[0].children[0].id.to_string(), "feature.api.contract");
 }
+
+/// §FS-rhei-memory.4.2: a manifest's content sections are pasted verbatim into
+/// `### Project Context`, so their paragraph breaks survive the parse.
+#[test]
+fn manifest_content_sections_keep_their_interior_blank_lines() {
+    let input = "# Panta: Product Suite\n\n\
+                 ## Context\n\n\
+                 First paragraph.\n\n\
+                 Second paragraph.\n\n\
+                 - item one\n\
+                 - item two\n\n\
+                 ```sh\n\
+                 echo hi\n\n\
+                 echo bye\n\
+                 ```\n\n\
+                 Tail paragraph.\n\n\n";
+
+    let manifest = parse_panta_manifest(input).expect("panta manifest parses");
+
+    assert_eq!(
+        manifest.content_sections[0].content,
+        "First paragraph.\n\nSecond paragraph.\n\n- item one\n- item two\n\n\
+         ```sh\necho hi\n\necho bye\n```\n\nTail paragraph."
+    );
+}
+
+/// §FS-rhei-memory.4.2: the same rule for a Directory Workspace's index, whose
+/// sections become `### Rhei Context`.
+#[test]
+fn workspace_index_content_sections_keep_their_interior_blank_lines() {
+    let input = "# Rhei: Workspace\n\n## Overview\n\nOne.\n\nTwo.\n\n## Rules\n\nOnly rule.\n";
+
+    let index = parse_workspace_index(input).expect("workspace index parses");
+
+    assert_eq!(index.content_sections[0].content, "One.\n\nTwo.");
+    assert_eq!(index.content_sections[1].content, "Only rule.");
+}

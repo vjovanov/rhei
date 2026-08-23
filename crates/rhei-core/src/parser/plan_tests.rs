@@ -763,3 +763,52 @@ fn unknown_metadata_error_lists_the_export_fields() {
         err.message
     );
 }
+
+/// §FS-rhei-memory.4.2: a content section is pasted verbatim into a prompt, so
+/// the blank lines between its paragraphs, lists, and fences are part of it.
+#[test]
+fn content_sections_keep_their_interior_blank_lines() {
+    let input = "# Rhei: Example\n\n\
+                 ## Overview\n\n\
+                 First paragraph.\n\n\
+                 Second paragraph.\n\n\
+                 - item one\n\
+                 - item two\n\n\
+                 ```sh\n\
+                 echo hi\n\n\
+                 echo bye\n\
+                 ```\n\n\
+                 Tail paragraph.\n\n\n\
+                 ## Tasks\n\n\
+                 ### Task 1: Alpha\n\
+                 **State:** pending\n";
+
+    let rhei = parse(input).expect("parse ok");
+
+    assert_eq!(
+        rhei.content_sections,
+        vec![ContentSection {
+            title: "Overview".to_string(),
+            // The trailing blanks only separate the section from `## Tasks`.
+            content: "First paragraph.\n\nSecond paragraph.\n\n- item one\n- item two\n\n\
+                      ```sh\necho hi\n\necho bye\n```\n\nTail paragraph."
+                .to_string(),
+            rhei: None,
+        }]
+    );
+}
+
+/// §FS-rhei-memory.4.2: the bytes a section holds are the bytes the author
+/// wrote between its heading and the next one.
+#[test]
+fn a_content_section_round_trips_the_authored_block() {
+    let block = "Paragraph one.\n\nParagraph two.\n\n- a\n- b\n\n```text\nfenced\n```";
+    let input = format!(
+        "# Rhei: Example\n\n## Notes\n\n{block}\n\n## Tasks\n\n\
+         ### Task 1: Alpha\n**State:** pending\n"
+    );
+
+    let rhei = parse(&input).expect("parse ok");
+
+    assert_eq!(rhei.content_sections[0].content, block);
+}
