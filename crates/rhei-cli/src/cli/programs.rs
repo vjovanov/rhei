@@ -52,7 +52,7 @@ fn build_program_command(
         };
         // The platform's own shell: `sh -c` here, `cmd /c` on Windows, which is
         // what §FS-rhei-programs.1.1 promises a string-form command.
-        rhei_core::callback::system_shell_command(&rendered)
+        rhei_core::platform::system_shell_command(&rendered)
     } else {
         let ProgramCommand::Exec(args) = &resolved.program.command else {
             return Err(miette!(
@@ -72,7 +72,7 @@ fn build_program_command(
     };
 
     // `cmd.exe` refuses a verbatim working directory. §REQ-cross-platform.5
-    cmd.current_dir(rhei_core::callback::plain_path(working_dir))
+    cmd.current_dir(rhei_core::platform::plain_path(working_dir))
         .env("RHEI_PLAN_PATH", render_context.plan_path)
         .env("RHEI_TASK_ID", render_context.task.id.to_string())
         .env("RHEI_TASK_ID_LOCAL", rhei_local_id_of(render_context.task))

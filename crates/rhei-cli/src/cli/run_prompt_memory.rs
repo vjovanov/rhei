@@ -198,7 +198,7 @@ fn canonical_spelling(path: &Path) -> Option<PathBuf> {
     let mut existing = path.to_path_buf();
     let mut rest: Vec<std::ffi::OsString> = Vec::new();
     loop {
-        if let Ok(canonical) = rhei_core::callback::canonical_path(&existing) {
+        if let Ok(canonical) = rhei_core::platform::canonical_path(&existing) {
             return Some(rest.iter().rev().fold(canonical, |acc, part| acc.join(part)));
         }
         rest.push(existing.file_name()?.to_os_string());

@@ -187,7 +187,7 @@ fn created_id_reads_back(loaded: &LoadedPlan, write: &NewWrite, target: &Path) -
 /// Compare two paths for the same file, resolving `.`, `..`, and symlinks where
 /// the filesystem can; a path that will not canonicalize is compared as spelled.
 fn same_path(left: &Path, right: &Path) -> bool {
-    match (rhei_core::callback::canonical_path(left), rhei_core::callback::canonical_path(right)) {
+    match (rhei_core::platform::canonical_path(left), rhei_core::platform::canonical_path(right)) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
     }

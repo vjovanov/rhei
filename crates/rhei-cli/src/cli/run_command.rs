@@ -22,7 +22,7 @@ fn run_lock_roots(loaded: &LoadedPlan, workspace_root: &Path) -> BTreeSet<PathBu
     // dedup as a second name for the run's own directory.
     let canonical = |root: &Path| {
         let root = if root.as_os_str().is_empty() { Path::new(".") } else { root };
-        rhei_core::callback::canonical_path(root).unwrap_or_else(|_| root.to_path_buf())
+        rhei_core::platform::canonical_path(root).unwrap_or_else(|_| root.to_path_buf())
     };
     let mut roots = BTreeSet::new();
     roots.insert(canonical(workspace_root));
