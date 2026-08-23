@@ -1545,5 +1545,5 @@ fn canonical_watch_path(path: &Path) -> PathBuf {
 }
 
 fn normalize_path(path: &Path) -> Option<PathBuf> {
-    path.canonicalize().ok()
+    rhei_core::callback::canonical_path(path).ok()
 }

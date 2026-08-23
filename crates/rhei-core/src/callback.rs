@@ -11,7 +11,7 @@
 use crate::ast::CallbackRef;
 use serde_json::Value as JsonValue;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Context provided to a callback during a state transition.
@@ -131,17 +131,58 @@ pub trait CallbackExecutor {
 
 // §FS-rhei-programs.1.1 §REQ-cross-platform.2
 pub fn system_shell_command(command: &str) -> Command {
-    let mut cmd = if cfg!(windows) {
+    #[cfg(windows)]
+    {
+        // `raw_arg`, not `arg`: `cmd /C` takes a command *line*, and the
+        // escaping `arg` applies quotes the whole thing and rewrites every `"`
+        // inside it as `\"` — which `cmd` does not understand, so the quotes
+        // reached the program as characters and `python -c "…"` was handed a
+        // string literal that never closed.
+        use std::os::windows::process::CommandExt as _;
         let mut cmd = Command::new("cmd");
         cmd.arg("/C");
+        cmd.raw_arg(command);
         cmd
-    } else {
+    }
+    #[cfg(not(windows))]
+    {
         let mut cmd = Command::new("sh");
-        cmd.arg("-c");
+        cmd.arg("-c").arg(command);
         cmd
-    };
-    cmd.arg(command);
-    cmd
+    }
+}
+
+/// `path` without the `\\?\` verbatim prefix Windows canonicalization adds.
+///
+/// The verbatim form is a second spelling of one location, and it does not stay
+/// inside the process that made it: `cmd.exe` refuses to start in one and
+/// silently uses the Windows directory instead, a report prints it where every
+/// other line prints the plain form, and a worker handed one writes its
+/// artifacts where the engine does not look for them.
+
+// §REQ-cross-platform.5
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(text) = path.to_str() {
+            if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+                return PathBuf::from(format!(r"\\{rest}"));
+            }
+            if let Some(rest) = text.strip_prefix(r"\\?\") {
+                // A drive path only; `\\?\Volume{…}` has no plain spelling.
+                if rest.as_bytes().get(1) == Some(&b':') {
+                    return PathBuf::from(rest);
+                }
+            }
+        }
+    }
+    path
+}
+
+/// [`Path::canonicalize`] with the verbatim prefix taken back off.
+// §REQ-cross-platform.5
+pub fn canonical_path(path: &Path) -> std::io::Result<PathBuf> {
+    path.canonicalize().map(plain_path)
 }
 
 /// Executes `cli:`-prefixed callbacks as shell commands.
@@ -188,7 +229,8 @@ impl CallbackExecutor for ShellCallbackExecutor {
 
         // §FS-rhei-programs.1.1: the platform's shell, not always `sh`.
         let mut cmd = system_shell_command(command);
-        cmd.current_dir(context.callback_cwd)
+        // `cmd.exe` refuses a verbatim working directory. §REQ-cross-platform.5
+        cmd.current_dir(plain_path(context.callback_cwd.to_path_buf()))
             .env("RHEI_TASK_ID", context.task_id)
             .env("RHEI_TASK_ID_LOCAL", context.task_id_local)
             .env("RHEI_FROM_STATE", context.from_state)
@@ -325,16 +367,30 @@ mod tests {
         let program = cmd.get_program().to_string_lossy().into_owned();
         let args: Vec<String> =
             cmd.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let switch = if cfg!(windows) { "/C" } else { "-c" };
+        let shell = if cfg!(windows) { "cmd" } else { "sh" };
+        assert_eq!(program, shell);
+        assert_eq!(args, vec![switch.to_string(), "echo hi".to_string()]);
+    }
+
+    /// The verbatim prefix is stripped only where a plain spelling exists, and
+    /// both halves are pinned on the platform that runs the whole suite.
+    // §REQ-cross-platform.5
+    #[test]
+    fn a_canonical_windows_path_loses_its_verbatim_prefix() {
+        let drive = plain_path(PathBuf::from(r"\\?\C:\work\plan.rhei.md"));
+        let unc = plain_path(PathBuf::from(r"\\?\UNC\server\share\plan.rhei.md"));
+        let volume = plain_path(PathBuf::from(r"\\?\Volume{2eca078d}\plan.rhei.md"));
         if cfg!(windows) {
-            assert_eq!(
-                (program.as_str(), args.as_slice()),
-                ("cmd", &["/C".to_string(), "echo hi".to_string()][..])
-            );
+            assert_eq!(drive, PathBuf::from(r"C:\work\plan.rhei.md"));
+            assert_eq!(unc, PathBuf::from(r"\\server\share\plan.rhei.md"));
+            // A volume GUID path has no plain form, so it is left alone.
+            assert_eq!(volume, PathBuf::from(r"\\?\Volume{2eca078d}\plan.rhei.md"));
         } else {
-            assert_eq!(
-                (program.as_str(), args.as_slice()),
-                ("sh", &["-c".to_string(), "echo hi".to_string()][..])
-            );
+            // Nothing to strip: these are ordinary relative names elsewhere.
+            assert_eq!(drive, PathBuf::from(r"\\?\C:\work\plan.rhei.md"));
+            assert_eq!(unc, PathBuf::from(r"\\?\UNC\server\share\plan.rhei.md"));
+            assert_eq!(volume, PathBuf::from(r"\\?\Volume{2eca078d}\plan.rhei.md"));
         }
     }
 

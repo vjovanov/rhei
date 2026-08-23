@@ -33,6 +33,10 @@ impl LockedPlanFile {
         file.lock_exclusive()
             .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
         let file = Arc::new(Mutex::new(Some(file)));
+        // The loader reads a plan, a workspace index, or a project manifest
+        // through `rhei_core::source`, which knows nothing about locks until
+        // this process tells it where to ask. §FS-rhei-new.4
+        rhei_core::source::set_reader(plan_source_reader);
         held_plan_locks().lock().expect("held plan locks").push((path.to_path_buf(), file.clone()));
         Ok(Self { file, path: path.to_path_buf() })
     }
@@ -61,8 +65,9 @@ impl LockedPlanFile {
         if !lock_is_contended(&err) {
             return Err(file_io_report(&self.path, action, err));
         }
-        read_through_handle(&self.file, &self.path, action)
-            .unwrap_or_else(|| Err(file_io_report(&self.path, action, err)))
+        read_through_handle(&self.file)
+            .unwrap_or(Err(err))
+            .map_err(|err| file_io_report(&self.path, action, err))
     }
 
     /// Release the lock and close the handle. Idempotent, and a no-op once a
@@ -105,22 +110,28 @@ type PlanLockHandle = Arc<Mutex<Option<fs::File>>>;
 ///
 /// `None` when the lock has already been released, which leaves the caller with
 /// the original refusal to report.
-fn read_through_handle(
-    handle: &Mutex<Option<fs::File>>,
-    path: &Path,
-    action: &str,
-) -> Option<MietteResult<String>> {
+fn read_through_handle(handle: &Mutex<Option<fs::File>>) -> Option<std::io::Result<String>> {
     let guard = handle.lock().expect("plan lock handle");
     let file = guard.as_ref()?;
     let mut reader = file;
     Some((|| {
-        reader
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|err| file_io_report(path, action, err))?;
+        reader.seek(std::io::SeekFrom::Start(0))?;
         let mut raw = String::new();
-        reader.read_to_string(&mut raw).map_err(|err| file_io_report(path, action, err))?;
+        reader.read_to_string(&mut raw)?;
         Ok(raw)
     })())
+}
+
+/// Read `path` through whichever lock this process holds on it, if any.
+fn read_through_held_lock(path: &Path) -> Option<std::io::Result<String>> {
+    let held = {
+        let locks = held_plan_locks().lock().expect("held plan locks");
+        locks
+            .iter()
+            .find(|(locked_path, _)| same_path(locked_path, path))
+            .map(|(_, handle)| handle.clone())
+    }?;
+    read_through_handle(&held)
 }
 
 /// Read `path`, by path first and through this process's own lock when the path
@@ -130,26 +141,26 @@ fn read_through_handle(
 /// writer that took the lock before us has left a different file at `path`, and
 /// only reading by path sees it. The fallback covers the case that reading by
 /// path cannot: the file is one *we* locked, and Windows will not open it twice.
+///
+/// The `io::Error` is passed through rather than wrapped, because the loader
+/// this is installed into branches on its kind.
 // §FS-rhei-new.4
-fn read_plan_source(path: &Path, action: &str) -> MietteResult<String> {
+fn plan_source_reader(path: &Path) -> std::io::Result<String> {
     let err = match fs::read_to_string(path) {
         Ok(raw) => return Ok(raw),
         Err(err) => err,
     };
     if !lock_is_contended(&err) {
-        return Err(file_io_report(path, action, err));
+        return Err(err);
     }
-    let held = {
-        let locks = held_plan_locks().lock().expect("held plan locks");
-        locks
-            .iter()
-            .find(|(locked_path, _)| same_path(locked_path, path))
-            .map(|(_, handle)| handle.clone())
-    };
-    match held.as_deref().and_then(|handle| read_through_handle(handle, path, action)) {
-        Some(result) => result,
-        None => Err(file_io_report(path, action, err)),
-    }
+    read_through_held_lock(path).unwrap_or(Err(err))
+}
+
+/// [`plan_source_reader`] with the diagnostic a CLI caller wants; `action` names
+/// the read the way `file_io_report` does.
+// §FS-rhei-new.4
+fn read_plan_source(path: &Path, action: &str) -> MietteResult<String> {
+    plan_source_reader(path).map_err(|err| file_io_report(path, action, err))
 }
 
 /// Rename a temp file over `path`, which `locked` may be holding.

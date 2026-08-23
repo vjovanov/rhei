@@ -71,7 +71,8 @@ fn build_program_command(
         command
     };
 
-    cmd.current_dir(working_dir)
+    // `cmd.exe` refuses a verbatim working directory. §REQ-cross-platform.5
+    cmd.current_dir(rhei_core::callback::plain_path(working_dir))
         .env("RHEI_PLAN_PATH", render_context.plan_path)
         .env("RHEI_TASK_ID", render_context.task.id.to_string())
         .env("RHEI_TASK_ID_LOCAL", rhei_local_id_of(render_context.task))

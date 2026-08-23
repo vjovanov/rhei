@@ -1739,8 +1739,16 @@ transitions:
         {
             fs::write(&script, body).expect("write redactor");
             let shim = dir.join(format!("{name}.cmd"));
-            fs::write(&shim, format!("@echo off\r\npython \"%~dp0{name}.py\" %*\r\n"))
-                .expect("write redactor shim");
+            // The probed interpreter, not a hardcoded `python`: which of the two
+            // names exists is a fact about the host.
+            fs::write(
+                &shim,
+                format!(
+                    "@echo off\r\n{} \"%~dp0{name}.py\" %*\r\n",
+                    test_python_command()
+                ),
+            )
+            .expect("write redactor shim");
             shim
         }
     }

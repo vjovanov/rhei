@@ -24,12 +24,12 @@ fn resolve_callback_paths(
     state_machine_path: Option<&Path>,
     plan_path: &Path,
 ) -> MietteResult<CallbackPaths> {
-    let plan_path = plan_path.canonicalize().map_err(|err| {
+    let plan_path = rhei_core::callback::canonical_path(plan_path).map_err(|err| {
         file_io_report(plan_path, "failed to resolve plan path for callbacks", err)
     })?;
     let state_machine_path = state_machine_path
         .map(|path| {
-            path.canonicalize().map_err(|err| {
+            rhei_core::callback::canonical_path(path).map_err(|err| {
                 file_io_report(path, "failed to resolve state machine path for callbacks", err)
             })
         })
@@ -42,7 +42,7 @@ fn resolve_callback_paths(
         rhei_core::workspace::plan_parent_dir(&plan_path)
     };
 
-    let working_dir = base_dir.canonicalize().map_err(|err| {
+    let working_dir = rhei_core::callback::canonical_path(base_dir).map_err(|err| {
         file_io_report(base_dir, "failed to resolve callback working directory", err)
     })?;
 
