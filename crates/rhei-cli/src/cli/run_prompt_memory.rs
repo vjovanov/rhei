@@ -115,10 +115,25 @@ fn owning_rhei_id(render_context: &RuntimeTemplateContext<'_>) -> Option<String>
     rhei_id_of(render_context.task)
 }
 
-/// The rhei a qualified id belongs to: its leading segment.
-// §FS-rhei-panta.6.3
-fn rhei_of_qualified_id(task_id: &str) -> &str {
-    task_id.split_once('.').map(|(rhei, _)| rhei).unwrap_or(task_id)
+/// How one ticket is named in a memory section: its kind, title-cased, and its
+/// qualified id — the form `## Child Tasks` and `rhei list` already print.
+// §FS-rhei-memory.3.1 §FS-rhei-memory.3.2 §FS-rhei-plan-language.3.7
+fn memory_node_label(task: &rhei_core::ast::Task) -> String {
+    format!("{} {}", title_case_kind(&task.kind), task.id)
+}
+
+/// The state one ticket renders as: the machine's name for it.
+///
+/// A `**State:**` line may carry a counted-loop suffix (`work-3`), which is
+/// bookkeeping for the engine and noise to a reader — and the invocation's own
+/// state is already normalized on the same line, so leaving a sibling's raw
+/// made the two look like different states of different machines.
+// §FS-rhei-memory.4.5 §FS-rhei-plan-language.3.2
+fn memory_state_name(
+    task: &rhei_core::ast::Task,
+    machine: &rhei_validator::StateMachine,
+) -> String {
+    normalized_state_name(task.state.as_str(), machine)
 }
 
 /// Every task of the merged graph, in plan order, parents before children.
@@ -142,7 +157,7 @@ fn task_state_is_terminal(
     task: &rhei_core::ast::Task,
     machine: &rhei_validator::StateMachine,
 ) -> bool {
-    is_terminal_state(&normalized_state_name(task.state.as_str(), machine), machine)
+    is_terminal_state(&memory_state_name(task, machine), machine)
 }
 
 /// Render a filesystem path the way `{output.<name>.path}` renders one:

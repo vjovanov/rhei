@@ -14,7 +14,9 @@ const PLAN_HISTORY_PREAMBLE: &str = "Finished work, oldest first. Full text: \
 
 /// One rendered history line, kept structured until the cap has been applied.
 struct HistoryEntry {
-    id: String,
+    /// `<Kind> <qualified id>`, the way every other surface names a node.
+    // §FS-rhei-memory.3.2
+    label: String,
     title: String,
     state: String,
     summary: String,
@@ -31,8 +33,8 @@ impl HistoryEntry {
             .map(|rhei| format!(" (rhei `{rhei}`, prior)"))
             .unwrap_or_default();
         format!(
-            "- Task {}: {} \u{2014} {} \u{2014} {}{tag}\n",
-            self.id, self.title, self.state, self.summary
+            "- {}: {} \u{2014} {} \u{2014} {}{tag}\n",
+            self.label, self.title, self.state, self.summary
         )
     }
 }
@@ -98,7 +100,7 @@ fn own_history_tasks<'a>(
     let own: Vec<&rhei_core::ast::Task> = order
         .iter()
         .copied()
-        .filter(|candidate| rhei_of_qualified_id(&candidate.id.to_string()) == rhei_id)
+        .filter(|candidate| rhei_id_of(candidate).as_deref() == Some(rhei_id))
         .filter(|candidate| candidate.id != render_context.task.id)
         .filter(|candidate| !skip.contains(&candidate.id.to_string()))
         .filter(|candidate| task_state_is_terminal(candidate, render_context.machine))
@@ -144,8 +146,10 @@ fn render_in_flight(
     let mut out = String::from("\n### In Flight\n\n");
     for (task, assignee) in claimed.iter().take(memory_caps::IN_FLIGHT) {
         out.push_str(&format!(
-            "- Task {}: {} [{}] \u{2014} {assignee}\n",
-            task.id, task.title, task.state
+            "- {}: {} [{}] \u{2014} {assignee}\n",
+            memory_node_label(task),
+            task.title,
+            memory_state_name(task, render_context.machine)
         ));
     }
     if claimed.len() > memory_caps::IN_FLIGHT {
@@ -188,8 +192,10 @@ fn render_dependents(
     let mut out = String::from("\n### Dependents\n\n");
     for (task, relation) in dependents.iter().take(memory_caps::DEPENDENTS) {
         out.push_str(&format!(
-            "- Task {}: {} [{}] \u{2014} {relation}\n",
-            task.id, task.title, task.state
+            "- {}: {} [{}] \u{2014} {relation}\n",
+            memory_node_label(task),
+            task.title,
+            memory_state_name(task, render_context.machine)
         ));
     }
     if dependents.len() > memory_caps::DEPENDENTS {
@@ -222,26 +228,24 @@ fn render_plan_history(render_context: &RuntimeTemplateContext<'_>) -> MietteRes
     let mut entries = Vec::new();
     for task in &own {
         entries.push(HistoryEntry {
-            id: task.id.to_string(),
+            label: memory_node_label(task),
             title: task.title.clone(),
-            state: task.state.clone(),
+            state: memory_state_name(task, render_context.machine),
             summary: task_history_summary(render_context, &task.id, &pasted_in_full)?,
             foreign_rhei: None,
         });
     }
     let own_count = entries.len();
     for task in transitive_priors(&index, &order, render_context.task) {
-        let id = task.id.to_string();
-        if own_ids.contains(&id) {
+        if own_ids.contains(&task.id.to_string()) {
             continue;
         }
-        let owner = rhei_of_qualified_id(&id).to_string();
         entries.push(HistoryEntry {
-            id: id.clone(),
+            label: memory_node_label(task),
             title: task.title.clone(),
-            state: task.state.clone(),
+            state: memory_state_name(task, render_context.machine),
             summary: task_history_summary(render_context, &task.id, &pasted_in_full)?,
-            foreign_rhei: (owner != rhei_id).then_some(owner),
+            foreign_rhei: rhei_id_of(task).filter(|owner| owner != &rhei_id),
         });
     }
 

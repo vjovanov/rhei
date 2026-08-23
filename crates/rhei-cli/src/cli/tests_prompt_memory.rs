@@ -467,3 +467,175 @@ Acceptance: every child lands its own result.
             "got:\n{position}"
         );
     }
+
+    /// A machine with two counted loops and a supervising state, so a
+    /// `**State:**` line can carry the `-<visit>` suffix the engine writes.
+    fn counted_loop_machine() -> rhei_validator::StateMachine {
+        rhei_validator::StateMachine::from_yaml_str(
+            r#"
+name: counted-loops
+version: 1
+states:
+  pending:
+    initial: true
+    description: Ready for work
+    instructions: Do the work for Task {task_id}.
+  work:
+    description: Work
+    visits: 3
+    instructions: Work on Task {task_id}.
+  fix:
+    description: Fix
+    visits: 3
+    instructions: Fix Task {task_id}.
+  supervising:
+    description: Supervise
+    instructions: Supervise Task {task_id}.
+  completed:
+    description: Done
+    final: true
+transitions:
+  - { from: pending, to: work }
+  - { from: work, to: fix }
+  - { from: fix, to: work }
+  - { from: supervising, to: supervising }
+  - { from: "*", to: completed }
+"#,
+        )
+        .expect("machine should parse")
+    }
+
+    /// A parent mid-supervision, a child mid-loop, a `bug` sibling mid-loop,
+    /// and a finished `bug` for the history to summarize.
+    const COUNTED_LOOP_PLAN: &str = r#"# Rhei: Loops
+
+---
+structure:
+  maxLevels: 3
+  nodeKinds: [task, bug]
+---
+
+## Tasks
+
+### Task 1: Parent
+**State:** supervising-3
+
+The decomposition for the whole subtree lives here.
+
+#### Task 1.1: This one
+**State:** work-3
+
+#### Bug 1.2: Flaky teardown
+**State:** fix-2
+**Assignee:** codex
+**Prior:** 1.1
+
+#### Bug 1.3: Fixed already
+**State:** completed
+"#;
+
+    /// One form for a state name across the whole prompt. A counted loop writes
+    /// `work-3` into `**State:**`; the invocation's own state is already
+    /// normalized, so a neighbour's raw value read as a different machine.
+    // §FS-rhei-memory.4.5
+    #[test]
+    fn counted_loop_suffixes_are_normalized_in_every_section() {
+        let dir = memory_dir(&[
+            ("plan.rhei.md", COUNTED_LOOP_PLAN),
+            ("runtime/state-transitions.log", "plan.1.3 fix@completed\n"),
+            ("runtime/results/plan.1.3.md", "## Result\n\nTeardown no longer races.\n"),
+        ]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = counted_loop_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.1").expect("task 1.1");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "work");
+
+        let position = render_position(&context);
+        assert!(
+            position.contains("\u{203a} Task plan.1: Parent [supervising]\n"),
+            "the chain normalizes an ancestor's state; got:\n{position}"
+        );
+        assert!(
+            position.contains("- Bug plan.1.2: Flaky teardown [fix] \u{2014} waits on this task\n"),
+            "a sibling's state is normalized; got:\n{position}"
+        );
+
+        let history = render_plan_history(&context).expect("history");
+        assert!(
+            history.contains(
+                "- Bug plan.1.3: Fixed already \u{2014} completed \u{2014} Teardown no longer \
+                 races.\n"
+            ),
+            "got:\n{history}"
+        );
+        assert!(
+            history.contains("- Bug plan.1.2: Flaky teardown [fix] \u{2014} codex\n"),
+            "`### In Flight` normalizes too; got:\n{history}"
+        );
+
+        assert!(
+            history.contains(
+                "### Dependents\n\n- Bug plan.1.2: Flaky teardown [fix] \u{2014} prior\n"
+            ),
+            "`### Dependents` normalizes too; got:\n{history}"
+        );
+
+        // §FS-rhei-supervision.5.1: the pre-existing `## Child Tasks` map, which
+        // printed the raw value beside the normalized one.
+        let parent = find_task_by_id_str(&loaded.rhei.tasks, "plan.1").expect("task 1");
+        let parent_context = memory_context(
+            dir.path(),
+            &plan_path,
+            &loaded,
+            &memory,
+            &machine,
+            parent,
+            "supervising",
+        );
+        let prompt = compose_agent_prompt(&parent_context).expect("prompt");
+        assert!(
+            prompt.contains(
+                "## Child Tasks\n\n\
+                 - Task plan.1.1: This one [work]\n\
+                 - Bug plan.1.2: Flaky teardown [fix]\n\
+                 - Bug plan.1.3: Fixed already [completed]\n"
+            ),
+            "got:\n{prompt}"
+        );
+    }
+
+    /// §FS-rhei-memory.3.1 §FS-rhei-memory.3.2: a node is named by its own kind,
+    /// title-cased — the form `## Child Tasks` and `rhei list` already print.
+    #[test]
+    fn a_node_is_named_by_its_own_kind() {
+        let dir = memory_dir(&[
+            ("plan.rhei.md", COUNTED_LOOP_PLAN),
+            ("runtime/state-transitions.log", "plan.1.3 fix@completed\n"),
+        ]);
+        let plan_path = dir.path().join("plan.rhei.md");
+        let loaded = load_plan(&plan_path).expect("plan loads");
+        let memory =
+            prompt_memory(&loaded, &plan_path, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = counted_loop_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "plan.1.1").expect("task 1.1");
+        let context =
+            memory_context(dir.path(), &plan_path, &loaded, &memory, &machine, task, "work");
+
+        let position = render_position(&context);
+        assert!(position.contains("- Bug plan.1.2: Flaky teardown"), "got:\n{position}");
+        assert!(
+            position.contains("### Parent: Task plan.1: Parent\n"),
+            "the parent heading carries its kind too; got:\n{position}"
+        );
+        assert!(
+            position.contains("\u{203a} **Task plan.1.1: This one [work]**"),
+            "got:\n{position}"
+        );
+
+        let history = render_plan_history(&context).expect("history");
+        assert!(history.contains("- Bug plan.1.3: Fixed already \u{2014} completed"), "got:\n{history}");
+    }

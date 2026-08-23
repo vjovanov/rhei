@@ -351,12 +351,13 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> MietteRe
     if !render_context.task.children.is_empty() {
         prompt.push_str("\n## Child Tasks\n\n");
         for child in &render_context.task.children {
+            // §FS-rhei-memory.4.5: one form for a state name across the prompt,
+            // so a counted loop's `work-3` does not read as its own state.
             prompt.push_str(&format!(
-                "- {} {}: {} [{}]\n",
-                title_case_kind(&child.kind),
-                child.id,
+                "- {}: {} [{}]\n",
+                memory_node_label(child),
                 child.title,
-                child.state
+                memory_state_name(child, render_context.machine)
             ));
         }
     }

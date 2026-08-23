@@ -14,6 +14,9 @@ use crate::ast::{ContentSection, Metadata, Rhei, Structure, Task, TaskId, TaskId
 use crate::parser::{self, ParseError};
 
 pub const PANTA_INDEX_FILE: &str = "index.panta.md";
+/// The index document of a Directory Workspace rhei — the plan a reader
+/// opens when the execution root is a directory. §FS-rhei-memory.3.4
+pub const RHEI_INDEX_FILE: &str = "index.rhei.md";
 pub const BASIN_RHEI_ID: &str = "basin";
 
 /// A loaded directory workspace: the merged plan plus a map from each task ID
@@ -84,7 +87,7 @@ fn nested_parse_error(err: ParseError, path: &Path) -> ParseError {
 /// Returns `true` if `path` is a directory workspace
 /// (a directory containing `index.rhei.md`).
 pub fn is_workspace(path: &Path) -> bool {
-    path.is_dir() && path.join("index.rhei.md").is_file()
+    path.is_dir() && path.join(RHEI_INDEX_FILE).is_file()
 }
 
 /// Returns `true` if `path` is a Panta project directory.
@@ -115,7 +118,7 @@ pub fn workspace_dir(path: &Path) -> Option<PathBuf> {
     if is_workspace(path) {
         return Some(path.to_path_buf());
     }
-    if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some("index.rhei.md") {
+    if path.is_file() && path.file_name().and_then(|n| n.to_str()) == Some(RHEI_INDEX_FILE) {
         if let Some(parent) = path.parent() {
             if parent.join("tasks").is_dir() {
                 return Some(parent.to_path_buf());
@@ -353,7 +356,9 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
         // project's title and paths; a prompt that names the owning rhei needs
         // the rhei's own.
         rhei_titles.insert(rhei_id.clone(), rhei.title.clone());
-        rhei_plans.insert(rhei_id.clone(), rhei_plan_file(&entry));
+        if let Some(plan) = rhei_plan_file(&entry) {
+            rhei_plans.insert(rhei_id.clone(), plan);
+        }
         // Child runtime metadata joins the merged graph under qualified keys
         // so counted loops and poll timers resolve project-wide. §AR-rhei-panta.2
         merge_task_metadata(
@@ -461,7 +466,8 @@ pub fn wrap_rhei_as_implicit_panta(
     }
     let rhei_roots = HashMap::from([(id.clone(), root.clone())]);
     let rhei_titles = HashMap::from([(id.clone(), rhei.title.clone())]);
-    let rhei_plans = HashMap::from([(id.clone(), rhei_plan_file(entry))]);
+    let rhei_plans: HashMap<String, PathBuf> =
+        rhei_plan_file(entry).into_iter().map(|plan| (id.clone(), plan)).collect();
     let content_section_roots = vec![root; rhei.content_sections.len()];
     // The implicit Panta has no manifest: the single rhei's own `**States:**`
     // declaration is the project's effective machine, so it needs no per-rhei
@@ -482,12 +488,17 @@ pub fn wrap_rhei_as_implicit_panta(
 
 /// The plan document of a rhei entry: a Directory Workspace's `index.rhei.md`,
 /// or the single-file rhei itself. The execution root of a workspace rhei is
-/// the directory, which is not a document anyone can open. §FS-rhei-memory.3.4
-pub fn rhei_plan_file(entry: &Path) -> PathBuf {
-    match workspace_dir(entry) {
-        Some(dir) => dir.join("index.rhei.md"),
-        None => entry.to_path_buf(),
+/// the directory, which is not a document anyone can open.
+///
+/// `None` when the entry is a directory with no index — the synthetic basin,
+/// whose manifest is never authored — so a caller names the tickets' own files
+/// instead of a plan that does not exist.
+// §FS-rhei-memory.3.4 §AR-rhei-panta.1
+pub fn rhei_plan_file(entry: &Path) -> Option<PathBuf> {
+    if let Some(dir) = workspace_dir(entry) {
+        return Some(dir.join(RHEI_INDEX_FILE));
     }
+    entry.is_file().then(|| entry.to_path_buf())
 }
 
 /// Runtime task metadata lives at `metadata.tasks` inside the frontmatter
@@ -572,7 +583,7 @@ fn load_basin_rhei(dir: &Path, structure: &Structure, states: &str) -> parser::R
         // The basin's manifest is synthetic, so an authored index can never
         // load. Skipping it silently vanished its tickets behind a green
         // validation — what the basin exists to prevent. §AR-rhei-panta.1
-        if path.file_name().and_then(|name| name.to_str()) == Some("index.rhei.md") {
+        if path.file_name().and_then(|name| name.to_str()) == Some(RHEI_INDEX_FILE) {
             return Err(ParseError::new(
                 format!(
                     "{}: the basin has no authored index — its manifest is synthetic, so this \
@@ -890,7 +901,7 @@ fn collect_task_roots(
 /// `.md` file inside the `tasks/` subdirectory. Reports duplicate task IDs
 /// across files and missing structure.
 pub fn load_workspace(dir: &Path) -> parser::Result<Workspace> {
-    let index_path = dir.join("index.rhei.md");
+    let index_path = dir.join(RHEI_INDEX_FILE);
     let index_content = std::fs::read_to_string(&index_path).map_err(|e| {
         ParseError::new(format!("failed to read {}: {e}", index_path.display()), None)
     })?;

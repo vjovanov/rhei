@@ -95,15 +95,15 @@ Where this invocation sits in the project, top down.
 ```
 ## Position
 
-Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › Task {ancestor-id}: {title} [{state}] › …
-› **Task {task_id}: {title} [{state}]** ← this invocation (visit {visit_count})
+Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › {Kind} {ancestor-id}: {title} [{state}] › …
+› **{Kind} {task_id}: {title} [{state}]** ← this invocation (visit {visit_count})
 
 ### Siblings
 
-- Task {id}: {title} [{state}]
-- Task {id}: {title} [{state}] — waits on this task
+- {Kind} {id}: {title} [{state}]
+- {Kind} {id}: {title} [{state}] — waits on this task
 
-### Parent: Task {parent-id}: {title}
+### Parent: {Kind} {parent-id}: {title}
 
     ```markdown
     {the parent's body}
@@ -120,6 +120,12 @@ Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › Task {ancestor-id}: 
 
 - The chain line names every ancestor, root first, each with its state. A
   root task's chain is the Panta and the rhei alone.
+- `{Kind}` is the node's own kind, title-cased — `Task`, `Bug`, whatever the
+  plan's `structure.nodeKinds` declares (§FS-rhei-plan-language.3.7) — the form
+  `## Child Tasks` and `rhei list` already print. `{state}` is the machine's
+  name for the state, with the `-<visit>` suffix a counted loop writes into
+  `**State:**` dropped (§FS-rhei-plan-language.3.2), so every state name in the
+  prompt has one form.
 - `### Siblings` renders only when the task has a parent: the parent's other
   children, in plan order. A sibling that lists this task in `**Prior:**` or
   consumes one of its exports carries ` — waits on this task`. A root task has
@@ -145,19 +151,20 @@ What finished before this invocation, one line per task.
 
 Finished work, oldest first. Full text: `runtime/results/<id>.md` under the owning rhei's execution root.
 
-- Task {id}: {title} — {state} — {summary}
-- Task {id}: {title} — {state} — see above
-- Task {rhei}.{id}: {title} — {state} — {summary}   (rhei `{rhei}`, prior)
+- {Kind} {id}: {title} — {state} — {summary}
+- {Kind} {id}: {title} — {state} — see above
+- {Kind} {rhei}.{id}: {title} — {state} — {summary}   (rhei `{rhei}`, prior)
 … {n} earlier tasks not shown — `rhei list --rhei {rhei-id} --terminal`
 
 ### In Flight
 
-- Task {id}: {title} [{state}] — {assignee}
+- {Kind} {id}: {title} [{state}] — {assignee}
+- {Kind} {id}: {title} [{state}] — this run
 
 ### Dependents
 
-- Task {id}: {title} [{state}] — prior
-- Task {id}: {title} [{state}] — consumes `{export}`
+- {Kind} {id}: {title} [{state}] — prior
+- {Kind} {id}: {title} [{state}] — consumes `{export}`
 ```
 
 - The list covers every terminal task of the **owning rhei** and every
@@ -231,7 +238,9 @@ What you write is what the next agent and the human see.
 
 `Reading the rhei` is the map that makes §1.1 true across rheis: it names
 every execution root in the project, so the results of a rhei the prompt does
-not list are one path away. Paths are rendered relative to `RHEI_ROOT`, or
+not list are one path away. A rhei whose execution root holds no plan document
+— the synthetic `basin`, whose manifest is never authored (§FS-rhei-panta.4) —
+omits the `— plan …` clause and names this task's file alone. Paths are rendered relative to `RHEI_ROOT`, or
 absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
 `{output.<name>.path}` follows (§FS-rhei-states.4). `rhei next`, which exports
 no `RHEI_ROOT`, renders every such path absolute. `Leaving a trail`
@@ -254,7 +263,7 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 ### 4.2. Position
 
 1. `chain` = ancestors of `task` from the root down; render each as
-   `Task <id>: <title> [<state>]`, joined by ` › `, prefixed by the Panta
+   `<Kind> <id>: <title> [<state>]`, joined by ` › `, prefixed by the Panta
    title and `rhei <R₀>: <title>`.
 2. If `task` has a parent `P`: `siblings` = children of `P` in plan order
    minus `task`; cap 30, overflow line
@@ -288,7 +297,10 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    emitted once, first.
 5. `### In Flight` = non-terminal tasks of `G` other than `task` with an
    `**Assignee:**`, or spawned by the current `rhei run` pass; plan order;
-   cap 20, overflow `… {n} more — rhei list --non-terminal`.
+   cap 20, overflow `… {n} more — rhei list --non-terminal`. The trailing
+   column is the `**Assignee:**` value, or the literal `this run` for a ticket
+   this pass spawned: `rhei run` claims by spawning and writes no assignee, so
+   the pass's own set is the only witness for its workers.
 6. `### Dependents` = tasks of `G` with `task ∈ Prior(·)` or consuming an
    export of `task`; plan order; each with `— prior` and/or
    `— consumes <export>`; cap 30, overflow
