@@ -420,7 +420,10 @@ fn validate_artifact_definitions(
                 )));
             }
         }
-        if Path::new(path).is_absolute() {
+        // `has_root` as well as `is_absolute`: on Windows a rooted-but-driveless
+        // `/tmp/out.md` is not "absolute", and it is still not a relative
+        // workspace path. §FS-rhei-states.4
+        if path_is_rooted(path) {
             return Err(StateMachineLoadError::Invalid(format!(
                 "state '{state_name}' artifact '{name}' in '{field_name}' must use a relative path, got '{path}'"
             )));
@@ -464,6 +467,18 @@ fn validate_handoff_definitions(
         }
     }
     Ok(())
+}
+
+/// Whether a declared artifact path names a place outside the workspace by
+/// starting at a root, rather than relative to it.
+///
+/// `is_absolute` alone is not that question on Windows, where a path needs a
+/// drive prefix to be absolute and `/etc/passwd` is merely *rooted* — still not
+/// a workspace-relative path, and still not something a state may declare.
+// §FS-rhei-states.4
+fn path_is_rooted(path: &str) -> bool {
+    let path = Path::new(path);
+    path.is_absolute() || path.has_root()
 }
 
 fn path_escapes_workspace_root(path: &str) -> bool {
