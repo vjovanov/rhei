@@ -268,3 +268,5 @@ When the CLI is available, validate with `rhei states --state-machine <path>` (a
 - `.agents/rhei/states.yaml` or `.agents/rhei/states/<name>.yaml` — for projects keeping agent config under `.agents/`.
 
 A plan picks up a sibling or workspace-root `states.yaml` automatically when it declares `**States:** <name>`; the YAML's `name` must match. Use `--state-machine <path>` to override the auto-discovered file.
+
+Write the machine before anything points at it. In a Panta project a rhei binds to one with `rhei new "<title>" --states <name>`, and that create resolves the name at create time: with no `states.yaml` declaring it, the create is refused and rolled back, and `--keep-on-error` is what writes the declaration anyway. The order is machine first, rhei second — a rhei points at a machine, never the other way round.

@@ -191,8 +191,11 @@ fn write_task_assignee(
     }
     if let Some(existing) = task.assignee.as_deref() {
         let _ = fs2::FileExt::unlock(&handle);
+        // §FS-rhei-release.1: hand-editing the plan is not the remedy.
         return Err(miette!(
-            help = "release it by deleting the **Assignee:** line from the task, or work on a different task.",
+            help = format!(
+                "release it with: rhei release {qualified_id} — or work on a different task."
+            ),
             "Task {} is already assigned to {}", qualified_id, existing
         ));
     }

@@ -161,6 +161,38 @@ fn states_declaration_help() -> &'static str {
      file. Rename one of them, or point --state-machine at the matching file."
 }
 
+/// Help for a `**States:**` naming a machine nothing declares.
+///
+/// The declaration is authored before the machine exists as often as after, so
+/// "write the machine" is a real answer here and not just a diagnosis, and the
+/// spec already names who writes one.
+// §AR-rhei-panta.4 §FS-rhei-new.6
+fn missing_state_machine_help() -> &'static str {
+    "rename the `**States:**` declaration to one of the names above, point \
+     --state-machine at the file that declares it, or run `/rhei-state-machine-writer` to \
+     author the machine that is missing."
+}
+
+/// Why a rhei that loaded holds no tickets, named in the layout it uses.
+///
+/// The basin has no authored index and no `tasks/` directory — its task files
+/// sit directly in `basin/` — so the sentence that fits a domain rhei is wrong
+/// advice for the one rhei every project has.
+// §FS-rhei-plan-language.1.2 §AR-rhei-panta.1
+fn empty_rhei_help(id: &str) -> String {
+    if id == workspace::BASIN_RHEI_ID {
+        return format!(
+            "rhei '{id}' holds no tickets: the basin takes its tickets from the non-hidden \
+             `*.md` files directly inside `basin/`. Capture one with \
+             `rhei new \"<title>\" --under basin`"
+        );
+    }
+    format!(
+        "rhei '{id}' holds no tickets: a workspace rhei takes its tickets from non-hidden \
+         `tasks/**/*.md` files, a single-file rhei from its `## Tasks` section"
+    )
+}
+
 /// Help for a duration that is not `<number><unit>`.
 fn duration_format_help() -> &'static str {
     "durations are a number plus a unit: 7d, 4h, 30m, 10s."

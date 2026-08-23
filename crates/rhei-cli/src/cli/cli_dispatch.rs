@@ -433,6 +433,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Init { dir, here, title, no_agents, force } => {
             init_command(dir.as_deref(), title.as_deref(), no_agents, force, here)
         }
+        Commands::New { options } => new_command(&options),
         Commands::Validate { watch, input, state_machine } => {
             // §FS-rhei-validate.1.1: validation never narrows — a member rhei
             // validates the project it cannot resolve without.

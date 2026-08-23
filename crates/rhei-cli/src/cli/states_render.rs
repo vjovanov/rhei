@@ -312,17 +312,18 @@ fn empty_rhei_warnings(loaded: &LoadedPlan) -> Vec<String> {
                 let prefix = format!("{id}.");
                 !loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix))
             })
-            .map(|id| {
-                format!(
-                    "rhei '{id}' holds no tickets: a workspace rhei takes its tickets from \
-                     non-hidden `tasks/**/*.md` files, a single-file rhei from its `## Tasks` \
-                     section"
-                )
-            })
+            .map(|id| empty_rhei_help(id))
             .collect(),
         LoadedPlanKind::Workspace if loaded.rhei.tasks.is_empty() => vec![
             "this workspace holds no tickets: task files are the non-hidden `*.md` files \
              under `tasks/`"
+                .to_string(),
+        ],
+        // A single-file rhei may be empty too, and an emptied one looks exactly
+        // like a freshly created one. §FS-rhei-plan-language.1.1
+        LoadedPlanKind::SingleFile if loaded.rhei.tasks.is_empty() => vec![
+            "this rhei holds no tickets: its tickets are the task nodes under its \
+             `## Tasks` section"
                 .to_string(),
         ],
         _ => Vec::new(),
@@ -1066,6 +1067,54 @@ fn validate_command(input: &Path, state_machine: Option<&Path>, watch: bool) -> 
 
 /// Parse a plan, load the selected states, and print validation results.
 fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResult<()> {
+    let warnings = validation_warnings_or_error(input, state_machine)?;
+    print_validation_report(&warnings);
+    Ok(())
+}
+
+/// One whole validation pass, before anything decides what to do with it.
+///
+/// `rhei validate` collapses this straight into a report and a set of warnings,
+/// but a command that validates its *own* write compares two passes to tell the
+/// errors it introduced from the ones it found — which needs the error strings
+/// themselves, not a rendered diagnostic.
+// §FS-rhei-new.5.2
+struct ValidationPass {
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    /// Guidance the errors carry without owning: the project-global lists a
+    /// create elsewhere can change, kept out of the error text so the pre/post
+    /// diff stays stable. §FS-rhei-new.5.2
+    help: Vec<String>,
+    /// The states file the pass resolved, for an error report to name.
+    state_machine: Option<PathBuf>,
+}
+
+/// Run the whole validation pass, failing on the first error report and
+/// returning its warnings otherwise.
+///
+/// Split out so a command that validates its *own* write can reuse the exact
+/// pass `rhei validate` runs without its output — `rhei new` checks the project
+/// still loads before it reports success.
+// §FS-rhei-new.5.1
+fn validation_warnings_or_error(
+    input: &Path,
+    state_machine: Option<&Path>,
+) -> MietteResult<Vec<String>> {
+    let pass = validation_pass(input, state_machine)?;
+    if !pass.errors.is_empty() {
+        return Err(validation_report(
+            input,
+            pass.state_machine.as_deref(),
+            &pass.errors,
+            &pass.help,
+        ));
+    }
+    Ok(pass.warnings)
+}
+
+/// The validation pass itself, reported as data. §FS-rhei-new.5.2
+fn validation_pass(input: &Path, state_machine: Option<&Path>) -> MietteResult<ValidationPass> {
     let loaded = load_plan_for_validation(input)?;
 
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine)?;
@@ -1122,13 +1171,13 @@ fn run_validation_once(input: &Path, state_machine: Option<&Path>) -> MietteResu
     report.warnings.extend(empty_rhei_warnings(&loaded));
     report.warnings.extend(ignored_member_settings_warnings(input, &loaded));
 
-    if report.has_errors() {
-        return Err(validation_report(input, resolved.default.path.as_deref(), &report.errors));
-    }
-
-    print_validation_report(&report.warnings);
-
-    Ok(())
+    report.help.dedup();
+    Ok(ValidationPass {
+        errors: report.errors,
+        warnings: report.warnings,
+        help: report.help,
+        state_machine: resolved.default.path.clone(),
+    })
 }
 
 /// Print success output and any non-fatal validation warnings.

@@ -124,8 +124,18 @@ The single-file format is a hierarchical structure:
 | States Declaration | — | `**States:** <state-machine-name>` | No (defaults to `rhei`) |
 | Content Sections | H2 (`##`) | `## <section-name>` | No |
 | Tasks Section | H2 (`##`) | `## Tasks` | Yes |
-| Root Node | H3 (`###`) | `### <kind> <id>: <title>` | Yes (at least one) |
+| Root Node | H3 (`###`) | `### <kind> <id>: <title>` | No |
 | Child Node | H4-H6 (`####`-`######`) | `<heading> <kind> <id>: <title>` | No |
+
+A `## Tasks` section holding **no** task nodes is a valid, empty rhei — the
+section heading is required, its contents are not. This mirrors the Directory
+Workspace rule below (§1.2) rather than contradicting it: the two formats
+describe the same rhei, and a rhei that is empty in one of them cannot be
+illegal in the other. It is the state a rhei passes through between being
+created and receiving its first ticket, which is exactly what `rhei new`
+creates (§FS-rhei-new.2). As in a workspace, `rhei validate` reports the
+emptiness as a **warning** naming the rhei, so a rhei whose tickets were
+accidentally deleted is not silently green.
 
 When present, the `**States:**` field must be the first non-empty line after
 the `# Rhei:` title. Its value is the `name` of the state machine defined in the

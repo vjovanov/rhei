@@ -20,7 +20,7 @@ Use this skill when a workflow is instantiated more than once with the same shap
 - Any "scaffold a workspace" request where plans and state machines would otherwise be copy-pasted.
 - Fixing or extending an existing `.agents/rhei/templates/<name>/` or `~/.agents/rhei/templates/<name>/` template, especially when an instantiated workspace fails `rhei validate` or `rhei run --dry-run`.
 
-Do **not** use it when: the user needs a single plan (use `rhei-plan-writer`); the user needs only a state machine (use `rhei-state-machine-writer`); or the workflow varies so much that parameterization costs more than it saves.
+Do **not** use it when: the user needs a single plan (use `rhei-plan-writer`); the user needs only a state machine (use `rhei-state-machine-writer`); the user just wants an empty rhei or one more ticket in a project that already exists (that is `rhei new "<title>"` and `rhei new "<title>" --under <parent>` — a blank rhei should not require a template system to exist); or the workflow varies so much that parameterization costs more than it saves.
 
 ## Required Inputs
 

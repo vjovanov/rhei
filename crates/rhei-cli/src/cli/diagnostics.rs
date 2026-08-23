@@ -558,9 +558,24 @@ fn file_io_report(path: &Path, action: &str, err: impl FileIoCause) -> Report {
 }
 
 /// Convert validation errors into a single CLI-facing diagnostic report.
-fn validation_report(input: &Path, state_machine: Option<&Path>, errors: &[String]) -> Report {
+///
+/// `guidance` carries what the errors deliberately do not say: the project-wide
+/// lists — its rhei ids, the node kinds and depth limit merged from every rhei
+/// — that a create somewhere else in the project can change. Keeping them in
+/// the `help` rather than in the error text is what lets a create tell the
+/// errors it introduced from the ones it inherited, while the reader still sees
+/// every word.
+// §FS-rhei-new.5.2
+fn validation_report(
+    input: &Path,
+    state_machine: Option<&Path>,
+    errors: &[String],
+    guidance: &[String],
+) -> Report {
+    let mut help = guidance.to_vec();
+    help.push("fix the errors above, then re-check with: rhei validate <plan>".to_string());
     miette!(
-        help = "fix the errors above, then re-check with: rhei validate <plan>",
+        help = help.join("\n"),
         "{}", render_validation_diagnostic(input, state_machine, errors)
     )
 }
@@ -640,25 +655,23 @@ fn line_text(input: &str, line_number: usize) -> Option<&str> {
 /// Saying only *where* the file goes left the harder half — what belongs
 /// inside it — unstated just when an author needs it. §FS-rhei-panta.6
 fn add_a_rhei_hint() -> &'static str {
-    "add one with `rhei instantiate <template>` (`rhei templates` lists them), or by hand as a \
-     `<id>.rhei.md` file next to index.panta.md"
+    "add one with `rhei new \"<title>\"`, from a template with `rhei instantiate <template>` \
+     (`rhei templates` lists them), or by hand as a `<id>.rhei.md` file next to index.panta.md"
 }
 
-/// The same two routes with room to show what a hand-written plan looks like.
-/// §FS-rhei-panta.6
+/// The three routes to a first rhei, shortest first. The hand-written skeleton
+/// it used to spell out is what `rhei new` writes, so the block is a one-liner
+/// now and the file format is something to read rather than to memorize.
+// §FS-rhei-panta.6 §FS-rhei-new.2
 fn add_a_rhei_help() -> String {
     [
-        "Add a rhei either way:",
+        "Add a rhei any of three ways:",
+        "  one command      `rhei new \"<title>\"` writes it, then",
+        "                   `rhei new \"<first ticket>\" --under <id>` fills it",
         "  from a template  `rhei templates` lists them; `rhei instantiate <name>` writes one",
         "                   into this project, keeping the template's own state machine",
-        "  by hand          create `<id>.rhei.md` next to index.panta.md:",
-        "",
-        "                       # Rhei: <title>",
-        "",
-        "                       ## Tasks",
-        "",
-        "                       ### Task 1: <first ticket>",
-        "                       **State:** pending",
+        "  by hand          create `<id>.rhei.md` next to index.panta.md, starting with",
+        "                   `# Rhei: <title>` and a `## Tasks` section",
     ]
     .join("\n")
 }

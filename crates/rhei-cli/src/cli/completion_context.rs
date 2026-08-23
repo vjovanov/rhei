@@ -1,6 +1,14 @@
 fn completion_plan_path() -> Option<PathBuf> {
     let words = completion_words();
     let command = completion_command_name(&words)?;
+    // `rhei new` spends its positional on the title, not a path: reading it as
+    // one would complete every id against a plan that does not exist.
+    // §FS-rhei-new.1.1
+    if command == "new" {
+        return completion_option_value("project")
+            .map(PathBuf::from)
+            .or_else(|| resolve_plan_target(None).ok().map(|target| target.path));
+    }
     // §FS-rhei-panta.6: with the plan positional omitted, complete task and
     // rhei ids against the same target the command itself would resolve.
     first_command_positional(&words, &command)
@@ -395,12 +403,13 @@ fn resolve_declared_rhei_machine(
 
     match matches.len() {
         0 => Err(miette!(
-help = states_declaration_help(),
+help = missing_state_machine_help(),
 
             "rhei '{rhei_id}' declares state machine '{machine_name}', but no states file \
              declaring it was found in the rhei's root, the project root, or any other \
-             rhei root. Add a `states.yaml` declaring '{machine_name}' next to the rhei, \
-             or pass --state-machine <path>.",
+             rhei root. This project declares: {}. Add a `states.yaml` declaring \
+             '{machine_name}' next to the rhei, or pass --state-machine <path>.",
+            state_machine_names_in(input, loaded).join(", "),
         )),
         1 => {
             let (path, machine) = matches.into_iter().next().expect("single match");
@@ -418,6 +427,43 @@ help = states_declaration_help(),
                 paths.join(", ")
             ))
         }
+    }
+}
+
+/// Every state machine name a `**States:**` declaration in this project can
+/// resolve to: the name inside each `states.yaml` the declaration rules reach,
+/// plus the built-in default that a rhei declaring nothing runs under.
+///
+/// A wrong value for a flag with a declared set of legal values lists that set
+/// everywhere else in the CLI; the set for `--states` simply lives in files.
+// §AR-rhei-panta.4 §FS-rhei-new.1.2
+fn state_machine_names_in(input: &Path, loaded: &LoadedPlan) -> Vec<String> {
+    let mut names: BTreeSet<String> =
+        BTreeSet::from([rhei_validator::StateMachine::builtin_default().name]);
+    let mut candidates = vec![auto_state_machine_path(input)];
+    let mut roots: Vec<&PathBuf> = loaded.rhei_roots.values().collect();
+    roots.sort();
+    roots.dedup();
+    candidates.extend(roots.into_iter().map(|root| root.join("states.yaml")));
+    for candidate in candidates {
+        if candidate.is_file() {
+            if let Ok(machine) = load_state_machine(Some(&candidate)) {
+                names.insert(machine.name);
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// The same set, for a completion that has only a plan path to work from.
+// §AR-rhei-panta.4
+fn discoverable_state_machine_names(plan: Option<&Path>) -> Vec<String> {
+    let Some(plan) = plan else {
+        return vec![rhei_validator::StateMachine::builtin_default().name];
+    };
+    match load_plan_leniently(plan) {
+        Ok(loaded) => state_machine_names_in(plan, &loaded),
+        Err(_) => vec![rhei_validator::StateMachine::builtin_default().name],
     }
 }
 
@@ -662,308 +708,6 @@ fn states_command(
             println!("Source: {label} (rhei: {})", group.rheis.join(", "));
         }
         println!("{}", render_state_machine_text(&group.resolved.machine));
-    }
-
-    Ok(())
-}
-
-/// Filter set for the `list` subcommand. See `Commands::List` for flag docs.
-struct ListFilters {
-    /// Narrow to named rheis; empty is the whole project. §FS-rhei-panta.6.4
-    rhei: Vec<String>,
-    states: Vec<String>,
-    assignee: Option<String>,
-    no_assignee: bool,
-    kind: Option<String>,
-    has_prior: Option<String>,
-    parent: Option<String>,
-    root: bool,
-    contains: Option<String>,
-    terminal: bool,
-    non_terminal: bool,
-    ready: bool,
-    blocked: bool,
-    limit: usize,
-}
-
-/// Execute the `list` subcommand: load a plan and print tasks matching the
-/// provided filters. Modeled after `bd list` from beads, with a filter set
-/// adapted to Rhei's data model (no priority/labels/timestamps).
-fn list_command(
-    input: &Path,
-    state_machine_path: Option<&Path>,
-    filters: ListFilters,
-    as_json: bool,
-) -> MietteResult<()> {
-    // Listing is the surface an author reaches for *while* a plan is broken, so
-    // it reports what it could not load and shows the rest. §FS-rhei-panta.6
-    let loaded = load_plan_leniently(input)?;
-    for skipped in &loaded.unloadable {
-        eprintln!("warning: {skipped}");
-    }
-    let rhei_scope = resolve_rhei_scope(&loaded, &filters.rhei)?;
-    let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
-    let machines = resolved.validator_set();
-
-    // Flatten the task tree into (task, parent_id) pairs, preserving source order.
-    let mut flat: Vec<(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
-    fn walk<'a>(
-        task: &'a rhei_core::ast::Task,
-        parent: Option<TaskId>,
-        out: &mut Vec<(&'a rhei_core::ast::Task, Option<TaskId>)>,
-    ) {
-        out.push((task, parent));
-        let parent_id = Some(task.id.clone());
-        for child in &task.children {
-            walk(child, parent_id.clone(), out);
-        }
-    }
-    for task in &loaded.rhei.tasks {
-        walk(task, None, &mut flat);
-    }
-
-    // §FS-rhei-panta.6: an empty project is a valid project, not an error —
-    // say what it is and how to grow it.
-    if flat.is_empty() {
-        if as_json {
-            println!("[]");
-        } else if loaded.is_panta_project() {
-            println!("(project has no tickets yet)");
-            println!("{}", add_a_rhei_help());
-        } else {
-            println!("(this rhei has no tickets yet)");
-        }
-        return Ok(());
-    }
-
-    // Pre-compute state map for ready/blocked checks (only top-level tasks
-    // declare priors, but checking the full flat set is harmless).
-    let state_map: HashMap<&TaskId, String> = flat
-        .iter()
-        .map(|(t, _)| (&t.id, normalized_state_name(t.state.as_str(), machines.for_task(&t.id))))
-        .collect();
-
-    let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
-        task.prior.iter().all(|dep| {
-            state_map
-                .get(dep)
-                .map(|s| dependency_is_satisfied(s, machines.for_task(dep)))
-                .unwrap_or(false)
-        })
-    };
-
-    // Built once for the whole listing rather than per row: the barrier walks
-    // a task's ancestors and its subtree. §FS-rhei-supervision.3.2
-    let all_tasks: Vec<&rhei_core::ast::Task> = flat.iter().map(|(task, _)| *task).collect();
-    let supervision_index = task_index(&all_tasks);
-    let no_run_spawned = HashSet::new();
-
-    // Judged against every machine in the project rather than the `--rhei`
-    // scope: a real state no in-scope rhei uses is an honest empty result.
-    // §FS-rhei-list.2.1: a state no machine declares is an error, not silence.
-    for requested in &filters.states {
-        let requested = requested.trim();
-        let known = machines
-            .distinct()
-            .into_iter()
-            .any(|machine| machine.is_valid_state(normalized_state_name(requested, machine)));
-        if !known {
-            let mut available: BTreeSet<&str> = BTreeSet::new();
-            for machine in machines.distinct() {
-                available.extend(machine.allowed_states());
-            }
-            let known =
-                available.iter().map(|state| state.to_string()).collect::<Vec<_>>();
-            return Err(miette!(
-                help = did_you_mean(requested, &known)
-                    .unwrap_or_else(|| "this machine declares no states.".to_string()),
-                "unknown state '{}'; states in this {}: {}",
-                requested,
-                if loaded.is_panta_project() { "project" } else { "plan" },
-                available.into_iter().collect::<Vec<_>>().join(", ")
-            ));
-        }
-    }
-
-    // Normalize state filter values once per machine so users can pass either
-    // canonical names or counted-visit forms; a filter value normalizes under
-    // each distinct machine and matches per ticket. §DA-per-rhei-state-machines
-    let state_filter: Vec<String> = filters
-        .states
-        .iter()
-        .flat_map(|s| {
-            machines
-                .distinct()
-                .into_iter()
-                .map(|machine| normalized_state_name(s.as_str(), machine))
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    // §FS-rhei-panta.6: ticket targets accept the qualified id or an
-    // unambiguous rhei-local shorthand — including these filter values.
-    let parent_filter = filters
-        .parent
-        .as_deref()
-        .map(|id| resolve_cli_task_id(&loaded, id, &rhei_scope))
-        .transpose()?
-        .map(|id| parse_task_id(&id));
-    let has_prior_filter = filters
-        .has_prior
-        .as_deref()
-        .map(|id| resolve_cli_task_id(&loaded, id, &rhei_scope))
-        .transpose()?
-        .map(|id| parse_task_id(&id));
-    let contains_lower = filters.contains.as_deref().map(|s| s.to_lowercase());
-
-    let mut matches: Vec<&(&rhei_core::ast::Task, Option<TaskId>)> = Vec::new();
-    for entry in &flat {
-        let (task, parent_id) = entry;
-
-        // §FS-rhei-panta.6.4: `--rhei` filters the listing to named rheis.
-        if !task_in_rhei_scope(&rhei_scope, &task.id.to_string()) {
-            continue;
-        }
-
-        if !state_filter.is_empty() {
-            let task_state =
-                normalized_state_name(task.state.as_str(), machines.for_task(&task.id));
-            if !state_filter.iter().any(|s| s == &task_state) {
-                continue;
-            }
-        }
-
-        if let Some(want) = filters.assignee.as_deref() {
-            if task.assignee.as_deref() != Some(want) {
-                continue;
-            }
-        }
-        if filters.no_assignee && task.assignee.is_some() {
-            continue;
-        }
-
-        if let Some(want) = filters.kind.as_deref() {
-            if !task.kind.eq_ignore_ascii_case(want) {
-                continue;
-            }
-        }
-
-        if let Some(prior_id) = &has_prior_filter {
-            if !task.prior.iter().any(|p| p == prior_id) {
-                continue;
-            }
-        }
-
-        if let Some(parent_id_filter) = &parent_filter {
-            if parent_id.as_ref() != Some(parent_id_filter) {
-                continue;
-            }
-        }
-        if filters.root && parent_id.is_some() {
-            continue;
-        }
-
-        if let Some(needle) = &contains_lower {
-            let title_hit = task.title.to_lowercase().contains(needle);
-            let body_hit = task.content.to_lowercase().contains(needle);
-            if !title_hit && !body_hit {
-                continue;
-            }
-        }
-
-        let machine = machines.for_task(&task.id);
-        let is_terminal = is_terminal_state(task.state.as_str(), machine);
-        if filters.terminal && !is_terminal {
-            continue;
-        }
-        if filters.non_terminal && is_terminal {
-            continue;
-        }
-
-        if filters.ready || filters.blocked {
-            let normalized = normalized_state_name(task.state.as_str(), machine);
-            let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
-            let satisfied = priors_satisfied(task);
-            // A ticket whose subtree is still open is not work anyone can be
-            // handed — its children are. §FS-rhei-list.3.1 §FS-rhei-next.3
-
-            // Supervision refines both halves through the one verdict the
-            // ready set and `rhei next` also ask, so the three surfaces cannot
-            // disagree about what is work. §FS-rhei-supervision.3.2
-            let subtree_done = subtree_admits_to_ready_set(
-                task,
-                &supervision_index,
-                &machines,
-                loaded.rhei.metadata.as_ref(),
-                &no_run_spawned,
-            );
-            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done;
-            if filters.ready && !task_ready {
-                continue;
-            }
-            if filters.blocked && (is_terminal || satisfied) {
-                continue;
-            }
-        }
-
-        matches.push(entry);
-    }
-
-    if filters.limit > 0 && matches.len() > filters.limit {
-        matches.truncate(filters.limit);
-    }
-
-    if as_json {
-        let payload: Vec<serde_json::Value> = matches
-            .iter()
-            .map(|(task, parent_id)| {
-                serde_json::json!({
-                    "id": task.id.to_string(),
-                    "kind": task.kind,
-                    "title": task.title,
-                    "state": task.state,
-                    "assignee": task.assignee,
-                    "prior": task.prior.iter().map(TaskId::to_string).collect::<Vec<_>>(),
-                    "parent": parent_id.as_ref().map(TaskId::to_string),
-                    // Depth within the owning rhei: the Panta qualification
-                    // segment is routing, not plan structure. §FS-rhei-list.4.2
-                    "depth": task.profile_level(),
-                })
-            })
-            .collect();
-        let rendered = serde_json::to_string_pretty(&payload)
-            .map_err(|err| miette!(
-                help = internal_error_help(),
-                "failed to serialize task list: {err}"
-            ))?;
-        println!("{rendered}");
-        return Ok(());
-    }
-
-    if matches.is_empty() {
-        println!("(no tasks match the given filters)");
-        return Ok(());
-    }
-
-    for (task, _) in &matches {
-        // Indent by depth within the owning rhei, so top-level tickets stay
-        // flush-left after Panta qualification. §FS-rhei-list.4.1
-        let indent = "  ".repeat(usize::from(task.profile_level()).saturating_sub(1));
-        let mut line = format!(
-            "{}{} {}: {} [{}]",
-            indent,
-            title_case_kind(&task.kind),
-            task.id,
-            task.title,
-            task.state
-        );
-        if !task.prior.is_empty() {
-            let priors: Vec<String> = task.prior.iter().map(TaskId::to_string).collect();
-            line.push_str(&format!(" (prior: {})", priors.join(", ")));
-        }
-        if let Some(assignee) = &task.assignee {
-            line.push_str(&format!(" @{}", assignee));
-        }
-        println!("{line}");
     }
 
     Ok(())

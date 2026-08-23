@@ -119,6 +119,24 @@ headings or visual de-emphasis are applied; rhei-level grouping is deferred
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.
 
+A rhei holding no tickets is named after the ticket lines, in the wording
+`rhei render --format progress` already uses for it:
+
+```text
+Task auth.1: Rotate signing keys [pending]
+
+Billing (billing): (no tickets yet)
+```
+
+`rhei init` ends by telling the reader to run `rhei new "<title>"`, which makes
+the very next `rhei list` the moment a project holds one rhei and no tickets —
+and a listing that showed nothing at all would read as though the create had
+not landed. Only the text output names them, and only when no filter is active:
+a filter asks a question about tickets, and a rhei with none has no answer to
+give. The JSON array is unchanged, because its shape is a contract and an empty
+rhei is not a ticket. This is not rhei-level grouping, which stays deferred
+(§FS-rhei-panta.3).
+
 When no task matches, `rhei list` prints `(no tasks match the given filters)`
 and exits 0.
 

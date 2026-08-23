@@ -103,9 +103,10 @@ old notes are historical; this roadmap owns the remaining backlog.
   the manifest, cross-rhei priors are judged under the prior's own machine, and
   templates with distinct machines coexist in one project.
   §DA-per-rhei-state-machines §AR-rhei-panta.4 §FS-rhei-panta.6
-- Add a `rhei new` command that creates a rhei under Panta without a location
-  argument. Today a rhei is added by creating a `<id>.rhei.md` file or a
-  workspace directory in the project directory. §FS-rhei-panta.2
+- ~~Add a `rhei new` command that creates a rhei under Panta without a location
+  argument.~~ Done: `rhei new "<title>"` writes the rhei, and
+  `rhei new "<title>" --under <rhei|ticket>` writes a ticket with every plan
+  field available as a flag. §FS-rhei-new §FS-rhei-panta.2
 - Add rhei-level presentation to listing and monitoring: group tickets under
   rhei headings with a per-rhei status rollup, and render the `basin` rhei
   de-emphasized (dimmed or collapsed) while keeping its last-place ordering.

@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- Add `rhei new`, so the first rhei and every ticket after it can be created
+  without knowing the plan format. `rhei new "Authentication"` writes the rhei
+  next to `index.panta.md`; `rhei new "Rotate keys" --under auth` writes a
+  ticket inside it, and `--under auth.3` makes that ticket a subtask. Adding
+  work no longer starts with remembering that the file is `<id>.rhei.md`, that
+  its id is the file stem, or which state the rhei's machine starts in.
+
+  The ticket side is deliberately **complete**: `--kind`, `--state`, `--prior`,
+  `--provides`, `--consumes`, `--assignee`, `--model`, `--target`, and
+  `--description` cover every field the plan language lets an author write on a
+  new node, so `new` is never the command that gets you started and then hands
+  you back to an editor. The rhei side takes `--dir` for a Directory Workspace,
+  `--states` to bind a state machine, and `--max-levels` / `--node-kinds` for
+  the structure block. `--under basin` is the capture path for a ticket with no
+  owning rhei, creating `basin/` on first use.
+
+  A create is verified rather than assumed. It never writes over a file that
+  already exists, it validates the project it landed in, and it reloads the
+  plan to confirm the new id actually reads back out of it — a block that
+  landed in dead text is a failure, not a green exit. When something is wrong
+  it **rolls itself back**, so a mistyped `--model` or a `--prior` naming
+  nothing leaves nothing behind to clean up, and `--keep-on-error` opts out.
+
+  Crucially, a create answers only for the errors it *introduced*. The
+  validation pass runs before the write as well as after it, and a project that
+  was already failing keeps the create with a warning instead of refusing it:
+  a half-broken project is exactly the one someone is adding work to, and a
+  command that refuses until everything else is fixed refuses when it is needed
+  most. `--dry-run` prints the exact markdown, `--json` reports the created id
+  for scripts — including under `--dry-run`, where the object carries
+  `"dry_run": true` and the block under `"markdown"`.
+
+  Two rules changed to make this honest. A `## Tasks` section with no tickets
+  is now **valid** in a single-file rhei, matching what the Directory Workspace
+  format always allowed — a new rhei is genuinely empty rather than seeded with
+  a placeholder that `rhei next` would hand to an agent. And `--under` is a
+  *ticket* selector: the earlier sketch of `rhei new "Billing" --under auth`
+  nesting one rhei inside another described something the hierarchy forbids,
+  since a rhei id is a single segment and discovery never descends past the
+  project directory's immediate children. §FS-rhei-new §FS-rhei-panta.2 (PR #88)
+
 - Give a parent a way to look after its subtree *while* it runs instead of only
   integrating it at the end. A state that declares
   **`execute_on: <scope>-<event>`** turns the task holding it into a

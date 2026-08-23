@@ -39,22 +39,30 @@ user-facing name for a work item). Panta owns the rheis; rheis own their tickets
 ## 2. Default home for new rheis
 
 Creating a rhei without specifying where it goes places it under Panta. Panta is
-the implicit default parent, so adding a rhei takes no location argument: today
-that means dropping a `<id>.rhei.md` file or a workspace directory into the
-project directory, where discovery picks it up on the next load
-(§AR-rhei-panta.1). A `rhei new` command that scripts the same action is
-planned, tracked on the roadmap:
+the implicit default parent, so adding a rhei takes no location argument:
+dropping a `<id>.rhei.md` file or a workspace directory into the project
+directory is enough, and discovery picks it up on the next load
+(§AR-rhei-panta.1). `rhei new` scripts that action, and writing the file by
+hand stays exactly as valid (§FS-rhei-new):
 
 ```bash
-rhei new "Authentication"        # planned: creates a rhei under Panta
-rhei new "Billing" --under auth  # planned: opt out of the default to nest elsewhere
+rhei new "Authentication"                  # a rhei under Panta
+rhei new "Rotate keys" --under auth        # a ticket inside rhei auth
 ```
+
+There is no `--under` for a *rhei*, because there is nowhere for it to point.
+The hierarchy is exactly Panta -> rhei -> ticket (§1), a rhei id is a single
+segment, and discovery never descends past the project directory's immediate
+children (§AR-rhei-panta.1): a rhei nested inside another rhei would not be
+found. `--under` therefore names where a *ticket* goes — the sense in which
+new work is ever placed somewhere other than the default.
 
 A ticket created with no owning rhei is placed in the project **basin**. The
 basin is loaded as a level-1 rhei with id `basin`, so quick captures do not
 require choosing a domain rhei first while the hierarchy remains Panta -> rhei
 -> ticket. Basin tickets use ordinary rhei-local ids and project-wide ids such
-as `basin.3`.
+as `basin.3`. `rhei new "<title>" --under basin` is the capture path, creating
+`basin/` on first use (§FS-rhei-new.3).
 
 `basin` is a permanently reserved rhei id, independent of whether any basin
 content currently exists: a discovered domain rhei with id `basin` is a

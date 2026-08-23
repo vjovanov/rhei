@@ -76,6 +76,9 @@ Execution:
   release     Drop a ticket's assignee so abandoned work can be claimed again
   reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
 
+Authoring:
+  new         Create a rhei under Panta, or a ticket inside one with --under
+
 Setup:
   init            Set up a Panta project in a gitignored `panta/` folder (or in place with --here)
   install-skills  Install rhei skills into AI coding agent configuration directories
@@ -133,6 +136,17 @@ enum Commands {
         /// update companion files in place
         #[arg(long)]
         force: bool,
+    },
+    /// Create a rhei under Panta, or a ticket inside one with --under
+    ///
+    /// With no --under, writes a new rhei next to index.panta.md. With
+    /// --under, writes a ticket into the named rhei (`--under auth`) or under
+    /// the named ticket (`--under auth.3`).
+    // §FS-rhei-new.1: the flag groups below are the spec's own §1.1/§1.2/§1.3.
+    #[command(after_help = NEW_COMMAND_EXAMPLES)]
+    New {
+        #[command(flatten)]
+        options: NewOptions,
     },
     /// Validate a markdown plan against the configured states
     Validate {
