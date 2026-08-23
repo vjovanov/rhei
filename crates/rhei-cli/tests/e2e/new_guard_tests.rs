@@ -292,3 +292,44 @@ fn a_missing_description_file_is_reported_as_a_read() {
     assert!(said.contains("no file there to read"), "got:\n{said}");
     assert!(!said.contains("mkdir -p"), "reading a file is not creating one:\n{said}");
 }
+
+// ---------------------------------------------------------------------------
+// `rhei list` names an empty rhei — §FS-rhei-list.4.1
+// ---------------------------------------------------------------------------
+
+/// §FS-rhei-list.4.1: `rhei init` points at `rhei new`, which makes the next
+/// `rhei list` the moment a project holds one rhei and no tickets.
+#[test]
+fn list_names_a_rhei_that_holds_no_tickets() {
+    let dir = project_with_rhei("new-list-empty");
+    assert_success(&new_run(&["new", "Beta"], &dir));
+
+    let empty = new_run(&["list"], &dir);
+    assert_success(&empty);
+    // The heading is the progress report's: the title, carrying the id when
+    // the two diverge. §FS-rhei-render.3.4
+    assert!(
+        empty.stdout.contains("Authentication (auth): (no tickets yet)"),
+        "got: {}",
+        empty.stdout
+    );
+    assert!(empty.stdout.contains("Beta: (no tickets yet)"), "got: {}", empty.stdout);
+
+    assert_success(&new_run(&["new", "Rotate keys", "--under", "auth"], &dir));
+    let mixed = new_run(&["list"], &dir);
+    assert_success(&mixed);
+    assert!(mixed.stdout.contains("Task auth.1"), "got: {}", mixed.stdout);
+    assert!(mixed.stdout.contains("Beta: (no tickets yet)"), "got: {}", mixed.stdout);
+    assert!(!mixed.stdout.contains("(auth): (no tickets yet)"), "got: {}", mixed.stdout);
+
+    // A filter asks a question about tickets, and JSON's shape is a contract.
+    let filtered = new_run(&["list", "--state", "pending"], &dir);
+    assert_success(&filtered);
+    assert!(!filtered.stdout.contains("no tickets yet"), "got: {}", filtered.stdout);
+
+    let json = new_run(&["list", "--json"], &dir);
+    assert_success(&json);
+    let value: serde_json::Value =
+        serde_json::from_str(json.stdout.trim()).expect("--json must emit an array");
+    assert_eq!(value.as_array().expect("array").len(), 1, "got: {value}");
+}

@@ -312,13 +312,7 @@ fn empty_rhei_warnings(loaded: &LoadedPlan) -> Vec<String> {
                 let prefix = format!("{id}.");
                 !loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix))
             })
-            .map(|id| {
-                format!(
-                    "rhei '{id}' holds no tickets: a workspace rhei takes its tickets from \
-                     non-hidden `tasks/**/*.md` files, a single-file rhei from its `## Tasks` \
-                     section"
-                )
-            })
+            .map(|id| empty_rhei_help(id))
             .collect(),
         LoadedPlanKind::Workspace if loaded.rhei.tasks.is_empty() => vec![
             "this workspace holds no tickets: task files are the non-hidden `*.md` files \

@@ -173,6 +173,26 @@ fn missing_state_machine_help() -> &'static str {
      author the machine that is missing."
 }
 
+/// Why a rhei that loaded holds no tickets, named in the layout it uses.
+///
+/// The basin has no authored index and no `tasks/` directory — its task files
+/// sit directly in `basin/` — so the sentence that fits a domain rhei is wrong
+/// advice for the one rhei every project has.
+// §FS-rhei-plan-language.1.2 §AR-rhei-panta.1
+fn empty_rhei_help(id: &str) -> String {
+    if id == workspace::BASIN_RHEI_ID {
+        return format!(
+            "rhei '{id}' holds no tickets: the basin takes its tickets from the non-hidden \
+             `*.md` files directly inside `basin/`. Capture one with \
+             `rhei new \"<title>\" --under basin`"
+        );
+    }
+    format!(
+        "rhei '{id}' holds no tickets: a workspace rhei takes its tickets from non-hidden \
+         `tasks/**/*.md` files, a single-file rhei from its `## Tasks` section"
+    )
+}
+
 /// Help for a duration that is not `<number><unit>`.
 fn duration_format_help() -> &'static str {
     "durations are a number plus a unit: 7d, 4h, 30m, 10s."

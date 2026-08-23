@@ -25,6 +25,71 @@ struct ListFilters {
     limit: usize,
 }
 
+impl ListFilters {
+    /// True when nothing narrows the listing, so it is showing the plan rather
+    /// than answering a question about part of it. §FS-rhei-list.4.1
+    fn none_active(&self) -> bool {
+        self.rhei.is_empty()
+            && self.states.is_empty()
+            && self.assignee.is_none()
+            && !self.no_assignee
+            && self.kind.is_none()
+            && self.has_prior.is_none()
+            && self.parent.is_none()
+            && !self.root
+            && self.contains.is_none()
+            && !self.terminal
+            && !self.non_terminal
+            && !self.ready
+            && !self.blocked
+            && self.limit == 0
+    }
+}
+
+/// Name the rheis that hold no tickets, in the wording
+/// `rhei render --format progress` already uses for them.
+///
+/// `rhei init` ends by pointing at `rhei new "<title>"`, which makes the very
+/// next `rhei list` the moment a project holds one rhei and no tickets — and a
+/// listing that showed nothing would read as though the create had not landed.
+/// Text only, and only unfiltered: a filter asks a question about tickets, and
+/// a rhei with none has no answer to give.
+// §FS-rhei-list.4.1 §FS-rhei-new.5.4
+fn report_empty_rheis(loaded: &LoadedPlan) {
+    if !loaded.is_panta_project() {
+        return;
+    }
+    for id in &loaded.rhei_ids {
+        let prefix = format!("{id}.");
+        if loaded.rhei.tasks.iter().any(|task| task.id.to_string().starts_with(&prefix)) {
+            continue;
+        }
+        println!();
+        println!("{}: (no tickets yet)", empty_rhei_heading(loaded, id));
+    }
+}
+
+/// `Billing (billing)` — the rhei's title, carrying the id when the two
+/// diverge, exactly as `rhei render --format progress` heads its blocks. The
+/// merge emits one `Rhei <id>: <title>` section per rhei, which is where the
+/// title comes from.
+// §FS-rhei-render.3.4 §FS-rhei-panta.4
+fn empty_rhei_heading(loaded: &LoadedPlan, id: &str) -> String {
+    let marker = format!("Rhei {id}: ");
+    let title = loaded
+        .rhei
+        .content_sections
+        .iter()
+        .filter(|section| section.rhei.as_deref() == Some(id))
+        .find_map(|section| section.title.strip_prefix(&marker))
+        .unwrap_or(id);
+    if title.eq_ignore_ascii_case(id) {
+        title.to_string()
+    } else {
+        format!("{title} ({id})")
+    }
+}
+
 /// Execute the `list` subcommand: load a plan and print tasks matching the
 /// provided filters. Modeled after `bd list` from beads, with a filter set
 /// adapted to Rhei's data model (no priority/labels/timestamps).
@@ -68,7 +133,14 @@ fn list_command(
             println!("[]");
         } else if loaded.is_panta_project() {
             println!("(project has no tickets yet)");
-            println!("{}", add_a_rhei_help());
+            // A project that already holds a rhei needs its rheis named, not a
+            // second invitation to add one — that is the state `rhei init`
+            // plus one `rhei new` leaves behind. §FS-rhei-list.4.1
+            if loaded.rhei_ids.is_empty() {
+                println!("{}", add_a_rhei_help());
+            } else if filters.none_active() {
+                report_empty_rheis(&loaded);
+            }
         } else {
             println!("(this rhei has no tickets yet)");
         }
@@ -280,6 +352,9 @@ fn list_command(
 
     if matches.is_empty() {
         println!("(no tasks match the given filters)");
+        if filters.none_active() {
+            report_empty_rheis(&loaded);
+        }
         return Ok(());
     }
 
@@ -303,6 +378,9 @@ fn list_command(
             line.push_str(&format!(" @{}", assignee));
         }
         println!("{line}");
+    }
+    if filters.none_active() {
+        report_empty_rheis(&loaded);
     }
 
     Ok(())
