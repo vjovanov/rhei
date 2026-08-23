@@ -257,10 +257,15 @@
         );
         assert!(navigation.contains("  - `downstream` \u{2014} `.`\n"), "got:\n{navigation}");
         // A root outside this rhei has no relative form and is spelled
-        // canonically — on macOS a temp dir is `/private/var/…`, not `/var/…`.
+        // canonically — on macOS a temp dir is `/private/var/…`, not `/var/…`,
+        // and on Windows the canonical form carries a `\\?\` prefix the prompt
+        // does not. `spelled_path` is what the renderer itself uses.
         let upstream = dir.path().canonicalize().expect("the project exists");
         assert!(
-            navigation.contains(&format!("  - `upstream` \u{2014} `{}`\n", upstream.display())),
+            navigation.contains(&format!(
+                "  - `upstream` \u{2014} `{}`\n",
+                spelled_path(&upstream)
+            )),
             "a root outside this rhei has no relative form; got:\n{navigation}"
         );
         assert!(navigation.contains("### Leaving a trail"), "got:\n{navigation}");
