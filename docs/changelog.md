@@ -144,6 +144,9 @@
   arithmetic sizes a state's budget from the inputs that shaped the plan.
   §FS-rhei-templates.5
 
+
+## 2. [0.2.0] - 2026-08-22
+
 - Separate a run from the surface that watches it. `rhei run` bound the two into
   one process: closing the terminal killed the run (`SIGHUP` is an interruption,
   correctly, so the workaround was `nohup` or `tmux` — which puts the run
@@ -1211,9 +1214,6 @@ where its id comes from. PR #45
 - Add GitHub Actions CI, pre-commit hooks, and PGO release automation modeled on
   Grund's release flow. PR #15
 
-## 1. [0.1.0] - 2026-05-21
+## 3. Older releases
 
-- Initial alpha release line for the Rhei CLI, Rust crates, npm wrappers, and
-  PyPI wrappers.
-
-## 2. Older releases
+- [0.1.0](changelog/0.1.0.md) - 2026-05-21: - Initial alpha release line for the Rhei CLI, Rust crates, npm wrappers, and PyPI wrappers.
