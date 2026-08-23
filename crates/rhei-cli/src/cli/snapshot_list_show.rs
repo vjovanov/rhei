@@ -418,12 +418,29 @@ fn snapshot_current_points_to(generation_dir: &Path) -> bool {
     let Some(identity_dir) = generation_dir.parent() else {
         return false;
     };
-    let current = identity_dir.join("current");
-    let Ok(target) = fs::read_link(&current) else {
+    let Some(target) = snapshot_current_target(identity_dir) else {
         return false;
     };
     let resolved = if target.is_absolute() { target } else { identity_dir.join(target) };
     paths_equivalent(&resolved, generation_dir)
+}
+
+/// The generation an identity's `current` pointer names, in either spelling the
+/// writer may have used.
+///
+/// `current` is a relative symlink where the platform provides them and a
+/// one-line file naming the generation directory where it does not. Reading
+/// only the symlink form made every snapshot on such a platform read as
+/// not-current, so `inherit:` resolved nothing.
+// §FS-rhei-snapshots.7
+fn snapshot_current_target(identity_dir: &Path) -> Option<PathBuf> {
+    let current = identity_dir.join("current");
+    if let Ok(target) = fs::read_link(&current) {
+        return Some(target);
+    }
+    let named = fs::read_to_string(&current).ok()?;
+    let named = named.trim();
+    (!named.is_empty()).then(|| PathBuf::from(named))
 }
 
 fn print_snapshot_list(

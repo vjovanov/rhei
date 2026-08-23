@@ -500,9 +500,10 @@ A snapshot generation is written by this procedure:
    compute `manifest.transcript_sha256`, and verify before finalization.
 6. `rename(g<N>.tmp-<nonce>, g<N>)`. On POSIX this is atomic for directories
    when the target does not exist.
-7. For orchestrator-produced generations only, update the `current` symlink:
-   write `current.tmp-<nonce>` pointing at `g<N>`, then rename it to
-   `current` atomically. Operator-produced generations do not advance
+7. For orchestrator-produced generations only, update the `current` pointer:
+   write `current.tmp-<nonce>` naming `g<N>` — as a symlink, or as a one-line
+   file where the platform has no unprivileged symlinks (§7) — then rename it
+   to `current` atomically. Operator-produced generations do not advance
    `current`.
 
 Writers may remove stale `g<N>.tmp-*` directories for the same identity when
