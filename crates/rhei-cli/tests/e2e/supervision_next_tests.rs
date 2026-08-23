@@ -165,8 +165,8 @@ metadata:
     let supervising = payload["supervising"].as_str().expect("a supervising section");
     assert!(
         supervising.contains(&format!(
-            "Steer the next step by writing {}/<task-id>.md",
-            dir.join("runtime/supervise").display()
+            "Steer the next step by writing {}",
+            dir.join("runtime").join("supervise").join("<task-id>.md").display()
         )),
         "got: {supervising}"
     );

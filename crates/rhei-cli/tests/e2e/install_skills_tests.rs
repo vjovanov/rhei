@@ -328,6 +328,10 @@ fn local_install_cursor() {
     assert!(mdc.contains("alwaysApply: false"));
 }
 
+/// `--link` is the one install mode with a platform in it: it makes symlinks,
+/// which an unprivileged Windows process cannot. Both halves are pinned here —
+/// the link where links exist, and the refusal, with its help, where they do
+/// not.
 #[test]
 fn link_mode_creates_symlinks() {
     let home = unique_temp_dir("install-link");
@@ -340,9 +344,21 @@ fn link_mode_creates_symlinks() {
         result.stderr
     );
 
-    let skill_path = home.join(".kilocode/rules/rhei-plan-writer.md");
-    assert!(skill_path.exists(), "skill file should exist");
-    assert!(skill_path.symlink_metadata().unwrap().file_type().is_symlink(), "should be a symlink");
+    let skill_path = home.join(".kilocode").join("rules").join("rhei-plan-writer.md");
+    if cfg!(unix) {
+        assert!(skill_path.exists(), "skill file should exist");
+        assert!(
+            skill_path.symlink_metadata().unwrap().file_type().is_symlink(),
+            "should be a symlink"
+        );
+    } else {
+        assert!(!skill_path.exists(), "a refused link installs nothing: {}", result.stdout);
+        assert!(
+            result.stderr.contains("symlinks are only supported on Unix platforms"),
+            "the refusal names the platform limit; got:\n{}",
+            result.stderr
+        );
+    }
 }
 
 #[test]
@@ -363,7 +379,13 @@ fn global_install_copy_codex() {
     assert!(!home.join(".codex/instructions.md").exists());
 
     assert!(result.stdout.contains("codex:"));
-    assert!(result.stdout.contains(".agents/skills/rhei-plan-writer"));
+    // The reported destination is a real path, so it is spelled the host's way.
+    let listed = Path::new(".agents").join("skills").join("rhei-plan-writer");
+    assert!(
+        result.stdout.contains(&listed.display().to_string()),
+        "the report names each skill it wrote; got:\n{}",
+        result.stdout
+    );
     assert!(result.stdout.contains("Installed rhei skills for 1 agent."));
 }
 
@@ -431,8 +453,9 @@ fn reinstall_overwrites_existing_skill_files() {
         !refreshed.contains("stale test content"),
         "second install should overwrite stale content"
     );
+    let listed = Path::new(".claude").join("skills").join("rhei-plan-writer");
     assert!(
-        result.stdout.contains(".claude/skills/rhei-plan-writer"),
+        result.stdout.contains(&listed.display().to_string()),
         "second install should rewrite skills\nstdout:\n{}",
         result.stdout
     );

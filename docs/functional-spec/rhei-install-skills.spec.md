@@ -176,6 +176,12 @@ command exits, `--link` needs one of the filesystem sources in §4.3. When only
 the embedded copy is available, `--link` fails with an error naming the two
 paths that would have satisfied it and pointing at plain copying instead.
 
+`--link` is the one option in this command with a platform in it. An
+unprivileged Windows process cannot create a symbolic link, so there `--link`
+refuses the agent it was asked for, names the platform limit, and points at
+plain copying; the other agents in the same invocation are unaffected, and the
+copying default behaves identically everywhere. §REQ-cross-platform.2
+
 ### 4.5. Registration
 
 For agents that require explicit registration (Claude Code's `CLAUDE.md`), the command appends a delimited section. It uses markers (`<!-- rhei:start -->` / `<!-- rhei:end -->` or an `# rhei` heading) so uninstall and updates can find and replace the block idempotently.
