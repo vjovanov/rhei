@@ -34,11 +34,13 @@ fn rhei_command() -> Command {
     static HARNESS_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let home = HARNESS_HOME.get_or_init(|| {
         // Deliberately not a `TestDir`: it lives for the whole harness, and a
-        // guard in a `OnceLock` is never dropped. One fixed name, emptied on the
-        // way in, so a run leaves exactly one directory behind rather than one
-        // more every time. Cargo runs one process per test target, so nothing
-        // else is inside it while this runs.
-        let home = std::env::temp_dir().join("rhei-harness-home");
+        // guard in a `OnceLock` is never dropped. One name per process,
+        // emptied on the way in, so a run leaves one directory behind rather
+        // than one more every time — and only its own. The pid is not
+        // decoration: `cargo test --workspace --all-targets` runs several test
+        // binaries at once, and under a shared name the second one to start
+        // deletes the first one's home out from under it.
+        let home = std::env::temp_dir().join(format!("rhei-harness-home-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join("state")).expect("isolated state directory");
         home
