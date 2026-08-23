@@ -203,3 +203,75 @@ fn rhei_next_mirrors_the_memory_sections_in_text_and_json() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// §FS-rhei-memory.3.4: `rhei next` exports no `RHEI_ROOT` and promises the
+/// reader no working directory, so every path it prints is absolute — and in a
+/// project of several rheis, each root is its own directory, not `.` twice.
+#[test]
+fn rhei_next_renders_every_memory_path_absolute() {
+    let dir = unique_temp_dir("memory-next-paths");
+    write_fixture_file(
+        &dir,
+        "index.panta.md",
+        "# Panta: Map\n\n## House Rules\n\nRun the tests.\n",
+    );
+    let machine_path = write_fixture_file(&dir, "states.yaml", MEMORY_MACHINE);
+    for rhei in ["alpha", "beta"] {
+        fs::create_dir_all(dir.join(rhei).join("tasks")).expect("workspace dirs");
+        fs::write(
+            dir.join(rhei).join("index.rhei.md"),
+            format!("# Rhei: {rhei}\n\n## Ground Rules\n\nKeep {rhei} stable.\n"),
+        )
+        .expect("write index");
+        fs::write(
+            dir.join(rhei).join("tasks/work.md"),
+            format!("### Task 1: Work {rhei}\n**State:** pending\n"),
+        )
+        .expect("write task file");
+    }
+    write_fixture_file(
+        &dir,
+        "gamma.rhei.md",
+        "# Rhei: Gamma\n\n## Tasks\n\n### Task 1: Work gamma\n**State:** pending\n",
+    );
+
+    // A cwd that is not the project directory: a relative path would resolve
+    // against this, and the reader has no way to know that.
+    let mut cmd = rhei_command(dir.join(".home"));
+    cmd.current_dir(repo_root());
+    cmd.arg("--state-machine").arg(&machine_path).arg("next").arg(&dir);
+    cmd.args(["--task", "alpha.1", "--peek"]);
+    let output = cmd.output().expect("rhei next should run");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "next should succeed\nstdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let map = stdout.split("### Reading the rhei").nth(1).expect("the map is printed");
+    // The bullets after the map are literal artifact templates, not paths.
+    let map = map.split("- Under each execution root:").next().expect("the map ends");
+    let quoted: Vec<&str> = map.split('`').skip(1).step_by(2).collect();
+    let paths: Vec<&str> = quoted.iter().copied().filter(|token| token.contains('/')).collect();
+    assert!(paths.len() >= 6, "the map names every rhei's root; got:\n{map}");
+    for path in &paths {
+        assert!(Path::new(path).is_absolute(), "`{path}` is not absolute; got:\n{map}");
+        assert!(Path::new(path).exists(), "`{path}` does not exist; got:\n{map}");
+    }
+
+    // §FS-rhei-memory.1.1: three rheis, three roots — the map is only a map
+    // while no two rheis answer to the same string.
+    let roots: Vec<&str> = map
+        .lines()
+        .filter(|line| line.starts_with("  - `"))
+        .filter_map(|line| line.split('`').nth(3))
+        .collect();
+    assert_eq!(roots.len(), 3, "one line per rhei; got:\n{map}");
+    let mut unique = roots.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 3, "each rhei has its own root; got:\n{map}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

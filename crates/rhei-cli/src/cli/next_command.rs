@@ -412,6 +412,9 @@ fn next_command(
     // §FS-rhei-memory.4.3: `rhei next` prints neither `## Prior Task Results`
     // nor `## Child Task Results`, so a summary here has nothing to defer to.
     memory.pastes_task_inputs = false;
+    // §FS-rhei-memory.3.4: `rhei next` exports no `RHEI_ROOT` and promises the
+    // reader no working directory, so a relative path here anchors on nothing.
+    memory.absolute_paths = true;
     let render_context = RuntimeTemplateContext {
         workspace_root: &task_workspace_root,
         task_roots: Some(&loaded.task_roots),
