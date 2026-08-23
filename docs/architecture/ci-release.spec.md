@@ -14,9 +14,10 @@ and no longer.
 **`test`** runs on Linux, macOS, and Windows. Each platform installs the pinned
 Rust toolchain from `rust-toolchain.toml`, restores the cargo registry and
 `target` cache, and executes the Rust formatting, lint, and build gates. Linux
-and macOS also run the full Rust test suite; Windows remains a compile and lint
-portability gate because several CLI fixtures intentionally exercise Unix shell
-and file-lock semantics (running the suite there is tracked separately):
+and macOS also run the full Rust test suite. Windows runs every crate's unit
+tests and `rhei-core`'s integration tests; the CLI's e2e suite is excluded
+there because its fixtures drive `sh` mock agents (porting them is tracked
+separately):
 
 ```bash
 cargo fmt --all -- --check
