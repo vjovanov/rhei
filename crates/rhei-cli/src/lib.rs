@@ -133,6 +133,7 @@ mod tests {
     include!("cli/tests_error_guidance.rs");
     include!("cli/tests_prompt_templates.rs");
     include!("cli/tests_complete_reset_tooling.rs");
+    include!("cli/tests_file_locks.rs");
     include!("cli/tests_agent_resolution.rs");
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_accounting.rs");
