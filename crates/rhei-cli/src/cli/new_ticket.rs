@@ -30,6 +30,7 @@ fn new_ticket_write(
     // written to has to load, which is the next check. §FS-rhei-new.5.2
     let loaded = load_plan_leniently(target)?;
     reject_unloadable_target_rhei(&loaded, parent.trim())?;
+    reject_unloadable_reference_rheis(&loaded, options)?;
     let placement = resolve_ticket_parent(&loaded, parent.trim())?;
     let entry = resolve_rhei_entry(target, &loaded, &placement.rhei_id)?;
     let structure = rhei_entry_structure(&entry, target)?;
@@ -46,7 +47,7 @@ fn new_ticket_write(
         resolve_ticket_kind(options.kind.as_deref(), &structure.structure, &placement.rhei_id)?;
 
     let qualified = format!("{}.{}", placement.rhei_id, local_id);
-    let machines = resolve_state_machines_for_loaded_plan(target, &loaded, None)?;
+    let machines = resolve_state_machines_for_create(target, &loaded, &placement.rhei_id)?;
     let machine = machines.machine_for_task_str(&qualified);
     let state = resolve_ticket_state(options.state.as_deref(), machine, &kind, depth)?;
 
@@ -121,6 +122,100 @@ help = "fix that rhei and re-run; `rhei validate` reports it with a code frame. 
          in it decide the new ticket's number, and its `## Tasks` section decides where the \
          block goes."
     ))
+}
+
+/// Resolve the project's state machines the way every command does, except that
+/// a rhei this create is not writing to keeps its unresolvable machine to
+/// itself.
+///
+/// One rhei declaring `**States:** billing-review` with no `states.yaml` to
+/// match is a mid-edit state someone is *in the middle of leaving* — the
+/// declaration is written, the machine is not yet. Resolved strictly, it stops
+/// every create in the project, basin capture included — and basin capture is
+/// the one thing that has to survive somebody else's half-finished work. The
+/// rhei being written to is different: the new ticket's starting state comes
+/// out of its machine, so that one must resolve.
+///
+/// The project still fails validation for it — both passes, identically — so
+/// the create keeps its write and says the failure is not its own. Nothing is
+/// hidden; it is only not this create's to refuse.
+// §FS-rhei-new.5.2 §AR-rhei-panta.4
+fn resolve_state_machines_for_create(
+    input: &Path,
+    loaded: &LoadedPlan,
+    target_rhei: &str,
+) -> MietteResult<ResolvedMachineSet> {
+    let default = resolve_state_machine_for_loaded_plan(input, loaded, None)?;
+    let mut per_rhei = BTreeMap::new();
+    let mut declared: Vec<(&String, &String)> = loaded.rhei_machines.iter().collect();
+    declared.sort();
+    for (rhei_id, machine_name) in declared {
+        // Restating the default means the same thing as omitting the line.
+        if *machine_name == default.machine.name {
+            continue;
+        }
+        match resolve_declared_rhei_machine(input, loaded, rhei_id, machine_name) {
+            Ok(resolved) => {
+                per_rhei.insert(rhei_id.clone(), resolved);
+            }
+            Err(report) if rhei_id == target_rhei => return Err(report),
+            Err(_) => {}
+        }
+    }
+    Ok(ResolvedMachineSet { default, per_rhei })
+}
+
+/// Refuse a `**Prior:**` or `**Consumes:**` that points into a rhei the lenient
+/// load skipped.
+///
+/// The target rhei is not the only one this create depends on being readable:
+/// a reference into a rhei that will not parse cannot be checked by anything.
+/// Written anyway, it passes the pre/post diff — the reference resolves against
+/// no ticket either side of the write — and the create then says the errors are
+/// not its own, which is exactly backwards: the error that shows up the moment
+/// the sibling is repaired is this create's `--prior`, written into a file
+/// nobody has looked at since.
+// §FS-rhei-new.5.2 §FS-rhei-new.3.3
+fn reject_unloadable_reference_rheis(
+    loaded: &LoadedPlan,
+    options: &NewOptions,
+) -> MietteResult<()> {
+    let priors = options.prior.iter().map(|value| ("--prior", value.as_str()));
+    let consumed = options
+        .consumes
+        .iter()
+        .filter_map(|value| value.split_once(':').map(|(task, _)| ("--consumes", task)));
+    for (flag, reference) in priors.chain(consumed) {
+        let Some(rhei_id) = referenced_rhei_id(reference) else {
+            continue;
+        };
+        let marker = format!("rhei '{rhei_id}' could not be loaded");
+        let Some(skipped) = loaded.unloadable.iter().find(|message| message.starts_with(&marker))
+        else {
+            continue;
+        };
+        return Err(miette!(
+help = "fix that rhei and re-run; `rhei validate` reports it with a code frame. Drop the reference to create the ticket now and add it once the rhei reads.",
+
+            "{skipped}\n\n{flag} '{}' points into rhei '{rhei_id}', so nothing can check that \
+             the reference resolves — and a reference written unchecked comes back as an error \
+             the moment that rhei is repaired.",
+            reference.trim()
+        ));
+    }
+    Ok(())
+}
+
+/// The rhei a reference names, when it names one.
+///
+/// `**Prior:**` values carry an optional node-kind keyword (`Task 3`), so the
+/// id is the last whitespace-separated token; only a dotted id crosses a rhei
+/// boundary, and a bare `3` is local to the rhei being written to.
+// §FS-rhei-plan-language.3.1 §AR-rhei-panta.3
+fn referenced_rhei_id(reference: &str) -> Option<&str> {
+    let id = reference.trim().rsplit(char::is_whitespace).next()?;
+    let (leading, _) = id.split_once('.')?;
+    (!leading.is_empty()).then_some(leading)
 }
 
 /// Check the two reference flags for shape before the write, so a mistyped

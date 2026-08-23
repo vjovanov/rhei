@@ -406,3 +406,48 @@ fn an_unusable_title_is_refused_as_an_argument() {
 
     assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
 }
+
+/// §FS-rhei-new.5.2: a `**Prior:**` into a rhei the lenient load skipped can be
+/// checked by nothing, so it is refused rather than written and then blamed on
+/// whoever repairs the sibling.
+#[test]
+fn a_prior_into_an_unreadable_rhei_is_refused() {
+    let dir = project_with_a_broken_sibling("new-prior-broken");
+    let before = fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file");
+
+    let result = new_run(&["new", "Needs bad", "--under", "auth", "--prior", "bad.99"], &dir);
+    let said = flattened_output(&result);
+    assert!(!result.status.success(), "got:\n{said}");
+    assert!(said.contains("rhei 'bad' could not be loaded"), "got:\n{said}");
+    assert!(said.contains("--prior 'bad.99' points into rhei 'bad'"), "got:\n{said}");
+    assert_eq!(fs::read_to_string(dir.join("auth.rhei.md")).expect("rhei file"), before);
+
+    // The same for the other reference flag.
+    let consumes =
+        new_run(&["new", "Reads bad", "--under", "auth", "--consumes", "bad.1:api"], &dir);
+    assert_failure(&consumes, "--consumes 'bad.1' points into rhei 'bad'");
+}
+
+/// §FS-rhei-new.5.2: one rhei declaring a machine no `states.yaml` provides is
+/// somebody else's half-finished edit. It must not stop creates elsewhere —
+/// basin capture least of all — and it still must stop a create into itself.
+#[test]
+fn an_unresolvable_machine_elsewhere_does_not_stop_a_create() {
+    let dir = project_with_rhei("new-machine-elsewhere");
+    write_fixture_file(
+        &dir,
+        "billing.rhei.md",
+        "# Rhei: Billing\n**States:** billing-review\n\n## Tasks\n",
+    );
+
+    assert_success(&new_run(&["new", "Keep going", "--under", "auth"], &dir));
+    let captured = new_run(&["new", "Quick thought", "--under", "basin"], &dir);
+    assert_success(&captured);
+    assert!(dir.join("basin/001-quick-thought.md").is_file(), "basin capture must still work");
+    assert_success(&new_run(&["new", "Another rhei"], &dir));
+
+    // Into the rhei whose machine cannot be resolved, the failure is this
+    // create's: the ticket's starting state comes out of that machine.
+    let into_it = new_run(&["new", "Nope", "--under", "billing"], &dir);
+    assert_failure(&into_it, "declares state machine 'billing-review'");
+}
