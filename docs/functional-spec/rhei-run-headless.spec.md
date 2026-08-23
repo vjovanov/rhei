@@ -209,6 +209,14 @@ lie the way a recorded pid can after pid reuse. Probing it is a **read**: it
 creates neither the lock file nor the `.rhei` directory, because a listing must
 not write into every workspace it inspects.
 
+**A refused lock is a held lock, on every platform.** The refusal is spelled
+with a different error per operating system — `EWOULDBLOCK` where the lock is a
+`flock`, a lock-violation error where it is a mandatory byte range — and the
+probe classifies both as *live*. Reading only one spelling turns every running
+run on the other platform into an *unknown* entry, which is the one verdict
+that makes `attach`, `stop`, and `runs` hedge about a run that is plainly
+there.
+
 **A probe has three answers, not two: live, ended, and *unknown*.** An entry
 this process could not read, a workspace descriptor it could not open, a lock it
 could not probe — none of those say anything about the run. A missing lock file

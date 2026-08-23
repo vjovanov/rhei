@@ -625,7 +625,8 @@ fn try_acquire_run_lock(workspace_root: &Path) -> MietteResult<Option<HeldRunLoc
     let file = open_run_lock_file(workspace_root)?;
     match file.try_lock_exclusive() {
         Ok(()) => Ok(Some(HeldRunLock { file })),
-        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(None),
+        // A run already holds it — on Unix and on Windows alike. §FS-rhei-run.2.6
+        Err(err) if lock_is_contended(&err) => Ok(None),
         Err(err) => Err(file_io_report(
             &workspace_root.join(".rhei/run.lock"),
             "failed to inspect run lock",
