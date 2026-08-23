@@ -452,10 +452,16 @@ const ARTIFACT_EXCERPT_LINES: usize = 8;
 const ARTIFACT_EXCERPT_BYTES: u64 = 16 * 1024;
 
 /// The head excerpt of a resolved workspace-relative artifact on disk, plus
-/// whether the file continues past it. Unresolved, escaping, absolute, or
-/// unreadable paths yield nothing — the row stays bare. §FS-rhei-run-tui.1.5.3
+/// whether the file continues past it. Unresolved, escaping, rooted, or
+/// unreadable paths yield nothing — the row stays bare.
+///
+/// Rooted rather than merely absolute, and asked through the guard the
+/// validator and the prompt renderer share: on Windows `is_absolute()` is
+/// false for both `/etc/passwd` and `C:out.md`, and an inspector that reads
+/// either one is reading outside the run it is inspecting.
+// §FS-rhei-run-tui.1.5.3 §FS-rhei-states.1.3
 fn artifact_excerpt(workspace: &Path, relative: &str) -> (Vec<String>, bool) {
-    if relative.contains('{') || relative.contains("..") || Path::new(relative).is_absolute() {
+    if relative.contains('{') || relative.contains("..") || crate::path_is_rooted(relative) {
         return (Vec::new(), false);
     }
     let path = workspace.join(relative);
