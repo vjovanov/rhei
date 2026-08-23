@@ -240,8 +240,7 @@
             _ => return, // already ignored, or git could not tell
         }
         let repo_root = PathBuf::from(String::from_utf8_lossy(&toplevel.stdout).trim());
-        let entry = output_dir
-            .canonicalize()
+        let entry = rhei_core::platform::canonical_path(output_dir)
             .ok()
             .and_then(|dir| dir.strip_prefix(&repo_root).map(|rel| rel.to_path_buf()).ok())
             .unwrap_or_else(|| output_dir.to_path_buf());
@@ -273,7 +272,8 @@
         // spelling for a path that is in fact inside the working directory —
         // macOS resolves `/tmp` and `/var` into `/private`, so every report
         // written from a temporary directory there took that fallback.
-        let (Ok(resolved_path), Ok(resolved_cwd)) = (path.canonicalize(), cwd.canonicalize())
+        let (Ok(resolved_path), Ok(resolved_cwd)) =
+            (rhei_core::platform::canonical_path(path), rhei_core::platform::canonical_path(&cwd))
         else {
             return path.to_path_buf();
         };

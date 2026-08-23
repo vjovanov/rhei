@@ -46,7 +46,9 @@ fn filesystem_skill_source(skill_name: &str) -> Option<PathBuf> {
     // directory cannot shadow the embedded copy with an unreadable install.
     let usable = |dir: PathBuf| -> Option<PathBuf> {
         if dir.join("SKILL.md").is_file() {
-            dir.canonicalize().ok()
+            // This one is printed by `rhei diag`, so it takes the plain
+            // spelling the rest of the report uses. §REQ-cross-platform.5
+            rhei_core::platform::canonical_path(&dir).ok()
         } else {
             None
         }
