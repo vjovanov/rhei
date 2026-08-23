@@ -288,6 +288,93 @@ fn rhei_next_renders_every_memory_path_absolute() {
     fs::remove_dir_all(dir).expect("cleanup");
 }
 
+/// A plan named the way it is typed from the directory it lives in —
+/// `rhei next plan.rhei.md` — has an execution root like any other. Its raw
+/// parent is the empty path, and a blank root under `### Reading the rhei`
+/// names nothing a reader can open.
+// §FS-rhei-memory.3.4
+#[test]
+fn a_bare_relative_plan_name_still_has_a_root_on_rhei_next() {
+    let dir = unique_temp_dir("memory-bare-next");
+    write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        "# Rhei: Bare\n\n## Tasks\n\n### Task 1: Only\n**State:** pending\n",
+    );
+    write_fixture_file(&dir, "states.yaml", MEMORY_MACHINE);
+
+    // The plan and the machine are named relative to a cwd inside the fixture,
+    // which is what a worker standing in the plan's directory types.
+    let mut cmd = rhei_command(dir.join(".home"));
+    cmd.current_dir(&dir);
+    cmd.args(["--state-machine", "states.yaml", "next", "plan.rhei.md", "--task", "1", "--peek"]);
+    let output = cmd.output().expect("rhei next should run");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(
+        output.status.success(),
+        "next should succeed\nstdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let map = stdout.split("### Reading the rhei").nth(1).expect("the map is printed");
+    let map = map.split("- Under each execution root:").next().expect("the map ends");
+    let this_rhei = map.lines().find(|line| line.starts_with("- This rhei: ")).expect("this rhei");
+    let listed = map.lines().find(|line| line.starts_with("  - `plan` ")).expect("the rhei list");
+    let roots = [
+        this_rhei.split('`').nth(1).expect("the root of this rhei"),
+        listed.split('`').nth(3).expect("the root in the list"),
+    ];
+    for root in roots {
+        assert!(!root.is_empty(), "a blank execution root names nothing; got:\n{map}");
+        assert!(Path::new(root).is_absolute(), "`{root}` is not absolute; got:\n{map}");
+        assert!(Path::new(root).exists(), "`{root}` does not exist; got:\n{map}");
+    }
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
+/// The same bare relative name under `rhei run`: `RHEI_ROOT` is the anchor
+/// every relative path in the prompt is resolved against, and the agent log
+/// header records what the agent was handed.
+// §FS-rhei-memory.3.4 §FS-rhei-agents.8.1
+#[test]
+fn a_bare_relative_plan_name_exports_a_root_to_the_agent() {
+    let (dir, _plan_path, _machine_path) = setup_supervision(
+        "memory-bare-run",
+        "# Rhei: Bare\n\n## Tasks\n\n### Task 1: Only\n**State:** pending\n",
+        MEMORY_MACHINE,
+        "",
+    );
+
+    let mut cmd = rhei_command(dir.join(".home"));
+    cmd.current_dir(&dir);
+    cmd.args(["--state-machine", "states.yaml", "run", "plan.rhei.md"]);
+    cmd.args(["--no-callbacks", "--no-tui"]);
+    let output = cmd.output().expect("rhei run should run");
+    assert!(
+        output.status.success(),
+        "run should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let log = fs::read_to_string(dir.join("runtime/logs/task-plan.1-pending.log"))
+        .expect("the agent log was written");
+    let root = log
+        .lines()
+        .find_map(|line| line.strip_prefix("rhei_root: "))
+        .expect("the header names the root");
+    assert!(!root.trim().is_empty(), "a blank RHEI_ROOT anchors nothing; got:\n{log}");
+    // The mock agent resolves `$RHEI_ROOT` itself, so the prompt it saved is
+    // the proof that what it was handed names the execution root.
+    assert!(
+        dir.join("runtime/prompts/plan.1-pending-1.md").exists(),
+        "the agent wrote under the root it was given"
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// A mock agent that saves its prompt under the execution root it was handed
 /// and writes the result the terminal state needs — and touches nothing under
 /// `runtime/logs/`, which is the tree this scenario is about.

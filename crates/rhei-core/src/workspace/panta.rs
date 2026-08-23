@@ -26,7 +26,7 @@ use super::qualify::{
 };
 use super::{
     collect_task_roots, collect_task_sources, is_workspace, load_workspace, nested_parse_error,
-    source_for_task, workspace_dir, Workspace, RHEI_INDEX_FILE,
+    plan_parent_dir, source_for_task, workspace_dir, Workspace, RHEI_INDEX_FILE,
 };
 
 pub const PANTA_INDEX_FILE: &str = "index.panta.md";
@@ -328,8 +328,10 @@ fn load_panta_project_with(dir: &Path, lenient: bool) -> parser::Result<PantaPro
 }
 
 fn rhei_execution_root(path: &Path) -> PathBuf {
-    workspace_dir(path)
-        .unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf())
+    // Not `path.parent()` raw: a bare relative plan name has an empty parent,
+    // and that root reaches `RHEI_ROOT` and every path a prompt prints.
+    // §FS-rhei-memory.3.4
+    workspace_dir(path).unwrap_or_else(|| plan_parent_dir(path).to_path_buf())
 }
 
 /// Load a bare rhei (single `.rhei.md` file or Directory Workspace) as the
