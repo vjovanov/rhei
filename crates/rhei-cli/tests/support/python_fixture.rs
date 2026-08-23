@@ -16,7 +16,10 @@
 pub fn python_command() -> &'static str {
     static PYTHON: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
     PYTHON.get_or_init(|| {
-        for candidate in ["python3", "python"] {
+        // `python` first on Windows: `python3` there is often the Microsoft
+        // Store's launcher stub rather than an interpreter.
+        let candidates = if cfg!(windows) { ["python", "python3"] } else { ["python3", "python"] };
+        for candidate in candidates {
             let runs = std::process::Command::new(candidate)
                 .arg("-c")
                 .arg("pass")
@@ -36,10 +39,13 @@ pub fn python_command() -> &'static str {
 
 /// What a fixture body may assume without importing anything.
 ///
-/// `env` reads the agent environment contract (§FS-rhei-agents.4); `write`,
-/// `append`, and `result` create the parent directory the way `mkdir -p` used
-/// to. Every path is a `pathlib.Path`, never a string with a separator in it,
-/// so a fixture cannot spell a path in one platform's dialect.
+/// `env` reads the agent environment contract, with `${VAR:-default}`
+/// semantics. `write`, `append`, and `result` create the parent directory the
+/// way `mkdir -p` used to. Every path is a `pathlib.Path` joined a segment at
+/// a time, never a string with a separator in it, so a fixture cannot spell a
+/// path in one platform's dialect.
+
+// §FS-rhei-agents.4
 const FIXTURE_PRELUDE: &str = r#"import os
 import pathlib
 import sys
@@ -110,12 +116,14 @@ pub fn fixture_command_with_args(script: &std::path::Path, args: &[&str]) -> Str
     serde_json::to_string(&command).expect("fixture command should serialize")
 }
 
-/// The command *line* that runs `script`, for the two places that take one
-/// rather than an argument vector: a `cli:` callback and a string-form
-/// `program:`. Both go to the platform's own shell. §FS-rhei-programs.1.1
+/// The command *line* that runs `script`, rather than the argument vector.
 ///
-/// A caller embedding this in YAML must single-quote it: a Windows path is
-/// full of backslashes, and a double-quoted YAML scalar reads those as escapes.
+/// Two places take one: a `cli:` callback and a string-form `program:`. Both go
+/// to the platform's own shell. A caller embedding this in YAML must
+/// single-quote it: a Windows path is full of backslashes, and a double-quoted
+/// YAML scalar reads those as escapes.
+
+// §FS-rhei-programs.1.1
 pub fn fixture_command_line(script: &std::path::Path) -> String {
     format!("{} {}", python_command(), script.display())
 }
