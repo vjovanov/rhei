@@ -1076,6 +1076,9 @@ transitions:
         );
     }
 
+    // The redactor under test is a `#!/bin/sh` script spawned as a
+    // program, which only Unix can execute. #91
+    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_replaces_transcript_before_hashing() {
         let dir = snapshot_workspace();
@@ -1135,6 +1138,9 @@ transitions:
         assert!(record.manifest.get("redactor").is_none());
     }
 
+    // The redactor under test is a `#!/bin/sh` script spawned as a
+    // program, which only Unix can execute. #91
+    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_failure_aborts_without_generation() {
         let dir = snapshot_workspace();
@@ -1183,6 +1189,9 @@ transitions:
         assert!(records.is_empty());
     }
 
+    // The redactor under test is a `#!/bin/sh` script spawned as a
+    // program, which only Unix can execute. #91
+    #[cfg(unix)]
     #[test]
     fn snapshot_redactor_receives_minimal_default_env_and_logs_diagnostics() {
         let _home = TempHome::new();
@@ -1708,16 +1717,14 @@ transitions:
         opts
     }
 
+    #[cfg(unix)]
     fn write_executable_redactor(dir: &Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
         let path = dir.join(name);
         fs::write(&path, format!("#!/bin/sh\n{body}")).expect("write redactor");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = fs::metadata(&path).expect("redactor metadata").permissions();
-            permissions.set_mode(0o755);
-            fs::set_permissions(&path, permissions).expect("chmod redactor");
-        }
+        let mut permissions = fs::metadata(&path).expect("redactor metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).expect("chmod redactor");
         path
     }
 
@@ -1932,7 +1939,10 @@ transitions:
 
     impl TempHome {
         fn new() -> Self {
-            let guard = TEST_HOME_LOCK.lock().expect("home lock");
+            // Poison-tolerant: a test that panics under this guard has already
+            // reported itself, and re-reporting it as `PoisonError` in every
+            // sibling hides which test actually failed.
+            let guard = TEST_HOME_LOCK.lock().unwrap_or_else(|err| err.into_inner());
             let dir = tempfile::tempdir().expect("tmphome");
             let previous = std::env::var_os("HOME");
             std::env::set_var("HOME", dir.path());

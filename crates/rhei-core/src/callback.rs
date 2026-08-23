@@ -441,8 +441,10 @@ mod tests {
             eprintln!("skipping stdin test (jq failed): {:?}", result.error);
             return;
         }
-        // stdout carries the printed id; our jq query strips newlines.
-        assert_eq!(result.stdout, "99");
+        // stdout carries the printed id; our jq query strips newlines. The
+        // trailing trim is for the shells that end a line with CRLF, where
+        // `tr -d '\n'` leaves the carriage return behind.
+        assert_eq!(result.stdout.trim_end(), "99");
     }
 
     #[test]

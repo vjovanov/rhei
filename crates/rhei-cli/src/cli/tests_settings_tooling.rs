@@ -241,9 +241,10 @@
 
         let _home = TempHome::new();
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".agents/rhei");
-        fs::create_dir_all(&project_dir).expect("mkdir");
-        let project_settings = project_dir.join("settings.json");
+        // Built from the loader's own relative path, so the expectation is
+        // spelled the way the diagnostic is on every platform.
+        let project_settings = plan_root.join(PROJECT_SETTINGS_RELATIVE_PATH);
+        fs::create_dir_all(project_settings.parent().expect("settings parent")).expect("mkdir");
         fs::write(&project_settings, "{ not json").expect("write malformed");
 
         let err = load_merged_settings(&plan_root).expect_err("malformed project settings fails");
@@ -1190,11 +1191,14 @@ transitions:
                     }}
                   }},
                   "skills": {{
-                    "missing": {{ "path": "{}" }}
+                    "missing": {{ "path": {} }}
                   }}
                 }}"#,
                 serde_json::to_string(script.to_string_lossy().as_ref()).expect("json"),
-                dir.path().join("does-not-exist").display()
+                serde_json::to_string(
+                    dir.path().join("does-not-exist").to_string_lossy().as_ref()
+                )
+                .expect("json")
             ),
         )
         .expect("settings");

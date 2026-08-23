@@ -708,22 +708,32 @@ states:
 
     #[test]
     fn panta_watch_excludes_runtime_at_any_depth() {
-        // Absolute paths so `path_is_under` falls back to a component prefix
-        // check without needing the directories to exist on disk.
-        let targets = panta_watch_targets(Path::new("/proj"));
+        // A real tree, because a watch target is canonicalized: a path that
+        // does not exist has no canonical form, and comparing one that has a
+        // canonical form against one that does not answers nothing.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let project = dir.path();
+        let matching = ["index.panta.md", "auth.rhei.md", "billing/tasks/invoice.md",
+                        "runtime-notes.rhei.md"];
+        for relative in matching {
+            let path = project.join(relative);
+            fs::create_dir_all(path.parent().expect("parent")).expect("fixture dir");
+            fs::write(&path, "").expect("fixture file");
+        }
+        let targets = panta_watch_targets(project);
 
         // Manifest, single-file rheis, and workspace task files revalidate.
-        assert!(path_matches(Path::new("/proj/index.panta.md"), &targets));
-        assert!(path_matches(Path::new("/proj/auth.rhei.md"), &targets));
-        assert!(path_matches(Path::new("/proj/billing/tasks/invoice.md"), &targets));
+        assert!(path_matches(&project.join("index.panta.md"), &targets));
+        assert!(path_matches(&project.join("auth.rhei.md"), &targets));
+        assert!(path_matches(&project.join("billing/tasks/invoice.md"), &targets));
 
         // The project `runtime/` tree (where viz writes dashboard.html) never does...
-        assert!(!path_matches(Path::new("/proj/runtime/dashboard.html"), &targets));
+        assert!(!path_matches(&project.join("runtime/dashboard.html"), &targets));
         // ...nor a per-rhei `runtime/` tree nested under a workspace rhei.
-        assert!(!path_matches(Path::new("/proj/billing/runtime/results/billing.1.md"), &targets));
+        assert!(!path_matches(&project.join("billing/runtime/results/billing.1.md"), &targets));
 
         // A similarly-named sibling that is not a `runtime` directory still matches.
-        assert!(path_matches(Path::new("/proj/runtime-notes.rhei.md"), &targets));
+        assert!(path_matches(&project.join("runtime-notes.rhei.md"), &targets));
     }
 
     /// A skill compiled into the binary but missing from the `--skills` default

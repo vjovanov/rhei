@@ -245,11 +245,14 @@
         let context = memory_context(&root, &project, &loaded, &memory, &machine, task, "pending");
 
         let navigation = render_rhei_navigation(&context);
+        // Joined, not written with `/`: the prompt spells a path the way the
+        // platform does. §FS-rhei-memory.3.4
+        let task_file = Path::new("tasks").join("work.md");
         assert!(
-            navigation.contains(
-                "- This rhei: `.` \u{2014} plan `index.rhei.md`, this task's file \
-                 `tasks/work.md`\n"
-            ),
+            navigation.contains(&format!(
+                "- This rhei: `.` \u{2014} plan `index.rhei.md`, this task's file `{}`\n",
+                task_file.display()
+            )),
             "got:\n{navigation}"
         );
         assert!(navigation.contains("  - `downstream` \u{2014} `.`\n"), "got:\n{navigation}");
