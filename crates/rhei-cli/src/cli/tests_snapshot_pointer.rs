@@ -61,6 +61,8 @@ mod snapshot_pointer_tests {
         assert!(snapshot_current_points_to(&dir.path().join("g1")));
     }
 
+    // Unix: the pointer under test *is* a symlink, which an unprivileged
+    // Windows process cannot create. §REQ-cross-platform.3
     #[cfg(unix)]
     #[test]
     fn reader_follows_a_symlink_pointer() {

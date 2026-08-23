@@ -8,6 +8,11 @@
 // asserts on what the group does about it. Windows has neither, and the harness
 // that spawns, signals, and reaps those groups is shared by all of them — so
 // the imports are gated the same way.
+//
+// That gate is what lets the fixtures below stay `#!/bin/sh`: a signal trap is
+// the thing under test, and it is written in the only shell that has one.
+
+// §REQ-cross-platform.4
 
 #[cfg(unix)]
 use std::fs;

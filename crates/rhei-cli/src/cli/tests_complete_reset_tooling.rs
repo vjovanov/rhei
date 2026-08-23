@@ -99,6 +99,8 @@
         ));
     }
 
+    // Unix: the two spellings are made with a symlink, which an unprivileged
+    // Windows process cannot create. §REQ-cross-platform.3
     #[cfg(unix)]
     #[test]
     fn paths_equivalent_canonicalizes_both_existing_paths() {

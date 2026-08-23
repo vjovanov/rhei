@@ -30,7 +30,10 @@ exists; a test is never gated because porting it is work.
 ## 4. Portable Fixtures
 
 Test fixtures that stand in for agents, programs, callbacks, and redactors are
-written in a form every supported platform runs — never a shell script.
+written in a form every supported platform runs — never a shell script, except
+inside a test gated to one platform for semantics only that platform's shell
+exposes (signal traps, job control), where the gate's reason (§3) covers the
+fixture too.
 
 ## 5. Paths Are Data
 

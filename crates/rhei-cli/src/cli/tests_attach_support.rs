@@ -100,6 +100,10 @@ mod attach_support_tests {
     /// reading it as "keep going" forever would hang on an outage that never
     /// clears.
     // §FS-rhei-run-headless.3 §FS-rhei-run-json.2.1
+
+    // Unix: `chmod 000` through `PermissionsExt` stages the undecided verdict,
+    // and a Windows ACL denies the owner nothing the same way.
+    // §REQ-cross-platform.3
     #[cfg(unix)]
     #[test]
     fn a_follower_keeps_reading_while_liveness_is_undecided() {
