@@ -79,8 +79,10 @@ fn render_siblings(
             ""
         };
         out.push_str(&format!(
-            "- Task {}: {} [{}]{marker}\n",
-            sibling.id, sibling.title, sibling.state
+            "- {}: {} [{}]{marker}\n",
+            memory_node_label(sibling),
+            sibling.title,
+            memory_state_name(sibling, render_context.machine)
         ));
     }
     if siblings.len() > memory_caps::SIBLINGS {
@@ -118,8 +120,8 @@ fn render_parent_body(
         String::new()
     };
     format!(
-        "\n### Parent: Task {}: {}\n\n{}\n{overflow}",
-        parent.id,
+        "\n### Parent: {}: {}\n\n{}\n{overflow}",
+        memory_node_label(parent),
         parent.title,
         fenced_markdown(&kept)
     )
@@ -139,8 +141,10 @@ fn render_position_chain(
     }
     for ancestor in ancestors.iter().rev() {
         chain.push_str(&format!(
-            " \u{203a} Task {}: {} [{}]",
-            ancestor.id, ancestor.title, ancestor.state
+            " \u{203a} {}: {} [{}]",
+            memory_node_label(ancestor),
+            ancestor.title,
+            memory_state_name(ancestor, render_context.machine)
         ));
     }
     let visit = render_visit_count(
@@ -151,8 +155,10 @@ fn render_position_chain(
         render_context.machine,
     );
     format!(
-        "{chain}\n\u{203a} **Task {}: {} [{}]** \u{2190} this invocation (visit {visit})\n",
-        render_context.task.id, render_context.task.title, render_context.state_name
+        "{chain}\n\u{203a} **{}: {} [{}]** \u{2190} this invocation (visit {visit})\n",
+        memory_node_label(render_context.task),
+        render_context.task.title,
+        render_context.state_name
     )
 }
 

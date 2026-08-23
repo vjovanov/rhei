@@ -44,22 +44,23 @@ fn render_reading_the_rhei(render_context: &RuntimeTemplateContext<'_>) -> Strin
         .and_then(|id| memory.rhei_roots.get(id))
         .map(PathBuf::as_path)
         .unwrap_or(render_context.workspace_root);
-    let plan = rhei_id
-        .as_deref()
-        .and_then(|id| memory.rhei_plans.get(id))
-        .map(PathBuf::as_path)
-        .unwrap_or(render_context.plan_path);
+    // The synthetic basin has no authored index, so naming a plan there would
+    // name a file nobody can open. §AR-rhei-panta.1
+    let plan = rhei_id.as_deref().and_then(|id| memory.rhei_plans.get(id)).map(PathBuf::as_path);
     let task_file = memory
         .task_sources
         .get(&task_id)
         .map(PathBuf::as_path)
-        .unwrap_or(plan);
+        .or(plan)
+        .unwrap_or(render_context.plan_path);
+    let plan_clause = plan
+        .map(|path| format!(" plan `{}`,", memory_path(render_context, path)))
+        .unwrap_or_default();
     let mut out = format!(
         "\n### Reading the rhei\n\n\
-         - This rhei: `{}` \u{2014} plan `{}`, this task's file `{}`\n\
+         - This rhei: `{}` \u{2014}{plan_clause} this task's file `{}`\n\
          - Every rhei in this project and its execution root:\n",
         memory_path(render_context, root),
-        memory_path(render_context, plan),
         memory_path(render_context, task_file),
     );
     for id in &memory.rhei_ids {

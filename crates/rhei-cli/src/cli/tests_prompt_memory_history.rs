@@ -485,3 +485,28 @@
             "the prior survives the cap; got:\n{history}"
         );
     }
+
+    /// §FS-rhei-memory.3.4: the synthetic basin has no authored index, so there
+    /// is no plan document to name — the map names this ticket's own file and
+    /// leaves the `— plan …` clause off rather than pointing at a directory.
+    #[test]
+    fn the_basin_names_no_plan_document() {
+        let dir = memory_dir(&[
+            ("index.panta.md", "# Panta: With Basin\n"),
+            ("basin/loose.md", "### Task 3: Unfiled capture\n**State:** pending\n"),
+        ]);
+        let project = dir.path().to_path_buf();
+        let loaded = load_plan(&project).expect("project loads");
+        let memory = prompt_memory(&loaded, &project, &dir.path().join("runtime"), BTreeSet::new());
+        let machine = memory_machine();
+        let task = find_task_by_id_str(&loaded.rhei.tasks, "basin.3").expect("basin.3");
+        let root = dir.path().join("basin");
+        let context = memory_context(&root, &project, &loaded, &memory, &machine, task, "pending");
+
+        let navigation = render_rhei_navigation(&context);
+        assert!(
+            navigation.contains("- This rhei: `.` \u{2014} this task's file `loose.md`\n"),
+            "got:\n{navigation}"
+        );
+        assert!(!navigation.contains("plan `.`"), "got:\n{navigation}");
+    }
