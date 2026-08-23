@@ -123,6 +123,6 @@ fn git_status_pathspec(repo_root: &Path, path: &Path) -> PathBuf {
     } else {
         std::env::current_dir().map(|cwd| cwd.join(path)).unwrap_or_else(|_| path.to_path_buf())
     };
-    let normalized = rhei_core::callback::canonical_path(&absolute).unwrap_or(absolute);
+    let normalized = rhei_core::platform::canonical_path(&absolute).unwrap_or(absolute);
     normalized.strip_prefix(repo_root).map(Path::to_path_buf).unwrap_or(normalized)
 }

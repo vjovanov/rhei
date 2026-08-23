@@ -57,7 +57,7 @@ fn read_task_worktree_root(rhei_root: &Path, task_id: &str) -> MietteResult<Opti
             ref_path.display()
         ));
     }
-    let worktree_root = rhei_core::callback::canonical_path(&parsed.path).map_err(|err| {
+    let worktree_root = rhei_core::platform::canonical_path(&parsed.path).map_err(|err| {
         file_io_report(&parsed.path, "failed to resolve task worktree root", err)
     })?;
     if !worktree_root.is_dir() {
@@ -117,5 +117,5 @@ fn git_toplevel_output(path: &Path) -> Result<PathBuf, String> {
     if root.is_empty() {
         return Err("git rev-parse returned an empty toplevel".to_string());
     }
-    rhei_core::callback::canonical_path(Path::new(root)).map_err(|err| err.to_string())
+    rhei_core::platform::canonical_path(Path::new(root)).map_err(|err| err.to_string())
 }
