@@ -368,3 +368,71 @@ fn the_map_names_the_log_directory_the_run_writes() {
 
     fs::remove_dir_all(dir).expect("cleanup");
 }
+
+/// A counted `review` loop, so a ticket's `**State:**` carries a `-<visit>`
+/// suffix that the machine itself never names.
+const COUNTED_MACHINE: &str = r#"name: counted-e2e
+version: 1
+states:
+  pending:
+    initial: true
+    description: Ready for work
+    instructions: Do the work for Task {task_id}.
+  review:
+    description: Review
+    visits: 3
+    instructions: Review Task {task_id}.
+  completed:
+    description: Done
+    final: true
+  cancelled:
+    description: Dropped
+    final: true
+transitions:
+  - { from: pending, to: review, description: Work done }
+  - { from: review, to: review, description: Another round }
+  - { from: review, to: completed, description: Reviewed }
+  - { from: "*", to: cancelled, description: Dropped }
+"#;
+
+/// One `rhei next` screen spells a state one way: the machine's own name, which
+/// is the only form `rhei transition --from` accepts. The visit belongs to
+/// `## Position`, and `--json` still reports the authored value.
+// §FS-rhei-next.4.1 §FS-rhei-memory.3.1
+#[test]
+fn rhei_next_prints_one_spelling_of_the_state() {
+    let dir = unique_temp_dir("memory-one-spelling");
+    let plan_path = write_fixture_file(
+        &dir,
+        "plan.rhei.md",
+        "# Rhei: Looper\n\n## Tasks\n\n### Task 1: Looper\n**State:** review-3\n",
+    );
+    let machine_path = write_fixture_file(&dir, "states.yaml", COUNTED_MACHINE);
+
+    let peek = run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek"]);
+    assert_success(&peek);
+    assert!(
+        peek.stdout.starts_with(
+            "Task plan.1 \u{2014} current state: 'review' (read-only peek; not advanced)\n"
+        ),
+        "got:\n{}",
+        peek.stdout
+    );
+    assert!(peek.stdout.contains("--- Instructions (review) ---\n"), "got:\n{}", peek.stdout);
+    assert!(
+        peek.stdout.contains("**Task plan.1: Looper [review]** \u{2190} this invocation (visit 3)"),
+        "got:\n{}",
+        peek.stdout
+    );
+    assert!(!peek.stdout.contains("review-3"), "one spelling only; got:\n{}", peek.stdout);
+
+    // The authored form is data, not display: `--json` keeps it.
+    let json = run_cli("next", &plan_path, &machine_path, &["--task", "1", "--peek", "--json"]);
+    assert_success(&json);
+    let payload: serde_json::Value =
+        serde_json::from_str(&json.stdout).expect("next --json parses");
+    assert_eq!(payload["state"], "review-3", "got: {payload}");
+    assert_eq!(payload["from_state"], "review-3", "got: {payload}");
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}

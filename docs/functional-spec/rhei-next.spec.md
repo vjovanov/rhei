@@ -119,6 +119,9 @@ Task auth.1 claimed: 'draft' -> 'pending'
 Task auth.1 claimed by manual (stays in 'pending')
 ```
 
+Both names are the state as the **machine** declares it, with the `-<visit>`
+suffix a counted loop writes into `**State:**` dropped (§4.1).
+
 The second form is not an edge case — it is *every* claim under the built-in
 machine, whose initial state is also its working state (§3). Reporting only
 `Task auth.1 (already in 'pending')` there described the state the caller could
@@ -223,6 +226,14 @@ Personality: <the state's personality, when it declares one>
 --- Instructions (<state>) ---
 <the state's instructions, template variables resolved>
 ```
+
+`<state>` is the state in its machine form: the `-<visit>` suffix a counted
+loop writes into `**State:**` (§FS-rhei-plan-language.3.2) is dropped in the
+first line and in the instructions banner alike. That is the only form
+`rhei transition --from` accepts and the form `## Position` prints, so one
+screen spells a state one way; the visit is shown in `## Position` instead.
+`--json` is unchanged and still reports the authored value in `from_state` and
+`state`.
 
 The `Agent:` line is printed only when an agent or model resolves, and the
 `Personality:` block only when the state declares one. After the instructions
