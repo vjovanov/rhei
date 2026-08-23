@@ -129,8 +129,6 @@ fn panta_project_loads_qualifies_and_validates_cross_rhei_priors() {
     );
     assert!(stdout.contains("Task auth.1: Login [completed]"));
     assert!(stdout.contains("Task billing.1: Invoice [pending] (prior: auth.1)"));
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -156,8 +154,6 @@ fn panta_discovery_skips_runtime_artifact_trees() {
     assert_eq!(loaded.rhei_ids, vec!["auth"]);
     assert!(loaded.task_sources.contains_key("auth.1"));
     assert!(!loaded.task_sources.contains_key("generated.1"));
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -187,8 +183,6 @@ fn panta_preserves_ambiguous_local_priors_before_cross_rhei_resolution() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -222,8 +216,6 @@ fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("auth.1"), "peek should report the claimable ticket: {stdout}");
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -252,8 +244,6 @@ fn panta_validates_task_links_from_owning_rhei_root() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -283,8 +273,6 @@ fn panta_validates_child_rhei_content_links() {
         stderr.contains("section 'Rhei auth / Overview'") && stderr.contains("docs/missing.md"),
         "unexpected stderr: {stderr}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -310,8 +298,6 @@ fn panta_explicit_max_levels_one_is_not_raised_to_default() {
         stderr.contains("match.level is 2") && stderr.contains("levels must be in 1..=1"),
         "unexpected stderr: {stderr}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 // A rhei restating the project machine is the degenerate override — the same
@@ -331,8 +317,6 @@ fn panta_rhei_may_restate_the_project_state_machine() {
 
     let loaded = workspace::load_panta_project(&project).expect("restating the default loads");
     assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -352,8 +336,6 @@ fn panta_basin_loads_as_reserved_last_rhei() {
     assert_eq!(loaded.rhei.tasks[0].id.to_string(), "auth.1");
     assert_eq!(loaded.rhei.tasks[1].id.to_string(), "basin.3");
     assert!(loaded.task_sources["basin.3"].ends_with("basin/loose.md"));
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// §AR-rhei-panta.1: the basin's manifest is synthetic, so an authored index
@@ -396,8 +378,6 @@ fn panta_basin_index_file_is_a_load_error_not_a_silent_skip() {
         "validate must not report success while basin tickets are unloadable\nstdout: {}",
         String::from_utf8_lossy(&output.stdout)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -430,8 +410,6 @@ fn panta_basin_ignores_runtime_markdown_artifacts() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -454,8 +432,6 @@ fn panta_rejects_domain_rhei_named_basin() {
         "error should state the rule, the offending path, and the fix: {}",
         err.message
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// §FS-rhei-plan-language.1.3: a member rhei's own `**States:**` declaration
@@ -491,8 +467,6 @@ fn panta_child_rhei_state_machine_override_loads_and_validates() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -515,8 +489,6 @@ fn panta_profile_resolution_uses_rhei_local_task_depth() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -563,8 +535,6 @@ fn panta_transition_routes_rewrite_to_owning_rhei_file() {
         ledger.contains("auth.1 pending@in-progress"),
         "ledger should record the qualified ticket id: {ledger}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -612,8 +582,6 @@ fn panta_next_peek_reads_and_claim_writes_owning_rhei() {
         rewritten.contains("**Assignee:**"),
         "claim should write the assignee into the owning rhei file: {rewritten}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -730,8 +698,6 @@ fn panta_rhei_narrowing_scopes_candidates_and_spares_other_rhei_runtime() {
         String::from_utf8_lossy(&output.stdout).contains("Kept run-scoped output"),
         "narrowed reset should name what it kept"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// A narrowed reset removes every artifact keyed by an in-scope ticket —
@@ -812,8 +778,6 @@ fn panta_narrowed_reset_clears_ticket_owned_artifacts_without_touching_siblings(
     ] {
         assert!(runtime.join(kept).exists(), "{kept} is not owned by an in-scope ticket");
     }
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 /// `--rhei` narrows candidates but never prior resolution, so the diagnostic
@@ -849,8 +813,6 @@ fn panta_narrowed_next_explains_a_prior_outside_the_scope() {
             && stderr.contains("outside the --rhei scope"),
         "diagnostic should name the scope and the blocking prior outside it: {stderr}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 // A `#!/usr/bin/env bash` fixture stands in for the agent here: Unix-only. #91
@@ -920,8 +882,6 @@ fn panta_run_rhei_narrowing_skips_out_of_scope_work_in_agent_mode() {
         billing.contains("**State:** pending"),
         "out-of-scope ticket must stay untouched: {billing}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -989,8 +949,6 @@ fn panta_narrowed_reset_clears_workspace_index_metadata_and_legacy_records() {
         project_runtime.join("results/1.md").exists(),
         "a local-id record at the shared root is ambiguous and must survive"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -1025,6 +983,4 @@ fn panta_run_locks_every_member_rhei_execution_root() {
         project.join("auth/.rhei/run.lock").is_file(),
         "the member workspace rhei's root must be locked too"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }

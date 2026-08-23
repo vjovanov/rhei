@@ -58,8 +58,6 @@ transitions:
         "expected custom machine instructions; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -116,8 +114,6 @@ transitions:
         "expected assigned task diagnostic; got:\n{}",
         second.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Drive a plan to completion using `next` (to claim from initial state)
@@ -145,7 +141,7 @@ fn drive_to_completion_via_next(plan_path: &std::path::Path, machine_path: &std:
 
 #[test]
 fn next_single_file_repeated_to_completion() {
-    let (dir, plan_path, machine_path) = setup_single_file("next-repeat", LINEAR_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-repeat", LINEAR_PLAN);
 
     drive_to_completion_via_next(&plan_path, &machine_path);
 
@@ -159,8 +155,6 @@ fn next_single_file_repeated_to_completion() {
         "expected plan-complete diagnostic; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -174,7 +168,7 @@ fn next_single_file_json_output() {
 Configure the build system.
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("next-json", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-json", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
@@ -190,8 +184,6 @@ Configure the build system.
     assert!(json["instructions"].is_string());
     assert!(json["content"].is_string());
     assert!(json["children"].is_array());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -254,8 +246,6 @@ transitions:
     let json: serde_json::Value = serde_json::from_str(&json_result.stdout).expect("parse JSON");
     assert_eq!(json["personality"], "You are an MIT professor.");
     assert_eq!(json["task_id"], "plan-json.1");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -315,8 +305,6 @@ transitions:
         "expected output artifact path placeholder to resolve; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -371,8 +359,6 @@ transitions:
         result.stdout
     );
     assert_task_state(&plan_path, &machine_path, "coordinate", "split");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -437,8 +423,6 @@ transitions:
         !completed.contains("**Assignee:**"),
         "complete should remove assignee; got:\n{completed}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -452,7 +436,7 @@ fn next_task_rejects_already_assigned_task() {
 **Assignee:** codex
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("next-assigned-target", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-assigned-target", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
     assert!(!result.status.success(), "assigned task should be rejected");
@@ -463,8 +447,6 @@ fn next_task_rejects_already_assigned_task() {
     );
     let unchanged = fs::read_to_string(&plan_path).expect("read plan");
     assert!(unchanged.contains("**State:** draft\n**Assignee:** codex"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -501,8 +483,6 @@ transitions:
     let content = fs::read_to_string(&plan_path).expect("read plan");
     assert!(!content.contains("**Assignee:**"), "peek must not write assignee; got:\n{content}");
     assert_task_state(&plan_path, &machine_path, "1", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -515,7 +495,7 @@ fn next_no_claimable_mid_workflow_lists_transition_commands() {
 **State:** pending
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("next-mid-workflow", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-mid-workflow", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
     let stderr = normalize_miette_stderr(&result.stderr);
@@ -540,8 +520,6 @@ fn next_no_claimable_mid_workflow_lists_transition_commands() {
         "expected concrete cancelled transition command; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -589,8 +567,6 @@ transitions:
         "expected suggested command to quote state names; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -642,8 +618,6 @@ transitions:
         "blocked completed transition should not be suggested; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -680,8 +654,6 @@ transitions:
         "expected equals-form option values for leading-hyphen states; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -722,8 +694,6 @@ transitions:
         &result,
         "Blocked: 1 task(s) waiting on human action: Task plan.1 (human-review).",
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -770,8 +740,6 @@ transitions:
         !index_content.contains("**Assignee:**"),
         "workspace index must not receive task assignee; got:\n{index_content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -825,8 +793,6 @@ transitions:
         content.contains("> **Result:** [plan.cache-key](runtime/results/plan.cache-key.md)"),
         "custom node result link should be inserted; got:\n{content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -897,13 +863,11 @@ transitions:
         content.contains("> **Result:** [plan.1.1](runtime/results/plan.1.1.md)"),
         "child result link should be inserted; got:\n{content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn next_respects_dependency_order() {
-    let (dir, plan_path, machine_path) = setup_single_file("next-deps", LINEAR_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-deps", LINEAR_PLAN);
 
     // First next: should advance Task 1 (draft -> pending) since it has no deps.
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
@@ -942,13 +906,11 @@ fn next_respects_dependency_order() {
     assert_success(&result);
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
     assert_eq!(json["task_id"], "plan.2", "after completing Task 1, next picks Task 2");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn next_workspace_repeated_to_completion() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "next-ws-repeat",
         "# Rhei: Workspace Next\n",
         &[
@@ -965,13 +927,11 @@ fn next_workspace_repeated_to_completion() {
     // Verify next fails now.
     let result = run_cli("next", &ws, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success());
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn next_with_task_flag_targets_specific() {
-    let (dir, plan_path, machine_path) = setup_single_file("next-task-flag", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-task-flag", INDEPENDENT_PLAN);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "2"]);
     assert_success(&result);
@@ -980,8 +940,6 @@ fn next_with_task_flag_targets_specific() {
     assert_task_state(&plan_path, &machine_path, "2", "pending");
     assert_task_state(&plan_path, &machine_path, "1", "draft");
     assert_task_state(&plan_path, &machine_path, "3", "draft");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Selection reaches the children first: the parent is a task too, but it is
@@ -989,7 +947,7 @@ fn next_with_task_flag_targets_specific() {
 // §FS-rhei-next.3
 #[test]
 fn next_auto_claims_a_child_before_its_parent() {
-    let (dir, plan_path, machine_path) = setup_single_file("next-children", SUBTASK_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-children", SUBTASK_PLAN);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
     assert_success(&result);
@@ -1001,8 +959,6 @@ fn next_auto_claims_a_child_before_its_parent() {
     let content = fs::read_to_string(&plan_path).expect("read plan");
     assert!(content.contains("### Task 1: Parent task\n**State:** draft"));
     assert!(content.contains("#### Task 1.1: First subtask\n**State:** pending"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 const PARENT_WITH_ONE_OPEN_CHILD: &str = r#"# Rhei: Parent Eligibility
@@ -1047,7 +1003,7 @@ const PARENT_WITH_TERMINAL_SUBTREE: &str = r#"# Rhei: Parent Eligibility
 // §FS-rhei-next.3
 #[test]
 fn next_auto_claims_a_parent_once_its_subtree_is_terminal() {
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_single_file("next-parent-claimable", PARENT_WITH_TERMINAL_SUBTREE);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--json"]);
@@ -1064,8 +1020,6 @@ fn next_auto_claims_a_parent_once_its_subtree_is_terminal() {
         content.contains("### Task 1: Parent task\n**State:** pending\n**Assignee:**"),
         "the parent should carry the claim; got:\n{content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `--task` on a parent is refused only while its subtree is open, and the
@@ -1074,7 +1028,7 @@ fn next_auto_claims_a_parent_once_its_subtree_is_terminal() {
 // §FS-rhei-next.3.4
 #[test]
 fn next_task_refuses_a_parent_while_a_descendant_is_open() {
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_single_file("next-parent-open-child", PARENT_WITH_ONE_OPEN_CHILD);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--task", "1"]);
@@ -1102,8 +1056,6 @@ fn next_task_refuses_a_parent_while_a_descendant_is_open() {
         !content.contains("**Assignee:**"),
         "a refused claim must not write an assignee; got:\n{content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The same `--task` invocation succeeds once the subtree is terminal: the
@@ -1111,7 +1063,7 @@ fn next_task_refuses_a_parent_while_a_descendant_is_open() {
 // §FS-rhei-next.3.4
 #[test]
 fn next_task_claims_a_parent_once_its_subtree_is_terminal() {
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_single_file("next-parent-target", PARENT_WITH_TERMINAL_SUBTREE);
 
     let result =
@@ -1121,8 +1073,6 @@ fn next_task_claims_a_parent_once_its_subtree_is_terminal() {
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
     assert_eq!(json["task_id"], "plan.1");
     assert_task_state(&plan_path, &machine_path, "1", "pending");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The whole loop from the defect report: children finish, the parent becomes
@@ -1131,7 +1081,7 @@ fn next_task_claims_a_parent_once_its_subtree_is_terminal() {
 // §FS-rhei-next.3 §FS-rhei-plan-language.3
 #[test]
 fn next_unblocks_a_dependent_only_after_the_parent_itself_completes() {
-    let (dir, plan_path, machine_path) =
+    let (_dir, plan_path, machine_path) =
         setup_single_file("next-parent-dependent", PARENT_WITH_TERMINAL_SUBTREE);
 
     // The parent is claimed and worked like any ticket.
@@ -1158,8 +1108,6 @@ fn next_unblocks_a_dependent_only_after_the_parent_itself_completes() {
     assert_success(&result);
     let json: serde_json::Value = serde_json::from_str(&result.stdout).expect("parse JSON");
     assert_eq!(json["task_id"], "plan.2", "the dependent unblocks once the parent is terminal");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1172,7 +1120,7 @@ fn next_fails_when_all_completed() {
 **State:** completed
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("next-done", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-done", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "should fail when nothing to advance");
@@ -1181,8 +1129,6 @@ fn next_fails_when_all_completed() {
         "expected plan-complete diagnostic; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1199,7 +1145,7 @@ fn next_does_not_allow_cancelled_prerequisite_to_unblock_dependents() {
 **Prior:** Task 1
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("next-cancelled-dep", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("next-cancelled-dep", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
     assert!(!result.status.success(), "cancelled prerequisite should keep Task 2 blocked");
@@ -1212,8 +1158,6 @@ fn next_does_not_allow_cancelled_prerequisite_to_unblock_dependents() {
     assert_stderr_contains(&targeted, "blocked by incomplete prerequisites");
     assert_stderr_contains(&targeted, "waiting on Task plan.1");
     assert_stderr_contains(&targeted, "(cancelled)");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1259,8 +1203,6 @@ transitions:
         !dir.join("runtime/results/plan.1.md").exists(),
         "result file should not be written on failure"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1312,8 +1254,6 @@ transitions:
         result.stderr
     );
     assert_task_state(&plan_path, &machine_path, "1", "fix");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1363,8 +1303,6 @@ transitions:
         !dir.join("runtime/results/plan.1.md").exists(),
         "result file should not be written on failure"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// `rhei list --ready` answers "what could be picked up", so it tracks the same

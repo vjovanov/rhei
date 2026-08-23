@@ -156,8 +156,6 @@ fn state_handoff_reaches_the_successor_prompt_through_a_run() {
     let instructions = review_prompt.find("Review the implementation.").expect("instructions");
     let handoff = review_prompt.find("## Handoff from implement").expect("handoff heading");
     assert!(instructions < handoff, "current instructions precede inherited context");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// An agent that satisfies the existence-only `outputs:` contract with an
@@ -211,8 +209,6 @@ printf '## Result\n\nFinished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
         collapsed.contains("cannotbeprompted"),
         "the run should say which task could not be prompted:\n{combined}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Without `--continue-on-error` the same failure stops the run, matching how
@@ -246,8 +242,6 @@ mkdir -p "$RHEI_ROOT/runtime/handoffs/$RHEI_TASK_ID"
         result.stderr
     );
     assert_task_state(&plan_path, &machine_path, "1", "review");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 const TERMINAL_MACHINE: &str = r#"name: terminal-e2e
@@ -316,8 +310,6 @@ fn cancelling_a_task_writes_and_links_its_result_file() {
         "the task body should link its result:\n{content}"
     );
     assert!(!content.contains("**Assignee:**"), "the assignee should be dropped:\n{content}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A non-terminal transition records history and nothing else — the result
@@ -346,8 +338,6 @@ fn a_non_terminal_transition_writes_history_but_no_result_file() {
     );
     let content = fs::read_to_string(&plan_path).expect("read plan");
     assert!(!content.contains("**Result:**"), "no result link before a terminal state:\n{content}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A prior task's result reaches its dependent's prompt, which is the whole
@@ -416,6 +406,4 @@ printf '## Result\n\nBuilt on the groundwork.\n' > "$RHEI_RESULT_PATH"
     let prompt = fs::read_to_string(dir.join("runtime/implement-prompt.txt")).expect("prompt");
     assert!(prompt.contains("## Prior Task Results"), "{prompt}");
     assert!(prompt.contains("Chose the streaming parser."), "{prompt}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

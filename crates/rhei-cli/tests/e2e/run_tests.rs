@@ -33,8 +33,6 @@ fn run_builtin_default_refuses_manual_pending_tasks() {
         "run must not complete manual task; got:\n{}",
         content
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-run.4: `--dry-run` exists to show what would happen. Aborting on
@@ -79,13 +77,11 @@ fn run_dry_run_reports_every_manual_only_task_instead_of_aborting() {
         !content.contains("**State:** completed"),
         "a dry run must not rewrite the plan; got:\n{content}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_single_file_linear_to_completion() {
-    let (dir, plan_path, machine_path) = setup_single_file("run-linear", LINEAR_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("run-linear", LINEAR_PLAN);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -116,8 +112,6 @@ fn run_single_file_linear_to_completion() {
         "expected all tasks terminal; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -147,13 +141,11 @@ fn run_writes_durable_report_and_points_at_it() {
         .filter_map(Result::ok)
         .collect();
     assert_eq!(history.len(), 1, "one timestamped history entry written");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_single_file_parallel_to_completion() {
-    let (dir, plan_path, machine_path) = setup_single_file("run-parallel", PARALLEL_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("run-parallel", PARALLEL_PLAN);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -164,13 +156,11 @@ fn run_single_file_parallel_to_completion() {
         "expected 6 transitions; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_single_file_independent_to_completion() {
-    let (dir, plan_path, machine_path) = setup_single_file("run-independent", INDEPENDENT_PLAN);
+    let (_dir, plan_path, machine_path) = setup_single_file("run-independent", INDEPENDENT_PLAN);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -181,13 +171,11 @@ fn run_single_file_independent_to_completion() {
         "expected 6 transitions; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_workspace_linear_to_completion() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-ws-linear",
         "# Rhei: Workspace Linear\n",
         &[
@@ -219,13 +207,11 @@ fn run_workspace_linear_to_completion() {
         "expected 6 transitions; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn run_workspace_parallel_to_completion() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-ws-parallel",
         "# Rhei: Workspace Parallel\n",
         &[
@@ -239,13 +225,11 @@ fn run_workspace_parallel_to_completion() {
     assert_success(&result);
 
     assert_all_tasks_in_state(&ws, &machine_path, "completed");
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn run_bash_agent_team_fixture_to_completion() {
-    let (dir, workspace_path, machine_path) =
+    let (_dir, workspace_path, machine_path) =
         copy_workspace_fixture("run-bash-agent-team", "bash-agent-team");
 
     assert!(
@@ -286,13 +270,11 @@ fn run_bash_agent_team_fixture_to_completion() {
             task_id
         );
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_living_review_loop_fixture_to_completion() {
-    let (dir, workspace_path, machine_path) =
+    let (_dir, workspace_path, machine_path) =
         copy_workspace_fixture("run-living-review-loop", "living-review-loop");
 
     let result = run_cli("run", &workspace_path, &machine_path, &["--no-agent"]);
@@ -352,8 +334,6 @@ fn run_living_review_loop_fixture_to_completion() {
         "expected selective fix expansion in team log; got:\n{}",
         team_log
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -449,8 +429,6 @@ transitions:
         log
     );
     assert_all_tasks_in_state(&plan_path, &machine_path, "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -491,8 +469,6 @@ states:
         "expected fanout validation error; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -565,8 +541,6 @@ transitions:
     assert_task_state(&plan_path, &machine_path, "1", "completed");
     assert!(dir.join("runtime/outputs/special-model.txt").exists());
     assert!(!dir.join("runtime/outputs/default-model.txt").exists());
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -630,8 +604,6 @@ transitions:
         !dir.join("runtime/logs/agent.log").exists(),
         "task override should not spawn an agent for callback-only states"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -715,8 +687,6 @@ transitions:
         "CLI model override should replace the task target model segment; log:\n{}",
         log
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -768,8 +738,6 @@ transitions:
         "expected program summary in output; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -812,8 +780,6 @@ transitions:
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
     assert_task_state(&plan_path, &machine_path, "1", "done");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -856,8 +822,6 @@ transitions:
         "run should stop at the gating state; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -917,8 +881,6 @@ transitions:
         "independent non-gating work should still complete before the run halts; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -983,7 +945,7 @@ fn changeset_review_human_review_state_is_gating_in_shipped_workflows() {
 
 #[test]
 fn run_prefers_agent_mode_for_model_declared_workflows_without_falling_back_to_callbacks() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-model-declared-agent-mode",
         "# Rhei: Review Workflow\n",
         &[("task.md", "### Task coordinate: Coordinate review\n**State:** split\n")],
@@ -1034,13 +996,11 @@ transitions:
         result.stdout,
         result.stderr
     );
-
-    fs::remove_dir_all(ws.parent().unwrap()).expect("cleanup");
 }
 
 #[test]
 fn reset_bash_agent_team_fixture_restores_initial_state() {
-    let (dir, workspace_path, machine_path) =
+    let (_dir, workspace_path, machine_path) =
         copy_workspace_fixture("reset-bash-agent-team", "bash-agent-team");
     let source_fixture = fixture_path("bash-agent-team");
 
@@ -1064,8 +1024,6 @@ fn reset_bash_agent_team_fixture_restores_initial_state() {
             .expect("read source fixture task file");
         assert_eq!(actual, expected, "{} should match the checked-in fixture", task_file);
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1086,7 +1044,7 @@ fn run_partially_advanced_completes_remaining() {
 **Prior:** Task 2
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("run-partial", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("run-partial", plan);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
     assert_success(&result);
@@ -1097,8 +1055,6 @@ fn run_partially_advanced_completes_remaining() {
         "expected 4 transitions (2 each for Tasks 2 & 3); got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -1115,7 +1071,7 @@ fn run_already_completed_is_noop() {
 **Prior:** Task 1
 "#;
 
-    let (dir, plan_path, machine_path) = setup_single_file("run-noop", plan);
+    let (_dir, plan_path, machine_path) = setup_single_file("run-noop", plan);
     let original = fs::read_to_string(&plan_path).expect("read plan");
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
@@ -1129,15 +1085,13 @@ fn run_already_completed_is_noop() {
 
     let after = fs::read_to_string(&plan_path).expect("read plan");
     assert_eq!(original, after, "file should be unchanged");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
 fn run_parallel_does_not_warn_for_a_ticket_with_subtasks_in_one_file() {
     // §FS-rhei-run.2.5: only top-level tickets count toward a file — a ticket
     // and its subtasks are one schedulable unit, not shared-file concurrency.
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-parallel-subtasks",
         "# Rhei: Subtask Layout\n**States:** integration-test\n",
         &[
@@ -1161,13 +1115,11 @@ fn run_parallel_does_not_warn_for_a_ticket_with_subtasks_in_one_file() {
         "a multi-file plan keeps parallelism:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }
 
 #[test]
 fn run_parallel_warns_when_one_of_several_files_owns_two_tickets() {
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-parallel-shared",
         "# Rhei: Shared File\n**States:** integration-test\n",
         &[
@@ -1192,15 +1144,13 @@ fn run_parallel_warns_when_one_of_several_files_owns_two_tickets() {
         "other files still benefit from parallelism:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }
 
 #[test]
 fn run_parallel_falls_back_to_sequential_when_all_tickets_share_one_file() {
     // §FS-rhei-run.2.5: with every ticket in one plan file, parallel slots
     // could only schedule same-file tickets — sequential, as for a bare file.
-    let (ws, machine_path) = create_workspace(
+    let (_dir, ws, machine_path) = create_workspace(
         "run-parallel-single-file",
         "# Rhei: One File\n**States:** integration-test\n",
         &[(
@@ -1216,8 +1166,6 @@ fn run_parallel_falls_back_to_sequential_when_all_tickets_share_one_file() {
         "a single ticket-owning file cannot run in parallel:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(ws.parent().expect("workspace parent")).expect("cleanup");
 }
 
 /// `rhei run` and `rhei next` share one eligibility rule, so the orchestrator
@@ -1268,8 +1216,6 @@ fn run_schedules_a_parent_only_after_its_subtree_is_terminal() {
         parent_done < position("plan.2 draft@pending"),
         "the dependent must not start before the parent is terminal; got:\n{ledger}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 const PARENT_GATE_MACHINE: &str = r#"name: parent-gate
@@ -1332,8 +1278,6 @@ fn run_leaves_a_parent_alone_while_a_descendant_is_gated() {
         combined.contains("Task plan.1.1 (gate): gating state awaiting review"),
         "the descendant must still report its own cause; got:\n{combined}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// The same plan plus one dependent of the parent. A `**Prior:**` that resolves
@@ -1390,8 +1334,6 @@ fn run_leaves_a_dependent_of_a_gate_held_parent_alone() {
     let dry =
         run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--dry-run"]);
     assert_success(&dry);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// One gate, two siblings: the second child's `**Prior:**` is the first, which
@@ -1450,8 +1392,6 @@ fn run_leaves_a_sibling_of_a_gated_sibling_alone() {
     let dry =
         run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui", "--dry-run"]);
     assert_success(&dry);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// A ticket whose worker finished without moving it must not starve its
@@ -1574,6 +1514,4 @@ transitions:
             "{id}: spawned {count} time(s), expected between 1 and {bound}\n{spawns}"
         );
     }
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

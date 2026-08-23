@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use super::unique_temp_dir;
+use super::{unique_temp_dir, TestDir};
 
 /// A state machine whose only work is a program, so a run does real work with
 /// no agent binary in sight. The command is absolute because a test workspace
@@ -53,7 +53,7 @@ pub const TWO_TASK_PLAN: &str = r#"# Rhei: Headless Demo
 /// machine-wide run registry a test writes cannot be seen by any other test or
 /// by the developer's own runs. §FS-rhei-run-headless.2
 pub struct Workspace {
-    pub root: PathBuf,
+    pub root: TestDir,
     pub home: PathBuf,
 }
 

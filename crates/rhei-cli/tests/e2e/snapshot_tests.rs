@@ -325,6 +325,4 @@ transitions:
         "--no-capture must not write another generation; got:\n{}",
         after_no_capture.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

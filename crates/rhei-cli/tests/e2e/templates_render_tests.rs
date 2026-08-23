@@ -107,8 +107,6 @@ transitions:
     let machine =
         fs::read_to_string(output_dir.join("states.yaml")).expect("read rendered machine");
     assert!(machine.contains("visits: 7"), "2 * 3 + 1; got:\n{machine}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -189,6 +187,4 @@ inputs:
     let rendered = fs::read_to_string(output_dir.join("plan.rhei.md")).expect("read rendered plan");
     assert!(rendered.contains("- claude => claude-code-yolo-anthropic-claude-opus-4-7"));
     assert!(rendered.contains("- gemini => gemini-yolo-google-gemini-3.1-pro-preview"));
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

@@ -51,8 +51,6 @@ fn list_indents_and_reports_depth_rhei_locally_despite_qualified_ids() {
         vec![("plan.1".to_string(), 1), ("plan.1.1".to_string(), 2)],
         "depth must not count the qualification segment"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-viz.7.3: a project renders as one merged graph — every rhei's
@@ -102,8 +100,6 @@ fn viz_renders_a_panta_project_as_one_graph_and_narrows_to_a_member() {
     let narrowed = render(&project.join("billing.rhei.md"), "viz-billing.html");
     assert!(narrowed.contains("billing.1"), "the named rhei's ticket stays");
     assert!(narrowed.contains("auth.1"), "the far end of a cross-rhei prior stays");
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -135,7 +131,6 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
         stdout.contains("Scope: `rhei reset` operates project-wide across 2 rheis: auth, billing"),
         "project-wide reset should report its scope: {stdout}"
     );
-    fs::remove_dir_all(project).expect("cleanup");
 
     // §FS-rhei-panta.6.2: a bare rhei is a one-rhei implicit Panta with no
     // fan-out to report — no scope line.
@@ -154,8 +149,6 @@ fn scope_report_prints_project_wide_line_and_stays_quiet_for_bare_rhei() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "reset should succeed: {stdout}");
     assert!(!stdout.contains("Scope:"), "one-rhei project must stay quiet: {stdout}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-render.3.4: a merged project renders rhei by rhei, not as one flat
@@ -228,6 +221,4 @@ fn project_render_groups_tickets_under_their_rhei() {
             && progress.find("auth.1").expect("auth ticket") < billing_heading,
         "progress groups tickets under their rhei too:\n{progress}"
     );
-
-    fs::remove_dir_all(project).expect("cleanup");
 }

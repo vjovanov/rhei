@@ -30,8 +30,6 @@ fn project_machine_file_resolves_from_a_rhei_root_by_name() {
         "project should load with the rhei-root machine file\nstdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -65,8 +63,6 @@ fn project_machine_in_rhei_root_beats_a_mismatched_project_root_file() {
         "the name-matching rhei-root machine file should win over the mismatched root file\nstdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -105,8 +101,6 @@ fn project_machine_resolution_errors_when_several_rhei_roots_match() {
             && stderr.contains("--state-machine"),
         "error should name the candidates and the fixes: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -135,8 +129,6 @@ fn project_machine_resolution_surfaces_a_broken_rhei_root_states_file() {
         stderr.contains("failed to parse state machine"),
         "the parse failure should surface, not a misleading not-found: {stderr}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-states-cmd.3: `rhei states` reports the machine the project runs

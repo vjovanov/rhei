@@ -156,7 +156,7 @@ fn a_block_the_plan_does_not_read_back_is_rolled_back() {
 /// A project holding one broken rhei and one healthy one. This is the project
 /// `rhei new` exists for: something is wrong, and the fix starts with adding
 /// work to track it.
-fn project_failing_validation(prefix: &str) -> std::path::PathBuf {
+fn project_failing_validation(prefix: &str) -> TestDir {
     let dir = empty_project(prefix);
     write_fixture_file(
         &dir,

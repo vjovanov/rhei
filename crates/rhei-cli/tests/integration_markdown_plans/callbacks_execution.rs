@@ -77,8 +77,6 @@ fn callback_on_leave_and_on_enter_invoked_on_transition() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "in-progress");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -109,8 +107,6 @@ fn callback_on_leave_failure_blocks_transition() {
     // File should be unchanged — transition did not proceed.
     let contents = fs::read_to_string(&plan_path).expect("read plan");
     assert_eq!(contents, plan);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -147,8 +143,6 @@ fn no_callbacks_flag_skips_callback_execution() {
     let rhei = parse(&updated).expect("parse updated plan");
     let task = rhei.tasks.iter().find(|t| t.id == TaskId::number(1)).expect("Task 1 exists");
     assert_eq!(task.state.as_str(), "completed");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -193,8 +187,6 @@ transitions:
         "should include the callback identifier; got:\n{}",
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -244,6 +236,4 @@ transitions:
     // File unchanged.
     let contents = fs::read_to_string(&plan_path).expect("read plan");
     assert_eq!(contents, plan);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

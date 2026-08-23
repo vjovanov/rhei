@@ -223,8 +223,6 @@ fn transition_succeeds_and_updates_file() {
         updated.contains("> **Result:** [plan.1](runtime/results/plan.1.md)"),
         "completion should link result after transition history was recorded:\n{updated}"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -277,8 +275,6 @@ fn transition_counted_loop_updates_metadata_and_blocks_exhausted_reentry() {
         "human review escalation should succeed: {}",
         escalate.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -328,8 +324,6 @@ fn transition_from_authored_counted_state_treats_start_as_first_visit() {
         "expected loop-budget rejection, got:\n{}",
         exhausted.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -376,6 +370,4 @@ fn transition_fails_on_cas_conflict() {
     // File should be unchanged.
     let contents = fs::read_to_string(&plan_path).expect("read plan");
     assert_eq!(contents, TRANSITION_PLAN);
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

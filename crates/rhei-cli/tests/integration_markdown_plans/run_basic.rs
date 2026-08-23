@@ -157,8 +157,6 @@ fn run_advances_linear_chain_to_completion() {
         "should report all tasks terminal; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -205,8 +203,6 @@ fn run_advances_parallel_ready_tasks() {
         "should report 4 transitions; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -249,8 +245,6 @@ metadata:
         "run should escalate instead of looping through fix once exhausted; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -296,8 +290,6 @@ fn run_dry_run_shows_transitions_without_changes() {
     assert_eq!(contents, plan, "dry run should not modify the file");
     assert!(!dir.join("runtime").exists(), "dry run must not create runtime artifacts");
     assert!(!dir.join(".rhei").exists(), "dry run must not create a run lock");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -351,8 +343,6 @@ transitions:
         "should label the second fanout target; got:\n{}",
         result.stdout
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -409,6 +399,4 @@ transitions:
         result.stdout,
         result.stderr
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }

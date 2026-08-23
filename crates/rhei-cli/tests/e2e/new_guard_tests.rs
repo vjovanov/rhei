@@ -11,7 +11,7 @@ use super::new_tests::{
 use super::*;
 
 /// A project holding one working rhei and one that does not parse.
-fn project_with_a_broken_sibling(prefix: &str) -> std::path::PathBuf {
+fn project_with_a_broken_sibling(prefix: &str) -> TestDir {
     let dir = project_with_rhei(prefix);
     write_fixture_file(&dir, "bad.rhei.md", "# Rhei: Bad\n\n## Tasks\n\n### Nonsense heading\n");
     dir
@@ -36,7 +36,7 @@ fn concurrent_creates_all_land() {
     let handles: Vec<_> = titles
         .iter()
         .map(|title| {
-            let dir = dir.clone();
+            let dir = dir.to_path_buf();
             let title = title.clone();
             std::thread::spawn(move || new_run(&["new", &title, "--under", "auth"], &dir))
         })
@@ -488,7 +488,7 @@ fn a_create_does_not_swallow_a_concurrent_completion() {
 
     for round in 1..=6 {
         let creating = {
-            let dir = dir.clone();
+            let dir = dir.to_path_buf();
             let title = format!("Racer {round}");
             std::thread::spawn(move || new_run(&["new", &title, "--under", "auth"], &dir))
         };

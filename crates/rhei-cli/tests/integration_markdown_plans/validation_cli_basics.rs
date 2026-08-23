@@ -162,8 +162,6 @@ fn cli_validate_and_render_use_real_fixture_files() {
     let render_stdout = String::from_utf8_lossy(&render.stdout);
     assert!(render_stdout.contains("\"title\": \"Release Automation Rollout\""));
     assert!(render_stdout.contains("\"number\": 2"));
-
-    fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
 }
 
 #[test]
@@ -192,8 +190,6 @@ fn cli_validate_surfaces_validation_errors_for_fixture() {
     );
     assert!(stderr.contains("VALIDATION ERROR"));
     assert!(stderr.contains("Circular dependency detected"));
-
-    fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
 }
 
 #[test]

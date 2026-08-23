@@ -11,6 +11,10 @@ use rhei_cli::rhei_output::{to_github_markdown, to_json_value, ProgressReportOut
 use rhei_cli::rhei_validator::{validate_with_machine, StateMachine};
 use serde_yaml::Value as YamlValue;
 
+// The same guard the e2e harness uses; `include!` rather than `mod`, because
+// this harness is one flat module assembled by `include!`.
+include!("../support/test_dir.rs");
+
 #[allow(dead_code)]
 #[path = "../../../rhei-core/tests/fixtures.rs"]
 mod fixtures;
@@ -28,7 +32,9 @@ mod fixtures;
 fn rhei_command() -> Command {
     static HARNESS_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     let home = HARNESS_HOME.get_or_init(|| {
-        let home = unique_temp_dir("integration-home");
+        // Deliberately not a `TestDir`: it lives for the whole harness, and a
+        // guard in a `OnceLock` is never dropped anyway.
+        let home = std::env::temp_dir().join(format!("rhei-integration-home-{}", std::process::id()));
         fs::create_dir_all(home.join("state")).expect("isolated state directory");
         home
     });
@@ -38,14 +44,12 @@ fn rhei_command() -> Command {
     cmd
 }
 
-fn unique_temp_dir(prefix: &str) -> PathBuf {
+fn unique_temp_dir(prefix: &str) -> TestDir {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system time should be after unix epoch")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("rhei-{prefix}-{nanos}"));
-    fs::create_dir_all(&dir).expect("temporary directory should be created");
-    dir
+    TestDir::create(std::env::temp_dir().join(format!("rhei-{prefix}-{nanos}")))
 }
 
 fn write_fixture_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
@@ -171,7 +175,6 @@ fn run_validate(plan: &str, machine: &str, prefix: &str) -> CliRun {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     };
 
-    fs::remove_dir_all(temp_dir).expect("temporary directory should be removed");
 
     result
 }
@@ -311,14 +314,16 @@ transitions:
     to: completed
 "#;
 
-/// Helper: create a directory workspace with the given index content and
-/// a set of task files. Returns the workspace root directory.
+/// Helper: create a directory workspace with the given index content and a set
+/// of task files. Returns (temp_dir, workspace_root, machine_path); the
+/// workspace lives inside the temp directory, so the first element is what has
+/// to stay bound for the tree to outlive the setup call.
 fn create_workspace(
     prefix: &str,
     index: &str,
     task_files: &[(&str, &str)],
     state_machine: &str,
-) -> (PathBuf, PathBuf) {
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let ws = dir.join("workspace");
     let tasks_dir = ws.join("tasks");
@@ -332,7 +337,7 @@ fn create_workspace(
         fs::write(path, content).expect("write task file");
     }
     let machine_path = write_fixture_file(&dir, "states.yaml", state_machine);
-    (ws, machine_path)
+    (dir, ws, machine_path)
 }
 
 /// A second machine with disjoint state names, so a project mixing it with
@@ -376,7 +381,7 @@ fn create_panta_project(
     manifest: &str,
     files: &[(&str, &str)],
     state_machine: &str,
-) -> PathBuf {
+) -> TestDir {
     let dir = unique_temp_dir(prefix);
     fs::write(dir.join("index.panta.md"), manifest).expect("write panta manifest");
     for (name, content) in files {

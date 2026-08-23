@@ -43,7 +43,6 @@ fn omitted_plan_target_resolves_from_current_directory() {
         output.status.success() && String::from_utf8_lossy(&output.stdout).contains("auth.1"),
         "the upward walk should find the enclosing project"
     );
-    fs::remove_dir_all(project).expect("cleanup");
 
     // A lone `.rhei.md` in the directory resolves to that rhei.
     let dir = unique_temp_dir("cwd-lone-rhei");
@@ -82,7 +81,6 @@ fn omitted_plan_target_resolves_from_current_directory() {
             && stderr.contains("index.panta.md"),
         "ambiguity error should name the candidates and the project fix: {stderr}"
     );
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -101,10 +99,10 @@ fn omitted_plan_target_resolves_conventional_panta_child() {
     let nested = host.join("src/deep");
     fs::create_dir_all(&nested).expect("mkdir nested");
 
-    for cwd in [&host, &nested] {
+    for cwd in [host.to_path_buf(), nested.clone()] {
         let output = rhei_command()
             .arg("list")
-            .current_dir(cwd)
+            .current_dir(&cwd)
             .output()
             .expect("list runs");
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -115,8 +113,6 @@ fn omitted_plan_target_resolves_conventional_panta_child() {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-
-    fs::remove_dir_all(host).expect("cleanup");
 }
 
 #[test]
@@ -161,8 +157,6 @@ fn empty_project_is_valid_and_list_exits_successfully() {
         .expect("list --json runs");
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "[]");
-
-    fs::remove_dir_all(host).expect("cleanup");
 }
 
 #[test]
@@ -192,8 +186,6 @@ fn empty_project_validate_warns_that_discovery_found_nothing() {
         stdout.contains("holds no rheis") && stdout.contains("*.rhei.md"),
         "validate should warn that discovery found nothing: {stdout}"
     );
-
-    fs::remove_dir_all(host).expect("cleanup");
 }
 
 #[test]
@@ -244,8 +236,6 @@ fn reset_never_infers_an_omitted_target() {
     );
     let plan = fs::read_to_string(project.join("auth.rhei.md")).expect("plan reset");
     assert!(plan.contains("**State:** pending"), "explicit reset applies: {plan}");
-
-    fs::remove_dir_all(project).expect("cleanup");
 }
 
 #[test]
@@ -275,7 +265,6 @@ fn omitted_target_counts_workspace_rheis_and_skips_dotfiles() {
         stderr.contains("auth.rhei.md") && stderr.contains("billing"),
         "ambiguity error should name both rheis: {stderr}"
     );
-    fs::remove_dir_all(dir).expect("cleanup");
 
     // A lone workspace directory resolves; a hidden dotfile is not a rhei and
     // neither creates ambiguity nor resolves. §FS-rhei-panta.6
@@ -299,8 +288,6 @@ fn omitted_target_counts_workspace_rheis_and_skips_dotfiles() {
         "the workspace rhei should resolve despite the dotfile\nstdout: {stdout}\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 #[test]
@@ -356,8 +343,6 @@ fn empty_project_reset_is_a_noop_success() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("Reset 0 task(s)"), "reset should report a no-op: {stdout}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// Basin tickets keep runtime metadata in the project manifest, so commands

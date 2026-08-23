@@ -58,8 +58,6 @@ fn release_drops_a_claim_and_unwedges_the_queue() {
     assert!(!updated.contains("**Assignee:**"), "the claim is gone:\n{updated}");
     assert!(updated.contains("**State:** pending"), "the state is untouched:\n{updated}");
     assert!(updated.contains("Body text."), "the body is untouched:\n{updated}");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-release.3: releasing an unclaimed ticket is an error — it almost
@@ -97,8 +95,6 @@ fn release_refuses_an_unclaimed_ticket_and_ambiguous_flags() {
 
     let neither = run_release(&[plan_path.as_os_str()]);
     assert!(!neither.status.success(), "neither --task nor --all is ambiguous");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-release.3: `--all` sweeps claimed non-terminal tickets, leaves a
@@ -153,8 +149,6 @@ fn release_all_spares_terminal_tickets_and_honours_dry_run() {
         Some("claude"),
         "the completed ticket keeps its record"
     );
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
 
 /// §FS-rhei-release.3.1: released from a non-initial state, the ticket is
@@ -189,6 +183,4 @@ fn release_explains_a_ticket_left_past_the_initial_state() {
     let updated = fs::read_to_string(&plan_path).expect("read plan");
     assert!(!updated.contains("**Assignee:**"), "the claim is still dropped");
     assert!(updated.contains("**State:** in-progress"), "the state is left alone");
-
-    fs::remove_dir_all(dir).expect("cleanup");
 }
