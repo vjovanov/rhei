@@ -46,61 +46,61 @@ use super::*;
 /// the job and write `DONE`. It emits a session transcript into `--session-dir`
 /// so the orchestrator can capture the inheritable snapshot, and logs each
 /// invocation so the test can see whether the retry resumed.
-fn write_retry_agent(dir: &Path) -> String {
-    let script = dir.join("retry-agent.sh");
-    fs::write(
-        &script,
-        r#"#!/bin/sh
-session_dir=""
-resume_value=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --session-dir) shift; session_dir="${1:-}" ;;
-    --resume) shift; resume_value="${1:-}" ;;
-    --prompt) shift ;;
-    --model) shift ;;
-  esac
-  shift || true
-done
+fn write_retry_agent(dir: &Path) -> PathBuf {
+    write_python_agent(
+        dir,
+        "retry-agent.py",
+        r#"session_dir = ''
+resume_value = ''
+args = sys.argv[1:]
+while args:
+    flag = args.pop(0)
+    if flag == '--session-dir':
+        session_dir = args.pop(0) if args else ''
+    elif flag == '--resume':
+        resume_value = args.pop(0) if args else ''
+    elif flag in ('--prompt', '--model'):
+        if args:
+            args.pop(0)
 
-runtime_root="${RHEI_ROOT:-.}/runtime"
-mkdir -p "$runtime_root"
-printf 'task=%s state=%s target=%s resume=%s\n' \
-  "$RHEI_TASK_ID" "$RHEI_STATE" "$RHEI_TARGET_SLUG" "$resume_value" >> "$runtime_root/retry-agent.log"
+runtime_root = pathlib.Path(env('RHEI_ROOT', '.')) / 'runtime'
+append(
+    runtime_root / 'retry-agent.log',
+    'task={} state={} target={} resume={}\n'.format(
+        env('RHEI_TASK_ID'), env('RHEI_STATE'), env('RHEI_TARGET_SLUG'), resume_value
+    ),
+)
 
 # Cold run leaves the work incomplete; a resumed (cache-warm) run finishes it.
 # Markers must not be substrings of one another.
-if [ -n "$resume_value" ]; then
-  printf 'DONE\n' > "$runtime_root/result.txt"
-else
-  printf 'PENDING\n' > "$runtime_root/result.txt"
-fi
+marker = 'DONE' if resume_value else 'PENDING'
+write(runtime_root / 'result.txt', marker + '\n')
 
 # `build` declares an edge to `completed`, so its prompt carries the result path
 # and the engine expects one on the way out. §FS-rhei-states.3.3
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nAttempt in %s left the artifact %s.\n' \
-  "$RHEI_STATE" "$(cat "$runtime_root/result.txt")" > "$RHEI_RESULT_PATH"
+result('## Result\n\nAttempt in {} left the artifact {}.\n'.format(env('RHEI_STATE'), marker))
 
 # Emit the session transcript so the state can capture an inheritable snapshot.
-if [ -n "$session_dir" ]; then
-  mkdir -p "$session_dir"
-  session_id="${RHEI_TASK_ID}-${RHEI_STATE}-${RHEI_TARGET_SLUG:-target}"
-  {
-    printf '{"session":{"provider":"%s","model":"%s"}}\n' \
-      "${RHEI_MODEL_PROVIDER:-acme}" "${RHEI_MODEL_NAME:-model-a}"
-    printf '{"role":"assistant","content":"%s"}\n' "$RHEI_STATE"
-  } > "$session_dir/$session_id.jsonl"
-fi
+if session_dir:
+    session_id = '{}-{}-{}'.format(
+        env('RHEI_TASK_ID'), env('RHEI_STATE'), env('RHEI_TARGET_SLUG', 'target')
+    )
+    write(
+        pathlib.Path(session_dir) / (session_id + '.jsonl'),
+        '{{"session":{{"provider":"{}","model":"{}"}}}}\n'
+        '{{"role":"assistant","content":"{}"}}\n'.format(
+            env('RHEI_MODEL_PROVIDER', 'acme'),
+            env('RHEI_MODEL_NAME', 'model-a'),
+            env('RHEI_STATE'),
+        ),
+    )
 "#,
     )
-    .expect("write retry agent script");
-    script.display().to_string()
 }
 
 /// Register the mock agent with a resume-capable session layout so the
 /// orchestrator can preload a prior snapshot and pass `--resume`.
-fn write_agent_settings(dir: &Path, agent_script: &str) {
+fn write_agent_settings(dir: &Path, agent_script: &Path) {
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     fs::write(
@@ -109,7 +109,7 @@ fn write_agent_settings(dir: &Path, agent_script: &str) {
             r#"{{
   "agents": {{
     "fake": {{
-      "command": ["sh", {}],
+      "command": {},
       "prompt_flag": "--prompt",
       "model_flag": "--model",
       "timeout": "5s",
@@ -121,7 +121,7 @@ fn write_agent_settings(dir: &Path, agent_script: &str) {
     }}
   }}
 }}"#,
-            serde_json::to_string(agent_script).expect("json string")
+            fixture_command(agent_script)
         ),
     )
     .expect("write settings");
@@ -138,7 +138,7 @@ const PLAN: &str = r#"# Rhei: Validate Retry Loop
 /// Build the state machine. `validate_script` is the `on_leave` validation
 /// callback that decides pass (proceed to `completed`) vs. fail (redirect back
 /// to `build`).
-fn machine_yaml(validate_script: &str) -> String {
+fn machine_yaml(validate_command: &str) -> String {
     format!(
         r#"name: validate-retry-loop
 version: 1
@@ -158,7 +158,7 @@ states:
     description: Validation passed.
     final: true
 transitions:
-  - {{ from: build, to: completed, condition: visitCount < visits, on_leave: "cli:sh {validate_script}" }}
+  - {{ from: build, to: completed, condition: visitCount < visits, on_leave: 'cli:{validate_command}' }}
   - {{ from: build, to: build, condition: visitCount < visits }}
   - {{ from: build, to: human-review, condition: visitCount >= visits }}
 "#
@@ -173,26 +173,24 @@ fn validate_retry_loop_resumes_session_and_stays_cache_beneficial() {
 
     // Validation callback: pass once the artifact is DONE, otherwise redirect
     // back to `build` and leave the findings (the error message) on disk.
-    let validate = dir.join("validate.sh");
-    fs::write(
-        &validate,
-        r#"#!/bin/sh
-dir=$(dirname "${RHEI_PLAN_PATH:-.}"); cd "$dir" 2>/dev/null || true
-mkdir -p runtime
-if grep -q DONE runtime/result.txt 2>/dev/null; then
-  echo "all checks passed" > runtime/findings.md
-  printf '{"success": true}\n'
-else
-  echo "incomplete: result.txt is not DONE yet — keep working" > runtime/findings.md
-  printf '{"success": true, "nextState": "build"}\n'
-fi
+    let validate = write_python_agent(
+        &dir,
+        "validate.py",
+        r#"runtime = pathlib.Path(env('RHEI_PLAN_PATH', '.')).parent / 'runtime'
+artifact = runtime / 'result.txt'
+done = artifact.is_file() and 'DONE' in artifact.read_text(encoding='utf-8')
+if done:
+    write(runtime / 'findings.md', 'all checks passed\n')
+    print('{"success": true}')
+else:
+    write(runtime / 'findings.md', 'incomplete: result.txt is not DONE yet - keep working\n')
+    print('{"success": true, "nextState": "build"}')
 "#,
-    )
-    .expect("write validate script");
+    );
 
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", PLAN);
     let machine_path =
-        write_fixture_file(&dir, "states.yaml", &machine_yaml(&validate.display().to_string()));
+        write_fixture_file(&dir, "states.yaml", &machine_yaml(&fixture_command_line(&validate)));
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-tui"]);
     assert_success(&result);
@@ -244,21 +242,18 @@ fn validate_retry_loop_escalates_to_human_review_when_retries_exhausted() {
     // A validator that never accepts the output: it always redirects back to
     // `build`. The `visits` budget must bound the retries and route to the
     // human-review gate instead of looping forever.
-    let validate = dir.join("validate.sh");
-    fs::write(
-        &validate,
-        r#"#!/bin/sh
-dir=$(dirname "${RHEI_PLAN_PATH:-.}"); cd "$dir" 2>/dev/null || true
-mkdir -p runtime
-echo "still failing" > runtime/findings.md
-printf '{"success": true, "nextState": "build"}\n'
+    let validate = write_python_agent(
+        &dir,
+        "validate.py",
+        r#"runtime = pathlib.Path(env('RHEI_PLAN_PATH', '.')).parent / 'runtime'
+write(runtime / 'findings.md', 'still failing\n')
+print('{"success": true, "nextState": "build"}')
 "#,
-    )
-    .expect("write validate script");
+    );
 
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", PLAN);
     let machine_path =
-        write_fixture_file(&dir, "states.yaml", &machine_yaml(&validate.display().to_string()));
+        write_fixture_file(&dir, "states.yaml", &machine_yaml(&fixture_command_line(&validate)));
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-tui"]);
     assert_success(&result);

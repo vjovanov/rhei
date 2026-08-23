@@ -17,63 +17,57 @@ fn run_snapshot_command(plan_path: &Path, machine_path: &Path, args: &[&str]) ->
     }
 }
 
-fn write_fake_snapshot_agent(dir: &Path) -> String {
-    let script = dir.join("fake-snapshot-agent.sh");
-    fs::write(
-        &script,
-        r#"#!/bin/sh
-session_dir=""
-resume_value=""
-interactive=0
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --interactive)
-      interactive=1
-      ;;
-    --session-dir)
-      shift
-      session_dir="${1:-}"
-      ;;
-    --resume)
-      shift
-      resume_value="${1:-}"
-      ;;
-    --prompt)
-      shift
-      ;;
-    --model)
-      shift
-      ;;
-  esac
-  shift || true
-done
+fn write_fake_snapshot_agent(dir: &Path) -> PathBuf {
+    write_python_agent(
+        dir,
+        "fake-snapshot-agent.py",
+        r#"session_dir = ''
+resume_value = ''
+interactive = 0
+args = sys.argv[1:]
+while args:
+    flag = args.pop(0)
+    if flag == '--interactive':
+        interactive = 1
+    elif flag == '--session-dir':
+        session_dir = args.pop(0) if args else ''
+    elif flag == '--resume':
+        resume_value = args.pop(0) if args else ''
+    elif flag in ('--prompt', '--model'):
+        if args:
+            args.pop(0)
 
-runtime_root="${RHEI_ROOT:-.}/runtime"
-mkdir -p "$runtime_root"
-{
-  printf 'task=%s state=%s target=%s resume=%s parent=%s\n' \
-    "$RHEI_TASK_ID" "$RHEI_STATE" "$RHEI_TARGET_SLUG" "$resume_value" \
-    "${RHEI_SNAPSHOT_PARENT_REF:-}"
-} >> "$runtime_root/fake-agent.log"
+runtime_root = pathlib.Path(env('RHEI_ROOT', '.')) / 'runtime'
+append(
+    runtime_root / 'fake-agent.log',
+    'task={} state={} target={} resume={} parent={}\n'.format(
+        env('RHEI_TASK_ID'),
+        env('RHEI_STATE'),
+        env('RHEI_TARGET_SLUG'),
+        resume_value,
+        env('RHEI_SNAPSHOT_PARENT_REF'),
+    ),
+)
 
 # §FS-rhei-states.3.3: a state that can finish the ticket writes its result.
-mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-printf '## Result\n\nFake agent finished %s.\n' "$RHEI_STATE" > "$RHEI_RESULT_PATH"
+result('## Result\n\nFake agent finished {}.\n'.format(env('RHEI_STATE')))
 
-if [ -n "$session_dir" ]; then
-  mkdir -p "$session_dir"
-  session_id="${RHEI_TASK_ID}-${RHEI_STATE}-${RHEI_TARGET_SLUG:-target}"
-  {
-    printf '{"session":{"provider":"%s","model":"%s"}}\n' \
-      "${RHEI_MODEL_PROVIDER:-acme}" "${RHEI_MODEL_NAME:-model-a}"
-    printf '{"role":"assistant","content":"%s","interactive":%s}\n' \
-      "$RHEI_STATE" "$interactive"
-  } > "$session_dir/$session_id.jsonl"
-fi
+if session_dir:
+    session_id = '{}-{}-{}'.format(
+        env('RHEI_TASK_ID'), env('RHEI_STATE'), env('RHEI_TARGET_SLUG', 'target')
+    )
+    write(
+        pathlib.Path(session_dir) / (session_id + '.jsonl'),
+        '{{"session":{{"provider":"{}","model":"{}"}}}}\n'
+        '{{"role":"assistant","content":"{}","interactive":{}}}\n'.format(
+            env('RHEI_MODEL_PROVIDER', 'acme'),
+            env('RHEI_MODEL_NAME', 'model-a'),
+            env('RHEI_STATE'),
+            interactive,
+        ),
+    )
 "#,
     )
-    .expect("write fake agent script");
-    script.display().to_string()
 }
 
 #[test]
@@ -88,7 +82,7 @@ fn snapshot_cli_lists_shows_and_run_preloads_from_snapshot() {
             r#"{{
   "agents": {{
     "fake": {{
-      "command": ["sh", {}],
+      "command": {},
       "prompt_flag": "--prompt",
       "model_flag": "--model",
       "timeout": "5s",
@@ -101,7 +95,7 @@ fn snapshot_cli_lists_shows_and_run_preloads_from_snapshot() {
     }}
   }}
 }}"#,
-            serde_json::to_string(&fake_agent).expect("json string")
+            fixture_command(&fake_agent)
         ),
     )
     .expect("write settings");

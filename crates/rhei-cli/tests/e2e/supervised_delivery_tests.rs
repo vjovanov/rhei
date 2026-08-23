@@ -41,76 +41,89 @@ fn instantiate(dir: &Path, args: &[&str]) -> (PathBuf, CliRun) {
 /// it from which children have already finished — the same routing rule the
 /// state's instructions give a real agent, reduced to what a shell can check.
 fn mock_agent_script(dir: &Path) -> PathBuf {
-    let script = dir.join("mock-delivery-agent.sh");
-    fs::write(
-        &script,
-        r#"#!/bin/sh
-set -eu
-root="${RHEI_ROOT:?}"
-task="${RHEI_TASK_ID:?}"
-state="${RHEI_STATE:?}"
-visit="${RHEI_VISIT_COUNT:-1}"
-mkdir -p "$root/runtime/logs" "$root/runtime/prompts" "$root/runtime/supervise" \
-         "$root/runtime/supervision" "$root/runtime/exports/$task"
-printf '%s %s\n' "$task" "$state" >> "$root/runtime/logs/spawns.log"
+    write_python_agent(
+        dir,
+        "mock-delivery-agent.py",
+        r#"root = pathlib.Path(env('RHEI_ROOT'))
+task = env('RHEI_TASK_ID')
+state = env('RHEI_STATE')
+visit = env('RHEI_VISIT_COUNT', '1')
+for folder in ('logs', 'prompts', 'supervise', 'supervision'):
+    (root / 'runtime' / folder).mkdir(parents=True, exist_ok=True)
+(root / 'runtime' / 'exports' / task).mkdir(parents=True, exist_ok=True)
+append(root / 'runtime' / 'logs' / 'spawns.log', '{} {}\n'.format(task, state))
 
-prompt=""
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--prompt" ]; then shift; prompt="${1:-}"; fi
-  shift || true
-done
-printf '%s' "$prompt" > "$root/runtime/prompts/$task-$state.md"
+prompt = ''
+args = sys.argv[1:]
+while args:
+    if args.pop(0) == '--prompt' and args:
+        prompt = args.pop(0)
+write(root / 'runtime' / 'prompts' / '{}-{}.md'.format(task, state), prompt)
 
-export_json() {
-  printf '```json\n%s\n```\n' "$2" > "$root/runtime/exports/$task/$1.md"
-}
-finished() { [ -s "$root/runtime/results/$task.$1.md" ]; }
-brief() {
-  printf 'Brief from the supervisor (visit %s) for %s.\n' "$visit" "$1" \
-    > "$root/runtime/supervise/$task.$1.md"
-}
 
-case "$state" in
-  supervising)
-    printf '# Preparation\n\nAcceptance criteria, risk areas, per-role focus.\n' \
-      > "$root/runtime/supervision/preparation.md"
-    if ! finished implement; then brief implement
-    elif ! finished review-1 || ! finished pm-1; then brief review-1; brief pm-1
-    elif ! finished fix-1; then brief fix-1
-    elif ! finished coverage-1; then brief coverage-1
-    elif ! finished coverage-fix-1; then brief coverage-fix-1
-    elif ! finished docs-1; then brief docs-1
-    else
-      mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-      printf '## Result\n\nDelivered across %s supervisor visits.\n' "$visit" \
-        > "$RHEI_RESULT_PATH"
-    fi
-    ;;
-  implement|docs)
-    export_json report '{ "summary": "mock", "commits": [], "files": [], "ci": {}, "notes": "" }'
-    ;;
-  review)
-    export_json findings '{ "round": 1, "role": "code-review", "verdict": "approve", "findings": [] }'
-    ;;
-  pm-review)
-    export_json findings '{ "round": 1, "role": "product", "verdict": "approve", "findings": [] }'
-    ;;
-  fix)
-    export_json resolutions '{ "round": 1, "resolutions": [] }'
-    ;;
-  coverage)
-    export_json gaps '{ "round": 1, "gaps": [] }'
-    ;;
-esac
+def export_json(name, payload):
+    write(
+        root / 'runtime' / 'exports' / task / (name + '.md'),
+        '```json\n' + payload + '\n```\n',
+    )
 
-if [ "$state" != "supervising" ]; then
-  mkdir -p "$(dirname "$RHEI_RESULT_PATH")"
-  printf '## Result\n\nTask %s finished %s.\n' "$task" "$state" > "$RHEI_RESULT_PATH"
-fi
+
+def finished(child):
+    path = root / 'runtime' / 'results' / '{}.{}.md'.format(task, child)
+    return path.is_file() and path.stat().st_size > 0
+
+
+def brief(child):
+    write(
+        root / 'runtime' / 'supervise' / '{}.{}.md'.format(task, child),
+        'Brief from the supervisor (visit {}) for {}.\n'.format(visit, child),
+    )
+
+
+if state == 'supervising':
+    write(
+        root / 'runtime' / 'supervision' / 'preparation.md',
+        '# Preparation\n\nAcceptance criteria, risk areas, per-role focus.\n',
+    )
+    if not finished('implement'):
+        brief('implement')
+    elif not finished('review-1') or not finished('pm-1'):
+        brief('review-1')
+        brief('pm-1')
+    elif not finished('fix-1'):
+        brief('fix-1')
+    elif not finished('coverage-1'):
+        brief('coverage-1')
+    elif not finished('coverage-fix-1'):
+        brief('coverage-fix-1')
+    elif not finished('docs-1'):
+        brief('docs-1')
+    else:
+        result('## Result\n\nDelivered across {} supervisor visits.\n'.format(visit))
+elif state in ('implement', 'docs'):
+    export_json(
+        'report',
+        '{ "summary": "mock", "commits": [], "files": [], "ci": {}, "notes": "" }',
+    )
+elif state == 'review':
+    export_json(
+        'findings',
+        '{ "round": 1, "role": "code-review", "verdict": "approve", "findings": [] }',
+    )
+elif state == 'pm-review':
+    export_json(
+        'findings',
+        '{ "round": 1, "role": "product", "verdict": "approve", "findings": [] }',
+    )
+elif state == 'fix':
+    export_json('resolutions', '{ "round": 1, "resolutions": [] }')
+elif state == 'coverage':
+    export_json('gaps', '{ "round": 1, "gaps": [] }')
+
+if state != 'supervising':
+    result('## Result\n\nTask {} finished {}.\n'.format(task, state))
 "#,
     )
-    .expect("write mock agent");
-    script
 }
 
 /// Point every agent the template's default targets name at the mock.
@@ -119,13 +132,13 @@ fn write_mock_settings(workspace: &Path, script: &Path) {
     fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
     let profile = format!(
         r#"{{
-      "command": ["sh", {}],
+      "command": {},
       "prompt_flag": "--prompt",
       "model_flag": "--model",
       "timeout": "30s",
       "modes": {{ "yolo": [], "xhigh": [] }}
     }}"#,
-        serde_json::to_string(&script.display().to_string()).expect("json string")
+        fixture_command(script)
     );
     fs::write(
         settings_dir.join("settings.json"),
