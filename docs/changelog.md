@@ -20,12 +20,43 @@
 
 - Windows now runs the whole test suite — `cargo test --workspace
   --all-targets --locked --no-fail-fast`, the same command as Linux and macOS —
-  because the end-to-end fixtures no longer need a shell. The mock agents,
-  programs, callbacks, and validators the suite stands up were `#!/bin/sh`
-  scripts, and that alone kept the CLI's e2e target off Windows; they are
-  Python scripts now, spawned directly with no shell, no `chmod`, and no
-  shebang. The three carved-out Windows test steps are gone with them.
-  §AR-ci-release.1 (PR #97)
+  because the fixtures no longer need a shell. The mock agents, programs,
+  callbacks, validators, and redactors the suite stands up were `#!/bin/sh` and
+  `#!/usr/bin/env bash` scripts, and that alone kept the CLI's end-to-end target
+  off Windows; they are Python now, spawned directly with no shell, no `chmod`,
+  and no shebang. The three carved-out Windows test steps are gone with them,
+  and the tests that stay `#[cfg(unix)]` say at the gate which POSIX semantics
+  they exercise. The committed examples and the bundled UI fixture are Python
+  too, so a Windows user can run them.
+  §REQ-cross-platform.3 §REQ-cross-platform.4 §AR-ci-release.1 (PR #97)
+
+  Running the suite there found five things that were broken on Windows and are
+  now fixed. **The system shell**: a string-form `program:` and a `cli:`
+  callback both spawned `sh -c` unconditionally, though the spec has always said
+  a string command runs under `/bin/sh -c` on Unix and `cmd /c` on Windows —
+  where there is no `sh`, so both died looking for one before running a line of
+  their own. §FS-rhei-programs.1.1 **A create refused its own read**:
+  `rhei new` locks the plan and then hands the *path* to the loader, and a
+  Windows byte-range lock belongs to the handle that took it, so opening the
+  file a second time — from the same process — was refused and every create
+  into a locked plan failed. The locks this process holds are registered now,
+  and a read the lock refuses goes through the handle that holds it, by path
+  first as before. §FS-rhei-new.4 **The supervisor's brief**: the sentence
+  naming where a brief goes pasted `/<task-id>.md` onto a path spelled with
+  `\`, so it read as two different directories. §FS-rhei-supervision.5.2
+  **`install-skills --link`**: symlinks are the one thing this command cannot do
+  on Windows; the refusal and its help are now what the spec says and what the
+  test pins. §REQ-cross-platform.2 **The N-API cdylib**: its manifest says
+  `test = false`, but `--all-targets` selects the lib target explicitly and
+  overrides that, and the harness that resulted found no Node and aborted the
+  whole job. (PR #97)
+
+  The test directories go with the tests now. Every end-to-end and integration
+  test creates a directory of its own and removed it on its last line — a line
+  that only runs when the test reaches it, so every failing test kept its tree
+  and tens of gigabytes of `rhei-integ-*` accumulated in the system temp
+  directory. An RAII guard removes it on the unwinding path too;
+  `RHEI_KEEP_TEST_DIRS=1` keeps them for debugging. (PR #97)
 
 - Windows CI now runs the test suite it can: every crate's unit tests,
   `rhei-core`'s integration tests, and the CLI's integration target, which

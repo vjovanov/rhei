@@ -28,9 +28,10 @@ cargo test --workspace --all-targets --locked --no-fail-fast
 ```
 
 No platform is a subset of another: every target the workspace has runs
-everywhere. The individual tests that genuinely need POSIX semantics — signal
-delivery and process groups, file modes and symlinks, a contended `flock` —
-are `#[cfg(unix)]` and each says on the line above why.
+everywhere, which is what §REQ-cross-platform.3 asks of this workflow. The
+individual tests that genuinely need POSIX semantics — signal delivery and
+process groups, file modes and symlinks, a contended `flock` — are
+`#[cfg(unix)]` and each says at the gate which semantics it exercises.
 
 The suite's mock agents, programs, and callbacks are Python scripts, which is
 what lets one command run on all three platforms, so each `test` job installs a
