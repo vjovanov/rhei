@@ -265,7 +265,7 @@ fn write_file_atomic(path: &Path, content: &str) -> MietteResult<()> {
 fn write_file_atomic_locked(
     path: &Path,
     content: &str,
-    locked: Option<&fs::File>,
+    locked: Option<&LockedPlanFile>,
 ) -> MietteResult<()> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::NamedTempFile::new_in(parent)
