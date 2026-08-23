@@ -72,7 +72,7 @@
   is an illustration of the format, not a reference to a file. This covers task
   bodies as well as content sections — a plan that documents how to write a
   task used to fail on the example links in its own instructions.
-  §FS-rhei-plan-language.3.6
+  §FS-rhei-plan-language.3.6 (PR #89)
 
 - `rhei templates --json` now carries the **whole** input schema for every
   input, not the subset the human table prints: `format`, `positional`,
