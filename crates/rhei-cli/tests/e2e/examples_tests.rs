@@ -13,10 +13,20 @@ fn copy_example_workspace(prefix: &str, example_path: &str) -> (TestDir, PathBuf
 }
 
 fn write_mock_example_agent(dir: &Path) -> PathBuf {
-    write_python_agent(
-        dir,
-        "mock-example-agent.py",
-        r#"import shutil
+    // Whether the `prepare-worktree` state may settle for a bare `git init`
+    // is decided here rather than inside the fixture, so the allowance is one
+    // platform's and not "whatever the fixture could manage": Windows refuses
+    // a checkout path past MAX_PATH, and everywhere else a failed `git
+    // worktree add` is a broken example rather than a portability fact.
+
+    // §REQ-cross-platform.3
+    let settings =
+        format!("WORKTREE_FALLBACK_ALLOWED = {}\n\n", if cfg!(windows) { "True" } else { "False" });
+    write_python_agent(dir, "mock-example-agent.py", &format!("{settings}{MOCK_EXAMPLE_AGENT}"))
+}
+
+/// The one mock agent every example test drives, dispatching on `RHEI_STATE`.
+const MOCK_EXAMPLE_AGENT: &str = r#"import shutil
 import subprocess
 
 # The examples are driven from their workspace root: every relative path below
@@ -109,6 +119,11 @@ elif state == 'prepare-worktree':
         # contract needs.
         added = git('worktree', 'add', '--detach', str(worktree), 'HEAD').returncode == 0
     if not added:
+        if not WORKTREE_FALLBACK_ALLOWED:
+            sys.exit(
+                'git worktree add failed, and this platform has no license to '
+                'fall back to a bare repository'
+            )
         # The ref this state writes is checked against the git root of the path
         # it names, so a bare directory inside the repository is not enough.
         worktree.mkdir(parents=True, exist_ok=True)
@@ -143,9 +158,7 @@ elif state in ('review', 'fix'):
         folder / 'task-{}-{}-{}.md'.format(task, state, pass_number),
         '# Mock {} pass {}\n'.format(state, pass_number),
     )
-"#,
-    )
-}
+"#;
 
 fn write_mock_agent_settings(workspace: &Path, agent_script: &Path) {
     let settings_dir = workspace.join(".agents/rhei");

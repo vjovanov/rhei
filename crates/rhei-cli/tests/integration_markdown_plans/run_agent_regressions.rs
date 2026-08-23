@@ -132,12 +132,18 @@ fn write_stdin_fake_agent_settings(dir: &Path, script_path: &Path) {
 /// snapshot of the invocation has something to capture. `tail` is appended
 /// verbatim, which is how a scenario makes the fixture fail or hang.
 fn write_session_recording_script(dir: &Path, tail: &str) -> PathBuf {
+    // A spawn that never passed `--session-dir` is the bug these cases would
+    // otherwise stop catching: with an empty `session_dir` the write lands on a
+    // relative `session.jsonl` and the fixture exits 0, where the `sh` original
+    // died on `mkdir -p ""` under `set -u`.
     let body = format!(
         r#"session_dir = ''
 args = sys.argv[1:]
 while args:
     if args.pop(0) == '--session-dir' and args:
         session_dir = args.pop(0)
+if not session_dir:
+    sys.exit('the agent was spawned without --session-dir')
 write(pathlib.Path(session_dir) / 'session.jsonl', '{{"provider":"openai","model":"model"}}\n')
 {tail}"#
     );
