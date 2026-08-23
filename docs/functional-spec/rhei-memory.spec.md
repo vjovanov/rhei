@@ -233,7 +233,8 @@ What you write is what the next agent and the human see.
 every execution root in the project, so the results of a rhei the prompt does
 not list are one path away. Paths are rendered relative to `RHEI_ROOT`, or
 absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
-`{output.<name>.path}` follows (§FS-rhei-states.4). `Leaving a trail`
+`{output.<name>.path}` follows (§FS-rhei-states.4). `rhei next`, which exports
+no `RHEI_ROOT`, renders every such path absolute. `Leaving a trail`
 describes artifacts and permitted edits; it says nothing about when to stop or
 how completion is detected, which stay with the completion condition
 (§FS-rhei-agents.3.1).

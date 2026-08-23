@@ -48,6 +48,16 @@ struct PromptMemory {
     /// nothing. `## Checkpoints` is rendered by both and is not covered here.
     // §FS-rhei-memory.4.3 §FS-rhei-supervision.3.4
     pastes_task_inputs: bool,
+    /// Whether every memory path renders absolute rather than against a root.
+    ///
+    /// A relative path is only readable against an anchor the reader has.
+    /// `rhei run` gives its agent one — `RHEI_ROOT`, and a cwd inside the
+    /// checkout — so it anchors there; `rhei next` exports nothing and
+    /// promises no cwd, so on that surface every path is absolute or it is a
+    /// guess. One flag, because a prompt that mixed the two forms would be
+    /// worse than either.
+    // §FS-rhei-memory.3.4
+    absolute_paths: bool,
 }
 
 /// Every cap §FS-rhei-memory.4 states, in one place, so a reader can check the
@@ -95,6 +105,7 @@ fn prompt_memory(
         runtime_dir: runtime_dir.to_path_buf(),
         run_in_flight,
         pastes_task_inputs: true,
+        absolute_paths: false,
     }
 }
 
@@ -137,8 +148,15 @@ fn task_state_is_terminal(
 /// Render a filesystem path the way `{output.<name>.path}` renders one:
 /// relative to `RHEI_ROOT`, absolute once the agent's checkout is somewhere
 /// else. A path outside the root has no relative form and stays absolute.
+///
+/// Every memory path in a prompt passes through here, so a surface that
+/// anchors nothing (`absolute_paths`) resolves all of them the same way — the
+/// one place where the anchor of a whole prompt is decided.
 // §FS-rhei-memory.3.4 §FS-rhei-states.4
 fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
+    if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
+        return absolute_memory_path(path);
+    }
     if render_context.checkout_root != render_context.workspace_root {
         return path.display().to_string();
     }
@@ -147,6 +165,12 @@ fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> Stri
         Ok(relative) => relative.display().to_string(),
         Err(_) => path.display().to_string(),
     }
+}
+
+/// The absolute form of a path the caller may have given relative to its own
+/// cwd, which is not the reader's. §FS-rhei-memory.3.4
+fn absolute_memory_path(path: &Path) -> String {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
 /// Keep the first `cap` lines of `body`; report whether anything was dropped.
