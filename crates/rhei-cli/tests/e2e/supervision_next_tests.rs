@@ -182,13 +182,15 @@ metadata:
         supervising.contains("The subtree below is held for as long as this ticket is claimed"),
         "got: {supervising}"
     );
-    // The paths are matched on their own: the command is printed for a shell,
-    // and a Windows path's backslashes make it a quoted word.
+    // Both paths are quoted the way the command that printed them quoted
+    // them, so this is the whole line and not a bag of substrings.
     assert!(
-        supervising.contains(&machine_path.display().to_string())
-            && supervising.contains(&plan_path.display().to_string())
-            && supervising.contains("transition")
-            && supervising.contains("--task plan.1 --from supervising --to supervising"),
+        supervising.contains(&format!(
+            "rhei --state-machine={} transition {} --task plan.1 --from supervising \
+             --to supervising",
+            shell_quote(&machine_path.display().to_string()),
+            shell_quote(&plan_path.display().to_string()),
+        )),
         "got: {supervising}"
     );
     // §FS-rhei-supervision.5.1: and the qualified result rule `rhei run` puts

@@ -134,8 +134,18 @@ pub fn fixture_command_with_args(script: &std::path::Path, args: &[&str]) -> Str
 /// to the platform's own shell. A caller embedding this in YAML must
 /// single-quote it: a Windows path is full of backslashes, and a double-quoted
 /// YAML scalar reads those as escapes.
+///
+/// The script path is quoted the way the product quotes a path it prints for a
+/// shell, because a line is re-parsed by that shell and a temporary directory
+/// with a space in it would otherwise arrive as two arguments — which is a real
+/// shape on Windows, where the per-user temp directory lives under a profile
+/// name the user chose.
 
-// §FS-rhei-programs.1.1
+// §FS-rhei-programs.1.1 §FS-rhei-errors.2
 pub fn fixture_command_line(script: &std::path::Path) -> String {
-    format!("{} {}", python_command(), script.display())
+    format!(
+        "{} {}",
+        python_command(),
+        rhei_core::platform::shell_quote(&script.display().to_string())
+    )
 }

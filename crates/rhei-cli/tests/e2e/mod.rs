@@ -59,6 +59,12 @@ pub fn python_callback_yaml(code: &str) -> String {
 }
 pub use test_dir::TestDir;
 
+/// The product's own quoting, so a test builds an expected command line the way
+/// the product built it — POSIX quotes on Unix, `cmd`'s on Windows — instead of
+/// dropping the assertion to a substring because the two platforms disagree.
+// §FS-rhei-errors.2
+pub use rhei_core::platform::shell_quote;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
