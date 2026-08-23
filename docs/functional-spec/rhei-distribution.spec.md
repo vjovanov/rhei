@@ -96,3 +96,31 @@ and extracts the inline section for GitHub release notes.
 The local pre-commit configuration mirrors the CI checks that are cheap enough
 to run before a commit, and the pre-push hook reruns the Rust test suite. The
 release PGO build is intentionally excluded from local commit hooks.
+
+## 7. Supported Platforms
+
+Rhei is a cross-platform tool, not a Unix tool with ports. The supported
+platforms are the ones a release ships binaries for (§4): Linux, macOS, and
+Windows, on `x86_64` and `aarch64`. Support means one thing on all of them:
+§GOAL-rhei-outcomes
+
+- **Parity.** Every user-visible behaviour — every command, prompt section,
+  artifact, lock, and error — behaves the same on every supported platform.
+  Where the platform genuinely differs (symbolic links, path spelling, process
+  signals, file locking), the specification of that behaviour says so at the
+  point where it differs, as §FS-rhei-snapshots.7 does for the `current`
+  pointer; an undeclared difference is a defect on the platform that differs,
+  never a limitation of it.
+- **Tested, not assumed.** The development CI runs the full test suite on all
+  three platforms (§AR-ci-release.1). A test that runs on a subset of platforms
+  carries, at the gate, the platform-specific semantics it exercises and why
+  no portable form exists; a test is never gated because porting it is work.
+- **No Unix-only fixtures.** Test fixtures that stand in for agents, programs,
+  callbacks, and redactors are written in a form every supported platform
+  runs.
+- **Paths are data.** Code never builds a path from `/`-joined strings, never
+  compares two spellings of one location as strings, and treats a rooted or
+  prefixed path as outside the workspace on every platform.
+
+New work is held to this from the start: a feature is not complete until its
+tests pass on all three platforms.

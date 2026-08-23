@@ -12,6 +12,8 @@ These goals follow from §GND-rhei-purpose.
   anywhere in the project — at the depth it needs and no more.
 - Keep simple work simple: a small task should not require a heavyweight
   workflow.
+- Be one tool on Linux, macOS, and Windows: every behaviour is specified
+  once and works, and is tested, on all three.
 - Support complex work: security review, release hardening, incident response,
   multi-agent implementation, approval gates, retries, and evidence collection.
 - Make execution predictable through explicit dependencies, states,
