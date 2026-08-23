@@ -47,6 +47,52 @@ fn is_legal_ticket_segment(id: &str) -> bool {
     is_legal_rhei_id(id)
 }
 
+/// A legal dotted task id: one or more legal segments.
+// §FS-rhei-plan-language.2
+fn is_legal_task_id(id: &str) -> bool {
+    !id.is_empty() && id.split('.').all(is_legal_ticket_segment)
+}
+
+/// A legal export name: a letter or digit, then letters, digits, `.`, `_`, or
+/// `-`. §FS-rhei-plan-language.3.12
+fn is_legal_export_name(name: &str) -> bool {
+    name.bytes().next().is_some_and(|b| b.is_ascii_alphanumeric())
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// Rhei ids that name something other than a rhei, and so can never be one.
+///
+/// `basin` is the synthetic rhei of unfiled tickets; `index` would write
+/// `index.rhei.md` beside `index.panta.md`, the file whose presence marks a
+/// directory as a Directory Workspace. Both refusals happen at create time
+/// rather than at the next load, where they would arrive as a broken project
+/// instead of as a rejected argument.
+// §FS-rhei-new.4 §FS-rhei-panta.2 §FS-rhei-plan-language.1.2
+fn reserved_rhei_id_reason(id: &str) -> Option<(&'static str, String)> {
+    if id == workspace::BASIN_RHEI_ID {
+        return Some((
+            "the basin is where unfiled tickets go; capture one with \
+             `rhei new \"<title>\" --under basin`.",
+            format!(
+                "'{id}' is a reserved rhei id: it names the project basin, the synthetic rhei \
+                 that holds tickets with no owning rhei"
+            ),
+        ));
+    }
+    if id == "index" {
+        return Some((
+            "pick another id with --id, for example `--id inbox`.",
+            format!(
+                "'{id}' is a reserved rhei id: it would write `index.rhei.md` next to \
+                 {}, and that filename is what marks a directory as a Directory Workspace \
+                 rather than as a rhei inside one",
+                workspace::PANTA_INDEX_FILE
+            ),
+        ));
+    }
+    None
+}
+
 /// The rhei id `rhei new` will create, from `--id` or the title, refusing
 /// anything that would not load. §FS-rhei-new.4
 fn resolve_new_rhei_id(title: &str, explicit: Option<&str>) -> MietteResult<String> {
@@ -70,17 +116,8 @@ help = "a rhei id prefixes every ticket id in the project, so it has to be a sin
              letters, digits, `_`, or `-`.{suggestion}"
         ));
     }
-    // §FS-rhei-panta.2: `basin` is reserved whether or not basin content
-    // exists. Refusing here beats refusing at the next load, where it arrives
-    // as a broken project rather than as a rejected argument.
-    if id == workspace::BASIN_RHEI_ID {
-        return Err(miette!(
-help = "the basin is where unfiled tickets go; capture one with `rhei new \"<title>\" --under basin`.",
-
-            "'{}' is a reserved rhei id: it names the project basin, the synthetic rhei \
-             that holds tickets with no owning rhei",
-            workspace::BASIN_RHEI_ID
-        ));
+    if let Some((help, message)) = reserved_rhei_id_reason(&id) {
+        return Err(miette!(help = help, "{message}"));
     }
     Ok(id)
 }
@@ -133,7 +170,7 @@ fn complete_new_parent(current: &OsStr) -> Vec<CompletionCandidate> {
         return Vec::new();
     };
     let prefix = current.to_string_lossy();
-    let Ok(loaded) = load_plan(&plan) else {
+    let Ok(loaded) = load_plan_leniently(&plan) else {
         return Vec::new();
     };
     let mut candidates: Vec<CompletionCandidate> = loaded
@@ -153,22 +190,58 @@ fn complete_new_parent(current: &OsStr) -> Vec<CompletionCandidate> {
     candidates
 }
 
-/// Complete `--kind` from the node kinds the target plan declares.
-// §FS-rhei-plan-language.3.7
+/// Complete `--kind` from the node kinds the rhei being written to declares.
+///
+/// The merged project structure is the union across every rhei, so completing
+/// from it offers `task` inside a rhei whose `nodeKinds` are `[epic, story]` —
+/// where `--kind task` is then refused. The kinds that apply are the target
+/// rhei's, and `--under` is already on the command line by the time `--kind` is
+/// being completed.
+// §FS-rhei-new.3.3 §FS-rhei-plan-language.3.7
 fn complete_new_node_kind(current: &OsStr) -> Vec<CompletionCandidate> {
     let Some(plan) = completion_plan_path() else {
         return Vec::new();
     };
     let prefix = current.to_string_lossy();
-    let Ok(loaded) = load_plan(&plan) else {
+    let Ok(loaded) = load_plan_leniently(&plan) else {
         return Vec::new();
     };
-    loaded
-        .rhei
-        .structure
-        .node_kinds
-        .iter()
+    completion_target_node_kinds(&plan, &loaded)
+        .into_iter()
         .filter(|kind| kind.starts_with(prefix.as_ref()))
-        .map(|kind| CompletionCandidate::new(kind.clone()))
+        .map(CompletionCandidate::new)
+        .collect()
+}
+
+/// The node kinds `--kind` will actually be checked against: the target rhei's
+/// own, falling back to the merged project's when `--under` names nothing
+/// resolvable yet. §FS-rhei-new.3.3
+fn completion_target_node_kinds(plan: &Path, loaded: &LoadedPlan) -> Vec<String> {
+    let merged = || loaded.rhei.structure.node_kinds.clone();
+    let Some(under) = completion_option_value("under") else {
+        return merged();
+    };
+    let rhei_id = under.split('.').next().unwrap_or(&under).to_string();
+    let Ok(entry) = resolve_rhei_entry(plan, loaded, &rhei_id) else {
+        return merged();
+    };
+    match rhei_entry_structure(&entry, plan) {
+        Ok(structure) => structure.structure.node_kinds,
+        Err(_) => merged(),
+    }
+}
+
+/// Complete `--states` from the machine names this project actually provides.
+///
+/// Every other id-ish flag completes; this one used to be the exception, which
+/// left the name of a machine something to remember rather than something to
+/// discover.
+// §FS-rhei-new.1.2 §AR-rhei-panta.4
+fn complete_new_states_name(current: &OsStr) -> Vec<CompletionCandidate> {
+    let prefix = current.to_string_lossy();
+    discoverable_state_machine_names(completion_plan_path().as_deref())
+        .into_iter()
+        .filter(|name| name.starts_with(prefix.as_ref()))
+        .map(CompletionCandidate::new)
         .collect()
 }

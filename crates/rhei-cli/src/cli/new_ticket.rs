@@ -24,7 +24,12 @@ fn new_ticket_write(
     parent: &str,
     description: Option<&str>,
 ) -> MietteResult<NewWrite> {
-    let loaded = load_plan(target)?;
+    reject_malformed_export_flags(options)?;
+    // Leniently, so that one unreadable rhei does not take out creates into
+    // every other one — `--under basin` most of all. Only the rhei being
+    // written to has to load, which is the next check. §FS-rhei-new.5.2
+    let loaded = load_plan_leniently(target)?;
+    reject_unloadable_target_rhei(&loaded, parent.trim())?;
     let placement = resolve_ticket_parent(&loaded, parent.trim())?;
     let entry = resolve_rhei_entry(target, &loaded, &placement.rhei_id)?;
     let structure = rhei_entry_structure(&entry, target)?;
@@ -36,8 +41,9 @@ fn new_ticket_write(
         None => segment,
     };
     let depth = local_id.split('.').count() as u8;
-    reject_excess_depth(&placement, depth, structure.max_levels)?;
-    let kind = resolve_ticket_kind(options.kind.as_deref(), &structure, &placement.rhei_id)?;
+    reject_excess_depth(&placement, depth, &structure.structure, structure.declared)?;
+    let kind =
+        resolve_ticket_kind(options.kind.as_deref(), &structure.structure, &placement.rhei_id)?;
 
     let qualified = format!("{}.{}", placement.rhei_id, local_id);
     let machines = resolve_state_machines_for_loaded_plan(target, &loaded, None)?;
@@ -69,8 +75,89 @@ fn new_ticket_write(
         contents: placed.contents,
         preview: block,
         dirs: placed.dirs,
-        next_hint: None,
+        next_hint: Some("`rhei list` shows the rhei; `rhei next` picks up the work".to_string()),
+        notes: ticket_create_notes(options),
     })
+}
+
+/// What the flags do that they do not say on their face.
+///
+/// `--assignee` is the whole list: an assignee reads as a label to whoever is
+/// writing the plan and as "claimed, in progress" to the engine, so a plan
+/// authored with assignees is one `rhei run` will not start, and `rhei next`
+/// and `rhei list --ready` then disagree about the same ticket. Authoring a
+/// claimed ticket is legitimate, so this is a note and not a refusal.
+// §FS-rhei-new.5.4
+fn ticket_create_notes(options: &NewOptions) -> Vec<String> {
+    let Some(assignee) = options.assignee.as_deref() else {
+        return Vec::new();
+    };
+    vec![format!(
+        "`--assignee {}` marks the ticket claimed and in progress: `rhei next` and `rhei run` \
+         skip it until `rhei release <id>`.",
+        assignee.trim()
+    )]
+}
+
+/// Refuse when the rhei this ticket is going into is the one that will not
+/// load.
+///
+/// That failure *is* this create's business: the rhei's existing ids decide the
+/// new one's number and its `## Tasks` section decides where the block goes,
+/// and a lenient load has neither. Every other rhei's parse error is left to
+/// the pre/post diff.
+// §FS-rhei-new.5.2
+fn reject_unloadable_target_rhei(loaded: &LoadedPlan, parent: &str) -> MietteResult<()> {
+    let rhei_id = parent.split('.').next().unwrap_or(parent);
+    let marker = format!("rhei '{rhei_id}' could not be loaded");
+    let Some(skipped) = loaded.unloadable.iter().find(|message| message.starts_with(&marker))
+    else {
+        return Ok(());
+    };
+    Err(miette!(
+help = "fix that rhei and re-run; `rhei validate` reports it with a code frame. Creates into every other rhei in this project are unaffected.",
+
+        "{skipped}\n\n`rhei new` cannot place a ticket in a rhei it cannot read: the ids already \
+         in it decide the new ticket's number, and its `## Tasks` section decides where the \
+         block goes."
+    ))
+}
+
+/// Check the two reference flags for shape before the write, so a mistyped
+/// `--consumes auth.1` is a message about the flag rather than a parse error
+/// with a line number in a file the write just produced.
+///
+/// Shape only: whether the reference resolves to a declared `**Provides:**` is
+/// a question nothing answers yet.
+// §FS-rhei-new.3.3 §FS-rhei-plan-language.3.12 §FS-rhei-new.6
+fn reject_malformed_export_flags(options: &NewOptions) -> MietteResult<()> {
+    for name in &options.provides {
+        let name = name.trim();
+        if name.is_empty() || !is_legal_export_name(name) {
+            return Err(miette!(
+help = "an export name is one word: letters, digits, '.', '_', or '-'. Repeat --provides, or separate several with commas.",
+
+                "--provides '{name}' is not a valid export name: it starts with a letter or a \
+                 digit and continues with letters, digits, '.', '_', or '-' \
+                 (`--provides api-contract`)"
+            ));
+        }
+    }
+    for reference in &options.consumes {
+        let reference = reference.trim();
+        let shape_ok = reference
+            .split_once(':')
+            .is_some_and(|(task, name)| is_legal_task_id(task) && is_legal_export_name(name));
+        if !shape_ok {
+            return Err(miette!(
+help = "name the ticket and the export it publishes, separated by a colon. Repeat --consumes, or separate several with commas.",
+
+                "--consumes '{reference}' is not a valid reference: it is \
+                 '<task-id>:<export-name>' (`--consumes auth.1:api-contract`)"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Read `--under`: a single segment names the owning rhei, anything dotted
@@ -146,13 +233,33 @@ fn unknown_parent_error(loaded: &LoadedPlan, parent: &str) -> miette::Report {
 
 /// Refuse a subtask deeper than the rhei allows, before anything is written.
 // §FS-rhei-new.3.3 §FS-rhei-plan-language.3.4
-fn reject_excess_depth(placement: &TicketParent, depth: u8, max_levels: u8) -> MietteResult<()> {
+fn reject_excess_depth(
+    placement: &TicketParent,
+    depth: u8,
+    structure: &rhei_core::ast::Structure,
+    declared_max_levels: bool,
+) -> MietteResult<()> {
+    let max_levels = structure.max_levels;
     if depth <= max_levels {
         return Ok(());
     }
+    // A rhei created without `--max-levels` has no frontmatter block at all, so
+    // "raise it in the frontmatter" names a field that is not there. Spell out
+    // the block instead. §FS-rhei-new.3.3
+    let help = if declared_max_levels {
+        format!(
+            "raise `structure.maxLevels` to {depth} in the rhei's frontmatter, or add the \
+             ticket higher up."
+        )
+    } else {
+        format!(
+            "this rhei declares no frontmatter, so {max_levels} is the default. Add a block \
+             right under the `# Rhei:` heading — a line `---`, then `structure:`, then \
+             `  maxLevels: {depth}`, then `---` — or add the ticket higher up."
+        )
+    };
     Err(miette!(
-help = "raise `structure.maxLevels` in the rhei's frontmatter, or add the ticket higher up.",
-
+        help = help,
         "a ticket under {} would sit at depth {depth}, but rhei '{}' allows {max_levels} \
          (`structure.maxLevels`)",
         placement.label,
@@ -171,11 +278,25 @@ fn resolve_ticket_kind(
     if structure.node_kinds.iter().any(|declared| declared.eq_ignore_ascii_case(&kind)) {
         return Ok(kind);
     }
+    let declared = structure.node_kinds.join(", ");
+    // A rhei that does not declare `task` makes `--kind` mandatory. Reporting
+    // the default back as though the user had typed it blames them for a word
+    // that came from the command. §FS-rhei-new.3.3
+    let Some(requested) = requested else {
+        return Err(miette!(
+            help = format!(
+                "add the flag, for example: --kind {}",
+                structure.node_kinds.first().map(String::as_str).unwrap_or("task")
+            ),
+            "rhei '{rhei_id}' requires --kind: it declares {declared}, and no default among \
+             them"
+        ));
+    };
     Err(miette!(
         help = did_you_mean(&kind, &structure.node_kinds)
             .unwrap_or_else(|| "declare the kind in `structure.nodeKinds` first.".to_string()),
-        "rhei '{rhei_id}' does not declare the node kind '{kind}'. It declares: {}",
-        structure.node_kinds.join(", ")
+        "rhei '{rhei_id}' does not declare the node kind '{}'. It declares: {declared}",
+        requested.trim()
     ))
 }
 

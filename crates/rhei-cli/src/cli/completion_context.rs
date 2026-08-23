@@ -403,12 +403,13 @@ fn resolve_declared_rhei_machine(
 
     match matches.len() {
         0 => Err(miette!(
-help = states_declaration_help(),
+help = missing_state_machine_help(),
 
             "rhei '{rhei_id}' declares state machine '{machine_name}', but no states file \
              declaring it was found in the rhei's root, the project root, or any other \
-             rhei root. Add a `states.yaml` declaring '{machine_name}' next to the rhei, \
-             or pass --state-machine <path>.",
+             rhei root. This project declares: {}. Add a `states.yaml` declaring \
+             '{machine_name}' next to the rhei, or pass --state-machine <path>.",
+            state_machine_names_in(input, loaded).join(", "),
         )),
         1 => {
             let (path, machine) = matches.into_iter().next().expect("single match");
@@ -426,6 +427,43 @@ help = states_declaration_help(),
                 paths.join(", ")
             ))
         }
+    }
+}
+
+/// Every state machine name a `**States:**` declaration in this project can
+/// resolve to: the name inside each `states.yaml` the declaration rules reach,
+/// plus the built-in default that a rhei declaring nothing runs under.
+///
+/// A wrong value for a flag with a declared set of legal values lists that set
+/// everywhere else in the CLI; the set for `--states` simply lives in files.
+// §AR-rhei-panta.4 §FS-rhei-new.1.2
+fn state_machine_names_in(input: &Path, loaded: &LoadedPlan) -> Vec<String> {
+    let mut names: BTreeSet<String> =
+        BTreeSet::from([rhei_validator::StateMachine::builtin_default().name]);
+    let mut candidates = vec![auto_state_machine_path(input)];
+    let mut roots: Vec<&PathBuf> = loaded.rhei_roots.values().collect();
+    roots.sort();
+    roots.dedup();
+    candidates.extend(roots.into_iter().map(|root| root.join("states.yaml")));
+    for candidate in candidates {
+        if candidate.is_file() {
+            if let Ok(machine) = load_state_machine(Some(&candidate)) {
+                names.insert(machine.name);
+            }
+        }
+    }
+    names.into_iter().collect()
+}
+
+/// The same set, for a completion that has only a plan path to work from.
+// §AR-rhei-panta.4
+fn discoverable_state_machine_names(plan: Option<&Path>) -> Vec<String> {
+    let Some(plan) = plan else {
+        return vec![rhei_validator::StateMachine::builtin_default().name];
+    };
+    match load_plan_leniently(plan) {
+        Ok(loaded) => state_machine_names_in(plan, &loaded),
+        Err(_) => vec![rhei_validator::StateMachine::builtin_default().name],
     }
 }
 

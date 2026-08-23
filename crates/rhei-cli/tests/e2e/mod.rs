@@ -7,6 +7,7 @@ mod headless_support;
 mod headless_tests;
 mod headless_undecided_tests;
 mod install_skills_tests;
+mod new_guard_tests;
 mod new_tests;
 mod new_write_tests;
 mod next_tests;

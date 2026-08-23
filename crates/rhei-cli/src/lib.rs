@@ -72,6 +72,8 @@ include!("cli/snapshot_refs_gc.rs");
 include!("cli/snapshot_continue_lock.rs");
 include!("cli/init_command.rs");
 include!("cli/new_options.rs");
+include!("cli/new_lock.rs");
+include!("cli/new_description.rs");
 include!("cli/new_ids.rs");
 include!("cli/new_markdown.rs");
 include!("cli/new_command.rs");

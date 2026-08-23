@@ -4,6 +4,17 @@
 
 // §FS-rhei-new.1
 
+/// The two shapes of the command, shown under the flags.
+///
+/// Nineteen flags in one list is a wall; two worked examples say in two lines
+/// which half of it any given invocation needs.
+// §FS-rhei-new.1
+const NEW_COMMAND_EXAMPLES: &str = "\
+Examples:
+  rhei new \"Authentication\"                      create a rhei
+  rhei new \"Rotate keys\" --under auth --prior auth.1
+                                                 create a ticket inside one";
+
 /// Every field `rhei new` can author, in one flattened argument group.
 ///
 /// The set is deliberately exhaustive: each metadata field the plan language
@@ -15,10 +26,6 @@ struct NewOptions {
     /// Title of the rhei or ticket
     #[arg(value_name = "TITLE")]
     title: String,
-    /// Owning rhei id (`auth`, `basin`) for a top-level ticket, or ticket id
-    /// (`auth.3`) for a subtask. Omitted, a rhei is created under Panta
-    #[arg(long, value_name = "PARENT", add = ArgValueCompleter::new(complete_new_parent))]
-    under: Option<String>,
     /// Project or plan to write into; omitted, the enclosing project,
     /// workspace, or lone plan is used
     #[arg(
@@ -27,10 +34,14 @@ struct NewOptions {
         add = ArgValueCompleter::new(complete_rhei_plan_path)
     )]
     project: Option<PathBuf>,
-    /// Explicit id, replacing the one derived from the title
+    /// Explicit id: for a rhei, the one otherwise derived from the title;
+    /// for a ticket, the segment otherwise taken from the sibling numbering.
+    /// A name works for a ticket too (`--id review` -> `plat.review`)
     #[arg(long, value_name = "ID")]
     id: Option<String>,
-    /// Body content: the ticket's description, or the rhei's lead paragraph
+    /// Body content: the ticket's description, or the rhei's lead paragraph.
+    /// Prose only — a heading or a `**Field:**` line would author plan
+    /// structure, so it is refused
     #[arg(long, value_name = "TEXT")]
     description: Option<String>,
     /// Read the description from a file; `-` reads standard input
@@ -42,47 +53,94 @@ struct NewOptions {
     )]
     description_file: Option<PathBuf>,
     /// Create a Directory Workspace rhei instead of a single file
-    #[arg(long)]
+    #[arg(long, help_heading = "Creating a rhei")]
     dir: bool,
-    /// Bind the new rhei to a state machine by name
-    #[arg(long, value_name = "NAME")]
+    /// Bind the new rhei to a state machine by name. Writes the declaration
+    /// only; author the machine itself with `/rhei-state-machine-writer`
+    #[arg(
+        long,
+        value_name = "NAME",
+        help_heading = "Creating a rhei",
+        add = ArgValueCompleter::new(complete_new_states_name)
+    )]
     states: Option<String>,
     /// Write `structure.maxLevels` for the new rhei
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", help_heading = "Creating a rhei")]
     max_levels: Option<u8>,
     /// Write `structure.nodeKinds` for the new rhei (repeatable;
     /// comma-separated list also accepted)
-    #[arg(long, value_name = "KIND", value_delimiter = ',')]
+    #[arg(
+        long,
+        value_name = "KIND",
+        value_delimiter = ',',
+        help_heading = "Creating a rhei"
+    )]
     node_kinds: Vec<String>,
+    /// Owning rhei id (`auth`, `basin`) for a top-level ticket, or ticket id
+    /// (`auth.3`) for a subtask. Omitted, a rhei is created under Panta
+    #[arg(
+        long,
+        value_name = "PARENT",
+        help_heading = "Creating a ticket",
+        add = ArgValueCompleter::new(complete_new_parent)
+    )]
+    under: Option<String>,
     /// Heading keyword for the new ticket, checked against structure.nodeKinds
-    #[arg(long, value_name = "KIND", add = ArgValueCompleter::new(complete_new_node_kind))]
+    #[arg(
+        long,
+        value_name = "KIND",
+        help_heading = "Creating a ticket",
+        add = ArgValueCompleter::new(complete_new_node_kind)
+    )]
     kind: Option<String>,
     /// Starting state; defaults to the owning rhei machine's initial state
-    #[arg(long, value_name = "STATE", add = ArgValueCompleter::new(complete_state_name))]
+    #[arg(
+        long,
+        value_name = "STATE",
+        help_heading = "Creating a ticket",
+        add = ArgValueCompleter::new(complete_state_name)
+    )]
     state: Option<String>,
     /// Prior dependency (repeatable; comma-separated list also accepted)
     #[arg(
         long,
         value_name = "ID",
         value_delimiter = ',',
+        help_heading = "Creating a ticket",
         add = ArgValueCompleter::new(complete_task_id)
     )]
     prior: Vec<String>,
     /// Export this ticket publishes (repeatable; comma-separated also accepted)
-    #[arg(long, value_name = "NAME", value_delimiter = ',')]
+    #[arg(
+        long,
+        value_name = "NAME",
+        value_delimiter = ',',
+        help_heading = "Creating a ticket"
+    )]
     provides: Vec<String>,
     /// Export this ticket reads, as `<task-id>:<name>` (repeatable;
     /// comma-separated list also accepted)
-    #[arg(long, value_name = "ID:NAME", value_delimiter = ',')]
+    #[arg(
+        long,
+        value_name = "ID:NAME",
+        value_delimiter = ',',
+        help_heading = "Creating a ticket"
+    )]
     consumes: Vec<String>,
-    /// Assignee for the new ticket
-    #[arg(long, value_name = "WHO")]
+    /// Claim the new ticket for someone. An assignee means "in progress":
+    /// `rhei next` and `rhei run` skip it until `rhei release <id>`
+    #[arg(long, value_name = "WHO", help_heading = "Creating a ticket")]
     assignee: Option<String>,
     /// Per-ticket model override
-    #[arg(long, value_name = "MODEL")]
+    #[arg(long, value_name = "MODEL", help_heading = "Creating a ticket")]
     model: Option<String>,
     /// Per-ticket execution-identity override
-    #[arg(long, value_name = "TARGET", conflicts_with = "model")]
+    #[arg(
+        long,
+        value_name = "TARGET",
+        conflicts_with = "model",
+        help_heading = "Creating a ticket"
+    )]
     target: Option<String>,
     /// Print the target path and the markdown that would be written
     #[arg(long)]

@@ -161,6 +161,18 @@ fn states_declaration_help() -> &'static str {
      file. Rename one of them, or point --state-machine at the matching file."
 }
 
+/// Help for a `**States:**` naming a machine nothing declares.
+///
+/// The declaration is authored before the machine exists as often as after, so
+/// "write the machine" is a real answer here and not just a diagnosis, and the
+/// spec already names who writes one.
+// §AR-rhei-panta.4 §FS-rhei-new.6
+fn missing_state_machine_help() -> &'static str {
+    "rename the `**States:**` declaration to one of the names above, point \
+     --state-machine at the file that declares it, or run `/rhei-state-machine-writer` to \
+     author the machine that is missing."
+}
+
 /// Help for a duration that is not `<number><unit>`.
 fn duration_format_help() -> &'static str {
     "durations are a number plus a unit: 7d, 4h, 30m, 10s."

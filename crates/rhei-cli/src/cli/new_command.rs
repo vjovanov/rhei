@@ -27,6 +27,9 @@ struct NewWrite {
     dirs: Vec<PathBuf>,
     /// The command that naturally follows, when there is one.
     next_hint: Option<String>,
+    /// What the created node will do that the flags do not say on their face,
+    /// one line each. §FS-rhei-new.5.4
+    notes: Vec<String>,
 }
 
 fn new_command(options: &NewOptions) -> MietteResult<()> {
@@ -36,12 +39,15 @@ fn new_command(options: &NewOptions) -> MietteResult<()> {
     // other command resolves its target: only there do `--under basin` and a
     // cross-rhei `**Prior:**` resolve. §FS-rhei-new.1.1 §FS-rhei-new.2.1
     let resolved = resolve_plan_target(options.project.clone())?;
-    // The announcement is `rhei validate`'s, word for word — but it is prose on
-    // stdout, and `--json` promises one object there. §FS-rhei-new.5.4
+    // Prose on stdout, and `--json` promises one object there. §FS-rhei-new.5.4
     if !options.json {
-        report_validation_widened(&resolved);
+        report_new_widened(&resolved);
     }
     let target = resolved.path().to_path_buf();
+    // Held for the whole invocation: numbering, writing, verifying, and rolling
+    // back all touch the same file, so a narrower lock still loses tickets.
+    // §FS-rhei-new.4
+    let _create_lock = lock_new_create(&target)?;
 
     let write = match options.under.as_deref() {
         Some(parent) => new_ticket_write(&target, options, parent, description.as_deref())?,
@@ -100,26 +106,21 @@ help = "name where the ticket goes, for example: --under <rhei-id>.",
     Ok(())
 }
 
-/// The description body, from `--description` or `--description-file` (`-`
-/// reads standard input). §FS-rhei-new.1.1
-fn resolve_new_description(options: &NewOptions) -> MietteResult<Option<String>> {
-    if let Some(description) = &options.description {
-        return Ok(Some(description.clone()));
-    }
-    let Some(path) = &options.description_file else {
-        return Ok(None);
+/// Explain that a create aimed at a member rhei writes into its whole project.
+///
+/// `rhei validate`'s wording ends "validating the whole project", which is a
+/// sentence about a command the user did not run; a create has to say what it
+/// is about to do instead.
+// §FS-rhei-new.5.4 §FS-rhei-validate.1.1
+fn report_new_widened(target: &PlanTarget) {
+    let Some(id) = target.implied_scope.first() else {
+        return;
     };
-    if path.as_os_str() == "-" {
-        let mut body = String::new();
-        std::io::stdin()
-            .read_to_string(&mut body)
-            .map_err(|err| miette!(
-help = "`--description-file -` reads the description from standard input; pipe it in, or pass a path.",
-                "failed to read the description from standard input: {err}"))?;
-        return Ok(Some(body));
-    }
-    let body = fs::read_to_string(path).map_err(|err| file_io_report(path, "failed to read", err))?;
-    Ok(Some(body))
+    println!(
+        "Scope: rhei '{id}' belongs to the project at {}, and its state machine, settings, and \
+         cross-rhei **Prior:** resolve only there — creating into that project.",
+        display_path(target.path())
+    );
 }
 
 /// Write the create, then decide whether it succeeded: the errors it added to
@@ -138,8 +139,7 @@ fn apply_new_write(target: &Path, write: &NewWrite, keep_on_error: bool) -> Miet
     for dir in &write.dirs {
         fs::create_dir_all(dir).map_err(|err| file_io_report(dir, "failed to create", err))?;
     }
-    fs::write(&write.path, &write.contents)
-        .map_err(|err| file_io_report(&write.path, "failed to write", err))?;
+    write_plan_file_atomically(&write.path, &write.contents)?;
 
     // Warnings are deliberately dropped: a rhei created seconds ago holding no
     // tickets is exactly what was asked for, and saying so here would make the
@@ -258,6 +258,9 @@ fn report_new_write(write: &NewWrite, json: bool) {
             write.id,
             display_path(&write.path)
         ),
+    }
+    for note in &write.notes {
+        println!("Note: {note}");
     }
     if let Some(hint) = &write.next_hint {
         println!("Next: {hint}");

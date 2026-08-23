@@ -76,35 +76,55 @@ help = "run `rhei init` to make this a project, then capture with `--under basin
     }
 }
 
+/// The limits a new ticket is checked against, and whether the rhei authored
+/// them at all.
+///
+/// The second half is what a refusal has to know: a rhei created without
+/// `--max-levels` carries no frontmatter block, and telling its author to raise
+/// a field that is not in the file is advice they cannot follow.
+// §FS-rhei-new.3.3
+struct RheiStructure {
+    structure: rhei_core::ast::Structure,
+    /// True when the source file carries a `structure:` frontmatter block.
+    declared: bool,
+}
+
+/// True when `raw` authors a `structure:` block, rather than inheriting the
+/// defaults. The block is frontmatter, so the key is flush-left on its own
+/// line. §FS-rhei-plan-language.1.1
+fn declares_structure(raw: &str) -> bool {
+    raw.lines().any(|line| line.trim_end() == "structure:")
+}
+
 /// The structure a rhei declares — the limits a new ticket is checked against.
 /// The basin has no authored index, so it takes the project manifest's.
 // §AR-rhei-panta.1 §FS-rhei-new.3.3
-fn rhei_entry_structure(
-    entry: &RheiEntry,
-    target: &Path,
-) -> MietteResult<rhei_core::ast::Structure> {
+fn rhei_entry_structure(entry: &RheiEntry, target: &Path) -> MietteResult<RheiStructure> {
     match entry {
         RheiEntry::SingleFile(path) => {
             let raw = read_input_file(path)?;
             let rhei = rhei_core::parse(&raw).map_err(|err| parse_report(path, &raw, &err))?;
-            Ok(rhei.structure)
+            Ok(RheiStructure { structure: rhei.structure, declared: declares_structure(&raw) })
         }
         RheiEntry::Workspace(dir) => {
             let path = dir.join("index.rhei.md");
             let raw = read_input_file(&path)?;
             let index = rhei_core::parser::parse_workspace_index(&raw)
                 .map_err(|err| parse_report(&path, &raw, &err))?;
-            Ok(index.structure)
+            Ok(RheiStructure { structure: index.structure, declared: declares_structure(&raw) })
         }
         RheiEntry::Basin(_) => {
             let Some(project_dir) = workspace::panta_project_dir(target) else {
-                return Ok(rhei_core::ast::Structure::default());
+                return Ok(RheiStructure {
+                    structure: rhei_core::ast::Structure::default(),
+                    declared: false,
+                });
             };
             let path = project_dir.join(workspace::PANTA_INDEX_FILE);
             let raw = read_input_file(&path)?;
             let manifest = rhei_core::parser::parse_panta_manifest(&raw)
                 .map_err(|err| parse_report(&path, &raw, &err))?;
-            Ok(manifest.structure)
+            Ok(RheiStructure { structure: manifest.structure, declared: declares_structure(&raw) })
         }
     }
 }

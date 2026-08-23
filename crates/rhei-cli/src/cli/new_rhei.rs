@@ -51,6 +51,7 @@ help = "create a project first: `rhei init` writes index.panta.md, and `rhei new
         contents,
         dirs,
         next_hint: Some(format!("`rhei new \"<first ticket>\" --under {id}`")),
+        notes: Vec::new(),
     })
 }
 
