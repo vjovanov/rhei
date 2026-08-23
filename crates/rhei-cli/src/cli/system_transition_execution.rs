@@ -153,28 +153,18 @@ fn execute_transition_with_origin(
     }
 
     // Open the file(s) with an exclusive lock for the duration of the operation.
-    let metadata_handle = fs::File::open(metadata_file)
-        .map_err(|err| file_io_report(metadata_file, "failed to open plan file", err))?;
-    metadata_handle
-        .lock_exclusive()
-        .map_err(|err| file_io_report(metadata_file, "failed to acquire file lock", err))?;
+    let metadata_handle = LockedPlanFile::open(metadata_file)?;
     let task_handle = if task_file == metadata_file {
         None
     } else {
-        let handle = fs::File::open(task_file)
-            .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
-        handle
-            .lock_exclusive()
-            .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
-        Some(handle)
+        Some(LockedPlanFile::open(task_file)?)
     };
 
     // Read the raw markdown while holding the locks.
-    let metadata_raw =
-        read_locked_to_string(&metadata_handle, metadata_file, "failed to read plan file")?;
+    let metadata_raw = metadata_handle.read_to_string("failed to read plan file")?;
     let task_raw = match task_handle.as_ref() {
         None => metadata_raw.clone(),
-        Some(handle) => read_locked_to_string(handle, task_file, "failed to read plan file")?,
+        Some(handle) => handle.read_to_string("failed to read plan file")?,
     };
 
     // Parse to validate structure and find the task.
@@ -216,9 +206,9 @@ fn execute_transition_with_origin(
     // less informative "transition not allowed" error.
     if current_state != from {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(miette!(
             help = task_moved_help(),
             "conflict: Task {} is in state '{}', expected '{}'",
@@ -235,9 +225,9 @@ fn execute_transition_with_origin(
         to,
     ) {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(err);
     }
 
@@ -249,9 +239,9 @@ fn execute_transition_with_origin(
         );
     let Some(matching_rule) = matching_rule else {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(miette!(
             help = "the machine declares no such edge. List the edges with: rhei states",
             "transition from '{}' to '{}' is not allowed by the state machine",
@@ -279,9 +269,9 @@ fn execute_transition_with_origin(
         &current_state_raw,
     )? {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         let reason = describe_blocked_transition(
             matching_rule,
             machine,
@@ -329,9 +319,9 @@ fn execute_transition_with_origin(
         &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(err);
     }
 
@@ -406,9 +396,9 @@ fn execute_transition_with_origin(
                 ))?;
                 if !result.success {
                     if let Some(task_handle) = &task_handle {
-                        let _ = fs2::FileExt::unlock(task_handle);
+                        task_handle.release();
                     }
-                    let _ = fs2::FileExt::unlock(&metadata_handle);
+                    metadata_handle.release();
                     let message = result
                         .error
                         .clone()
@@ -439,9 +429,9 @@ fn execute_transition_with_origin(
             (to.to_string(), matching_rule)
         } else if !machine.is_valid_state(redirect) {
             if let Some(task_handle) = &task_handle {
-                let _ = fs2::FileExt::unlock(task_handle);
+                task_handle.release();
             }
-            let _ = fs2::FileExt::unlock(&metadata_handle);
+            metadata_handle.release();
             return Err(miette!(
                 help = callback_command_help(),
                 "on_leave callback redirected to unknown state '{}'", redirect
@@ -454,9 +444,9 @@ fn execute_transition_with_origin(
             redirect,
         ) {
             if let Some(task_handle) = &task_handle {
-                let _ = fs2::FileExt::unlock(task_handle);
+                task_handle.release();
             }
-            let _ = fs2::FileExt::unlock(&metadata_handle);
+            metadata_handle.release();
             return Err(err);
         } else if let Some(rule) =
             machine.transitions().iter().find(|r| r.from.0 == from && r.to.0 == redirect).or_else(
@@ -466,9 +456,9 @@ fn execute_transition_with_origin(
             (redirect.to_string(), rule)
         } else {
             if let Some(task_handle) = &task_handle {
-                let _ = fs2::FileExt::unlock(task_handle);
+                task_handle.release();
             }
-            let _ = fs2::FileExt::unlock(&metadata_handle);
+            metadata_handle.release();
             return Err(miette!(
                 help = callback_command_help(),
                 "on_leave callback redirected to '{}', but no transition from '{}' to '{}' is declared",
@@ -494,9 +484,9 @@ fn execute_transition_with_origin(
         &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(err);
     }
 
@@ -605,9 +595,9 @@ fn execute_transition_with_origin(
         &callback_paths.plan_path,
     ) {
         if let Some(task_handle) = &task_handle {
-            let _ = fs2::FileExt::unlock(task_handle);
+            task_handle.release();
         }
-        let _ = fs2::FileExt::unlock(&metadata_handle);
+        metadata_handle.release();
         return Err(err);
     }
 
@@ -695,9 +685,9 @@ fn execute_transition_with_origin(
                     None
                 };
                 if let Some(task_handle) = &task_handle {
-                    let _ = fs2::FileExt::unlock(task_handle);
+                    task_handle.release();
                 }
-                let _ = fs2::FileExt::unlock(&metadata_handle);
+                metadata_handle.release();
                 let message =
                     result.error.clone().unwrap_or_else(|| "on_enter callback failed".to_string());
                 if rollback_err.is_some() || task_rollback_err.is_some() {
@@ -730,9 +720,9 @@ fn execute_transition_with_origin(
     );
 
     if let Some(task_handle) = task_handle {
-        let _ = fs2::FileExt::unlock(&task_handle);
+        task_handle.release();
     }
-    let _ = fs2::FileExt::unlock(&metadata_handle);
+    metadata_handle.release();
     record?;
     Ok(to.to_string())
 }

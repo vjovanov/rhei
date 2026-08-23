@@ -168,18 +168,13 @@ fn write_task_assignee(
     claim: TaskAssigneeClaimContext<'_>,
     assignee: &str,
 ) -> MietteResult<()> {
-    let handle = fs::File::open(task_file)
-        .map_err(|err| file_io_report(task_file, "failed to open plan file", err))?;
-    handle
-        .lock_exclusive()
-        .map_err(|err| file_io_report(task_file, "failed to acquire file lock", err))?;
-
-    let raw = read_locked_to_string(&handle, task_file, "failed to read plan file")?;
+    let locked = LockedPlanFile::open(task_file)?;
+    let raw = locked.read_to_string("failed to read plan file")?;
     let target = parse_task_id(task_id);
     let task = parse_claim_task_from_raw(&raw, task_file, &target, task_id)?;
     let current_state = normalized_state_name(task.state.as_str(), machine);
     if current_state != expected_state {
-        let _ = fs2::FileExt::unlock(&handle);
+        locked.release();
         return Err(miette!(
             help = task_moved_help(),
             "conflict: Task {} is in state '{}', expected '{}'",
@@ -189,7 +184,7 @@ fn write_task_assignee(
         ));
     }
     if let Some(existing) = task.assignee.as_deref() {
-        let _ = fs2::FileExt::unlock(&handle);
+        locked.release();
         // §FS-rhei-release.1: hand-editing the plan is not the remedy.
         return Err(miette!(
             help = format!(
@@ -234,12 +229,12 @@ fn write_task_assignee(
             help = temp_write_help(),
             "failed to write temp file: {err}"
         ))?;
-    persist_locked(tmp, task_file, Some(&handle)).map_err(|err| miette!(
+    persist_locked(tmp, task_file, Some(&locked)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
-    let _ = fs2::FileExt::unlock(&handle);
+    locked.release();
     Ok(())
 }
 

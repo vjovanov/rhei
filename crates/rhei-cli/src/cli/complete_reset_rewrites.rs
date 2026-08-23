@@ -30,12 +30,8 @@ fn reset_target_files(
 }
 
 fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -> MietteResult<()> {
-    let file = fs::File::open(path)
-        .map_err(|err| file_io_report(path, "failed to open plan file", err))?;
-    file.lock_exclusive()
-        .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
-
-    let raw = read_locked_to_string(&file, path, "failed to read plan file")?;
+    let locked = LockedPlanFile::open(path)?;
+    let raw = locked.read_to_string("failed to read plan file")?;
     let new_raw = rewrite_all_states_to_initial(&raw, machine)?;
     let new_raw = strip_result_links(&new_raw);
     let new_raw = strip_assignee_lines(&new_raw);
@@ -60,22 +56,18 @@ fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -
         help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
-    persist_locked(tmp, path, Some(&file)).map_err(|err| miette!(
+    persist_locked(tmp, path, Some(&locked)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
-    let _ = fs2::FileExt::unlock(&file);
+    locked.release();
     Ok(())
 }
 
 fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteResult<()> {
-    let file = fs::File::open(path)
-        .map_err(|err| file_io_report(path, "failed to open plan file", err))?;
-    file.lock_exclusive()
-        .map_err(|err| file_io_report(path, "failed to acquire file lock", err))?;
-
-    let raw = read_locked_to_string(&file, path, "failed to read plan file")?;
+    let locked = LockedPlanFile::open(path)?;
+    let raw = locked.read_to_string("failed to read plan file")?;
     let metadata = if workspace_index {
         rhei_core::parser::parse_workspace_index(&raw)
             .map_err(|err| {
@@ -110,12 +102,12 @@ fn clear_runtime_metadata_in_file(path: &Path, workspace_index: bool) -> MietteR
         help = temp_write_help(),
         "failed to write temp file: {err}"
     ))?;
-    persist_locked(tmp, path, Some(&file)).map_err(|err| miette!(
+    persist_locked(tmp, path, Some(&locked)).map_err(|err| miette!(
         help = temp_write_help(),
         "failed to persist temp file: {err}"
     ))?;
 
-    let _ = fs2::FileExt::unlock(&file);
+    locked.release();
     Ok(())
 }
 
