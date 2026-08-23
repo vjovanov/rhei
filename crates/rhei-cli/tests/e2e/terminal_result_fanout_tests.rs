@@ -134,8 +134,9 @@ fn a_fanned_out_invocation_that_writes_nothing_fails_its_own_completion_conditio
         result.stderr
     );
     let combined = format!("{}{}", result.stdout, result.stderr);
+    let owed = Path::new("plan.1").join("review").join("1").join("mock-mock-beta.md");
     assert!(
-        combined.contains("plan.1/review/1/mock-mock-beta.md"),
+        combined.contains(&owed.display().to_string()),
         "the warning names the fragment the silent invocation owed; got:\n{combined}"
     );
     assert_task_state(&plan_path, &machine_path, "1", "review");
@@ -270,8 +271,9 @@ fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
     );
     assert_task_state(&plan_path, &machine_path, "1", "refine");
     let combined = format!("{}{}", result.stdout, result.stderr);
+    let owed = Path::new("plan.1").join("refine").join("1").join("mock-mock-alpha.md");
     assert!(
-        combined.contains("plan.1/refine/1/mock-mock-alpha.md"),
+        combined.contains(&owed.display().to_string()),
         "the warning names the fragment `refine` owed, under its own state; got:\n{combined}"
     );
     assert!(

@@ -46,3 +46,20 @@ fn python_fixture_command(dir: &Path, name: &str, body: &str) -> Vec<String> {
     fs::write(&script, body).expect("write python fixture");
     vec![test_python_command().to_string(), script.display().to_string()]
 }
+
+/// The interpreter's own absolute path.
+///
+/// A bare name needs `PATH`, and the one place that runs a fixture without one
+/// is the snapshot redactor: it is spawned with `env_clear()` and a handful of
+/// `RHEI_*` variables, so a `.cmd` shim naming `python` finds nothing.
+fn test_python_executable() -> &'static str {
+    static PYTHON_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PYTHON_PATH.get_or_init(|| {
+        let output = std::process::Command::new(test_python_command())
+            .arg("-c")
+            .arg("import sys;sys.stdout.write(sys.executable)")
+            .output()
+            .expect("python reports its own path");
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    })
+}

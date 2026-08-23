@@ -97,12 +97,13 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
     // §FS-rhei-memory.3.4: the map, after the transition list. The fixture is
     // not a git checkout, so the agent's cwd is elsewhere and every path is
     // absolute (`{output.<name>.path}`'s rule) and canonical, as `RHEI_ROOT` is.
-    let root = dir.canonicalize().expect("the fixture exists").display().to_string();
+    let root_path = rhei_core::platform::canonical_path(&dir).expect("the fixture exists");
+    let root = root_path.display().to_string();
+    let plan = root_path.join("plan.rhei.md").display().to_string();
     let dash = "\u{2014}";
     assert!(
         first.contains(&format!(
-            "- This rhei: `{root}` {dash} plan `{root}/plan.rhei.md`, \
-             this task's file `{root}/plan.rhei.md`\n"
+            "- This rhei: `{root}` {dash} plan `{plan}`, this task's file `{plan}`\n"
         )),
         "got:\n{first}"
     );
