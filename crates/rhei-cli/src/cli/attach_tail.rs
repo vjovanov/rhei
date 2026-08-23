@@ -140,4 +140,3 @@ fn read_new_lines(log: &mut TailedLog) -> Vec<rhei_tui::RunEvent> {
     events
 }
 
-use std::io::Seek as _;

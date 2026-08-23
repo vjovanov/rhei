@@ -111,6 +111,7 @@ include!("cli/task_metadata_lines.rs");
 include!("cli/next_command.rs");
 include!("cli/complete_reset_commands.rs");
 include!("cli/complete_reset_rewrites.rs");
+include!("cli/file_locks.rs");
 include!("cli/transition_ledger.rs");
 include!("cli/release_command.rs");
 include!("cli/next_output.rs");
