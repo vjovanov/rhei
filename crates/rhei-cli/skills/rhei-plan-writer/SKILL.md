@@ -43,7 +43,7 @@ Use this exact block shape for every task node (root and child):
 ```
 
 Apply these rules:
-- **Every task MUST have a `**State:**` field**, placed as the first metadata line directly under the heading (no blank line between). A task without `**State:**` is invalid and will fail validation — this is the single most common authoring mistake, so check for it before finishing (see *Planning Workflow* step 9).
+- **Every task MUST have a `**State:**` field**, placed as the first metadata line directly under the heading (no blank line between). A task without `**State:**` is invalid and will fail validation — this is the single most common authoring mistake, so check for it before finishing (see *Planning Workflow* step 10).
 - Place `**Prior:**` second when present; omit it when no prerequisites exist.
 - **Do not author `**Assignee:**` or `> **Result:**` blocks** — both are runtime-owned: `rhei next` writes `**Assignee:**` when a task is claimed; `rhei complete` removes it and writes `> **Result:** [<id>](runtime/results/<id>.md)`, where `<id>` is the project-qualified ticket id (e.g. `plan.1` for `plan.rhei.md`).
 - Separate metadata from description with a blank line. Emit no other metadata fields.
@@ -110,8 +110,9 @@ structure:
 7. Set initial states correctly:
    - New plan: set every task to the active machine's profile `initial` (`pending` for the built-in machine).
    - Existing plan update: preserve truthful terminal states (`completed`, `cancelled`) unless explicitly changed, and preserve any `**Assignee:**` / `> **Result:**` blocks the runtime has written.
-8. Run the validation checklist before returning output.
-9. **Final scan:** re-read every `### Task` / `#### Task` / deeper heading (or other declared kinds) and confirm each is immediately followed by a `**State:**` line. This is the most common defect — always perform this check last.
+8. Save the plan where *File Location and Name* says — in the host project's `panta/`, never at the repository root.
+9. Run the validation checklist before returning output.
+10. **Final scan:** re-read every `### Task` / `#### Task` / deeper heading (or other declared kinds) and confirm each is immediately followed by a `**State:**` line. This is the most common defect — always perform this check last.
 
 ## Validation Checklist
 
@@ -129,9 +130,13 @@ Validate every response against all checks:
 
 When the CLI is available, run `rhei validate <plan>` after writing — it performs the full grammar, state, dependency, link, and terminal-coherence checks the checklist only approximates.
 
-## File Extension
+## File Location and Name
 
-Save Single-File Plans as `<id>.rhei.md` — the file stem becomes the rhei id that prefixes every ticket id in command output (`plan.rhei.md` → tickets `plan.1`, `plan.2`, ...), so choose it like an identifier. A bare `.md` extension is not a valid single-file rhei. The Directory Workspace root file is always `index.rhei.md`.
+Plans live in the host repository's Panta project: `panta/<id>.rhei.md` for a Single-File Plan, `panta/<name>/index.rhei.md` for a Directory Workspace. Before writing anything, look for `index.panta.md` — in the working directory or in its `panta/` child — or just run `rhei list`. When the project is there, `rhei new "<title>"` writes the file into it from any directory beneath the host and you never choose a path (see *Adding to a Live Project*); hand-write into that same directory only when the CLI is unavailable. Discovery reads the project directory's immediate children and nothing else, so a plan left at the repository root or tucked into a subfolder of `panta/` is not a rhei — and nothing tells you: `rhei list` never shows its tickets and `rhei validate` still succeeds.
+
+When the host has no project yet, creating one stays the human's call, because `rhei init` writes `.gitignore` and `AGENTS.md` in their repository. Ask for it, and write the plan to `panta/<id>.rhei.md` meanwhile — `rhei init` adopts the plans it finds there, while a `.rhei.md` left at the repository root makes it refuse until the file is moved. Init also gitignores `panta/`, so say that the plan will not appear in `git status`; leave that entry alone unless the user wants the plan versioned, which is `rhei init --here` or dropping the host's `panta/` line, and is theirs to decide.
+
+Name a Single-File Plan `<id>.rhei.md` and a Directory Workspace directory `<id>/` — the file stem, or the directory name, becomes the rhei id that prefixes every ticket id in command output (`plan.rhei.md` → tickets `plan.1`, `plan.2`, ...), so choose it like an identifier: it must start with a letter and contain only letters, digits, `_`, or `-`, and `basin` is reserved for the project's unfiled inbox. A bare `.md` extension is not a valid single-file rhei. The Directory Workspace root file is always `index.rhei.md`.
 
 ## Adding to a Live Project
 
