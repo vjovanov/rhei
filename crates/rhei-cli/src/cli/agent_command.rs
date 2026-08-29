@@ -63,6 +63,8 @@ fn build_agent_command(
     task_id: &str,
     state_name: &str,
     visit_count: u64,
+    // Which attempt of this visit the invocation is. §FS-rhei-agents.4
+    attempt: u64,
     tooling: &ResolvedTooling,
     runtime_dir: &Path,
     // Fan-out key of this invocation, when the state fans out: it decides which
@@ -179,6 +181,9 @@ fn build_agent_command(
         )
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
+        // A retry that is handed the same environment as the attempt it is
+        // recovering from has no way to know it is one. §FS-rhei-agents.4
+        .env("RHEI_ATTEMPT", attempt.to_string())
         .env("RHEI_AGENT", id);
     if let Some(path) = worktree_root {
         cmd.env("RHEI_WORKTREE_ROOT", path);
@@ -570,16 +575,3 @@ fn inject_tooling_env(cmd: &mut std::process::Command, tooling: &ResolvedTooling
     }
 }
 
-/// Construct the log file path for a task/state invocation.
-fn agent_log_path(
-    runtime_dir: &Path,
-    task_id: &str,
-    state_name: &str,
-    suffix: Option<&str>,
-) -> PathBuf {
-    let suffix = suffix
-        .filter(|value| !value.is_empty())
-        .map(|value| format!("-{value}"))
-        .unwrap_or_default();
-    runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}{suffix}.log"))
-}

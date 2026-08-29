@@ -144,6 +144,7 @@ key rather than replacing the whole file.
 | `agent_mode` | string or null | No | Default agent mode (named flag set) applied when a state does not set `agent_mode`. |
 | `agent_timeout` | string or null | No | Default autonomous agent timeout |
 | `program_timeout` | string or null | No | Default program timeout |
+| `attempts` | integer or null | No | Default number of spawns one state visit may have before the run halts. See [Attempt Budget](#323-attempt-budget). |
 | `mcp_servers` | array | No | Default MCP server entries applied to every agent state. Entries are ids or inline definitions. See [MCP Servers](#114-mcp_servers). |
 | `skills` | array | No | Default skill entries applied to every agent state. Entries are ids or inline definitions. See [Skills](#115-skills). |
 
@@ -767,6 +768,22 @@ per-invocation for the same reason condition (2) is: a fanned-out state's
 artifacts are keyed by invocation identity, and one worker's file must not
 excuse a sibling that wrote nothing.
 
+The same condition is also what lets `rhei run` decide *not* to spawn. Before a
+pass spawns an invocation of a state that declares `outputs:`, it asks whether
+that invocation's work is already on disk, and it skips the spawn only when
+conditions (2) **and** (3) both hold for that invocation — the declared
+artifacts, and, on a terminal edge, its own result. There is one completion
+condition, asked at two moments; a scheduling test that looked only at the
+declared outputs would read an invocation that *failed* the condition on one
+pass as having nothing left to do on the next, and the ticket would advance on
+the strength of artifacts that never answered for it.
+
+A state that declares no `outputs:` is never skipped this way. It has no
+artifact of its own that could stand as proof its work was done, and
+`runtime/results/<task-id>.md` cannot stand in for one: that file is shared with
+every other state the ticket has passed through, so a result written earlier
+would excuse a state that has not run at all.
+
 This contract maps 1:1 onto the native headless mode of every supported agent.
 All six built-ins — `claude-code -p`, `codex exec`, `gemini --prompt --yolo`,
 `cursor-agent --print --force`, `kilo --auto --yolo`, and `pi -p` — run one
@@ -799,12 +816,55 @@ Under `orchestrator` authority, `rhei run`:
    - If any is missing, the task stays in its current state and the engine
      logs `warning: agent exited 0 but required outputs are missing for task
      {id} in state '{state}': <name1> (<path1>), <name2> (<path2>)` — with
-     `program` in place of `agent` when a program state stalls the same way. No
-     transition fires. The same facts are recorded structurally, so the run
-     report classifies the ticket by the artifacts it owes rather than as a
-     generic stall (§FS-rhei-run-report.3.1). The ticket is not spawned again
-     within the pass and the run continues with the other claimable tickets
-     (§FS-rhei-run.3 step 5).
+     `program` in place of `agent` when a program state stalls the same way —
+     followed by a halt line that says what the run will do next. That line is
+     a **prediction**, so it is conditioned on the attempt budget of §3.2.3 and
+     not on the completion condition alone. While the visit has an attempt left
+     it reads `halting Task {id} in state '{state}': the completion condition is
+     not met, so no transition fires; a later pass runs the state again.` When
+     the attempt that just finished was the *last* one this visit gets, that
+     sentence would be false — no later pass will run the state again — and the
+     exhaustion line of §3.2.3 is printed in its place, word for word, at the
+     moment it becomes true rather than one run later. An operator must never
+     read a promise of a retry from the run that spent the last attempt and the
+     denial of one from the run after it.
+     No transition fires either way. The same facts are recorded structurally,
+     so the run report classifies the ticket by the artifacts it owes rather
+     than as a generic stall (§FS-rhei-run-report.3.1). The ticket is not
+     spawned again within the pass and the run continues with the other
+     claimable tickets (§FS-rhei-run.3 step 5).
+   - A later pass that reaches the same ticket spawns the state again, because
+     the invocation still fails the completion condition it is scheduled
+     against (§3.2). The spawn says so as it happens, beside the `Log:` line:
+     `Re-spawning Task {id} in state '{state}': attempt {n} of {budget}; the
+     previous attempt {ending} (previous log: {path})` — one line, naming the
+     attempt being spent, the budget it comes out of, and the transcript it is
+     retrying, so a re-spawn is not read as a state being started for the first
+     time. `{ending}` is read from that attempt's spawn record (§8.4) and says
+     what actually happened to it — `timed out after 30m`, `was interrupted by
+     a run shutdown`, `exited 3`, or `exited 0 without meeting this state's
+     completion condition`. The engine never reports one ending as another: a
+     run that was Ctrl-C'd and a state that stalled on its outputs are
+     different facts and a retry says which it is retrying.
+   - A retry is only worth spawning if it can do better than the attempt before
+     it, so a re-spawned invocation is told it is one. Its prompt names the
+     attempt number, what the previous attempt left unmet, and the result path
+     it did not write (§FS-rhei-memory.4.4). Without that the retry receives a
+     byte-identical prompt and repeats the attempt it is meant to recover from.
+   - The retry is bounded, per state visit, by the **attempt budget** of §3.2.3.
+     Spawn number `{budget} + 1` of a visit does not happen: the ticket stays
+     where it is, is not scheduled again for the rest of the run, and the engine
+     logs `halting Task {id} in state '{state}': {budget} attempts spent on this
+     visit and the completion condition is still unmet: <name1> (<path1>). The
+     ticket stays in '{state}'.` No transition fires — not an error transition,
+     not a timeout transition, and not a move to a terminal state. An exhausted
+     budget is a stall like any other stall of step 5 (§FS-rhei-run.3), and it
+     is reported as one; the engine never converts "I stopped paying for this"
+     into "this ticket failed".
+     This is one sentence with two moments, not two sentences: it is printed by
+     the attempt that spends the last of the budget, and again by any later pass
+     that reaches the ticket and declines to spawn it. Both say the same thing
+     because both are the same fact.
    - Each entry names the artifact and the **resolved** path that was checked,
      so a stale or mis-templated path is visible without re-deriving it. When a
      resolved path still contains an unresolved `{...}` template, the entry is
@@ -828,6 +888,57 @@ agent that hangs without producing outputs is bounded by the timeout and
 routed to the state's timeout transition (or fails the task with a warning
 when no timeout transition is declared).
 
+#### 3.2.3. Attempt Budget
+
+One state **visit** — the span between two consecutive moves of the ticket
+(§8.1) — may be spawned a bounded number of times. This is not `visits:`:
+`visits:` counts how many times a ticket may **enter** the state; `attempts:`
+counts how many times a single entry may be **spawned** before the run halts.
+Entering the state again is a new visit, and a new visit brings a fresh
+`attempts:` budget.
+
+The budget can be set at two levels, resolved the way a timeout is (§7.1):
+
+1. **Per-state** — `attempts` field on a state definition:
+   ```yaml
+   states:
+     implement:
+       attempts: 3
+   ```
+
+2. **Defaults** — `defaults.attempts` in settings:
+   ```json
+   { "defaults": { "attempts": 3 } }
+   ```
+
+Resolution: state-level > settings defaults > the built-in **2**.
+
+Two is the initial invocation plus one informed retry. It is deliberate. A
+retry that is told nothing repeats its predecessor exactly and buys nothing, so
+the one retry is worth spending only because §3.2.1 makes it an informed one; a
+third attempt that has learned nothing new since the second is spend without a
+mechanism for converging. A machine whose recovery genuinely needs more sets
+`attempts:` and says so where a reader will find it.
+
+The budget is **persisted with the visit**, in the spawn record of §8.4, so it
+holds across separate `rhei run` invocations. A budget that reset when the
+operator ran `rhei run` again would bound nothing: the runaway case this exists
+for is a state re-spawned once per run, forever.
+
+An invocation the **run itself interrupted** does not spend the budget. The
+shutdown ended it, no transition fired, and the next `rhei run` re-executes it
+(§FS-rhei-run.3.2); charging it would let two Ctrl-Cs halt a ticket that has not
+yet had one attempt of its own. It still gets its own attempt log and its own
+spawn record — a transcript cut short is worth as much as any other.
+
+A budget below `1` is raised to `1`: every visit gets at least the invocation
+that makes it a visit.
+
+A **poll state** (§FS-rhei-states.2) is exempt from the budget. Re-spawning
+without moving is what a poll state is for, and it already declares its own
+bound in `poll.max_attempts`; a second bound over the same spawns would end the
+loop earlier than the machine's author said it should.
+
 ## 4. Environment Variables
 
 The agent subprocess inherits these environment variables, consistent with the
@@ -843,6 +954,7 @@ callback environment:
 | `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
 | `RHEI_RESULT_PATH` | Absolute path to the result file **this invocation** must write: `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID.md` normally, and `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID/$RHEI_STATE/$RHEI_VISIT_COUNT/<identity>.md` for one invocation of a fanned-out state, where `<identity>` is the target slug or model id that keys the rest of that invocation's artifacts (§FS-rhei-states.3.3). Always set, for every state — a program has no prompt to read the path from, and deriving it from four other variables is a contract nobody can be held to. A task does not enter a `final: true` state until the ticket's result has content (§FS-rhei-states.3.3) |
 | `RHEI_STATE` | Current state name |
+| `RHEI_ATTEMPT` | Which attempt of this state visit the invocation is, counting from 1. `2` and above mean the invocation is a retry of an attempt that did not finish, and the prompt's `## Previous Visits` says how that one ended (§FS-rhei-memory.3.3). Distinct from `RHEI_VISIT_COUNT`, which counts entries into the state and not spawns within one (§FS-rhei-agents.8.1) |
 | `RHEI_MODEL` | Model profile id, if configured |
 | `RHEI_MODEL_PROVIDER` | Resolved provider id, if configured |
 | `RHEI_MODEL_NAME` | Resolved provider model name, if configured |
@@ -1195,6 +1307,28 @@ parsing the log body for billing facts. §FS-rhei-cost-accounting
 | Counted-loop state | `runtime/logs/task-{task_id}-{state}-{visit_count}.log` |
 | Model-specific state | `runtime/logs/task-{task_id}-{state}-{model}.log` |
 | Both visits and model | `runtime/logs/task-{task_id}-{state}-{model}-{visit_count}.log` |
+| Retry within one visit | the name above with `-attempt{n}` appended, `n` counting from 2 |
+
+`{visit_count}` counts only where §FS-rhei-transitions.4.3 keeps a counter, so
+it cannot separate one stay in a state from the next: an ordinary state in a
+cycle is `{visit_count}` 1 on every entry. The attempt suffix is therefore keyed
+to a **state visit**, which this specification defines as the span between two
+consecutive moves of the ticket. The first spawn of a visit uses the unsuffixed
+name above; each further spawn *within that same visit* is `-attempt2`,
+`-attempt3`, and so on, and the first spawn after the ticket moves again starts
+over at the unsuffixed name — a fresh entry into a state is not a retry of the
+last one, and must not be named or narrated as one. Without the suffix a retry
+would truncate the one file that says why the attempt before it did not finish,
+which is the file both a human and the retrying agent need most.
+
+A visit's attempt number is read from the spawn record of §8.4, never inferred
+from which log files happen to exist: a log is opened before its subprocess
+starts, so its presence proves only that a spawn was attempted.
+
+Where something names "the log of a visit" — the `Previous log:` line of a
+prompt (§FS-rhei-memory.4.4), the evidence behind an engine-written result
+(§FS-rhei-run.3) — it means the log named by that visit's spawn record, which is
+the last thing that actually ran there.
 
 ### 8.2. Log Format
 
@@ -1247,6 +1381,41 @@ missing line means the state declared no entries of that kind.
 ### 8.3. Log Directory
 
 `runtime/logs/` is created automatically by `rhei run` if it does not exist. `rhei reset` removes the entire `runtime/` directory, including logs.
+
+### 8.4. Spawn Records
+
+A log answers *what a worker said*. Two other questions are asked of a finished
+spawn — *did a worker actually run in this state* and *is the next spawn a retry
+of the same visit* — and neither can be answered from `runtime/logs/`. The log
+file is created and its header written before the subprocess starts, so a
+`command:` naming a binary that does not exist leaves a complete-looking header
+behind; and the log's own name cannot say which visit it belongs to, because
+`{visit_count}` does not count every visit (§8.1).
+
+So `rhei run` writes one **spawn record** per invocation, in
+`runtime/spawns/`, named after the invocation exactly as its log is minus the
+`-attempt{n}` suffix: `task-{task_id}-{state}{suffix}.json`. It is written when
+the subprocess **ends**, never when it is merely opened, and it is rewritten in
+place by each further attempt of the same invocation. It holds:
+
+| Field | Meaning |
+|-------|---------|
+| `task`, `state` | the invocation this record answers for, spelled out |
+| `moves` | how many times the ticket had moved when this spawn started — the visit key of §8.1 |
+| `attempt` | which attempt of that visit this was, counting from 1 |
+| `kind`, `worker` | `agent` or `program`, and the resolved agent id or command |
+| `log` | the transcript this spawn wrote |
+| `started`, `ended`, `duration`, `code` | when it ran, for how long, and how it exited |
+| `ending` | `exited`, `timed out`, or `interrupted` — why it stopped |
+
+`task` and `state` are stored as fields and matched as fields. A reader looking
+for "a worker that ran in state `review`" must not match record *file names* by
+prefix: state names share prefixes — `agent-review` and `agent-review-fix` ship
+in one profile in §FS-rhei-states.8 — and a prefix match would attribute one
+state's transcript, worker, and duration to its neighbour.
+
+`runtime/spawns/` is created on demand and, like `runtime/logs/`, is removed by
+`rhei reset`.
 
 ## 9. Dry-Run Output
 

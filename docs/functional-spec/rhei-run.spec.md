@@ -209,6 +209,29 @@ from silently completing fresh tasks without executing them.
      work is never a verdict on the tickets beside it. The run halts only when a
      pass makes no progress at all (step 9), and then exits non-zero with every
      stalled ticket named.
+
+     The recovery is to **run the state again**, and only that. A later pass
+     that reaches the ticket — this run's, or the next `rhei run`'s — schedules
+     the same invocation, because step 3 skips an invocation only when the whole
+     completion condition already holds for it (§FS-rhei-agents.3.2). The engine
+     never advances the ticket instead: doing so would put it in a `final: true`
+     state with no account of the work, and the only sentence the engine could
+     write there would be about a worker it did not watch.
+
+     Running the state again is bounded. One visit to a state — the span
+     between two consecutive moves of the ticket — may be spawned at most
+     `attempts` times (§FS-rhei-agents.3.2.3), a budget that is persisted with
+     the visit and therefore survives the end of a run: a fresh `rhei run` does
+     not buy the ticket a fresh allowance, because "once per run, forever" is
+     exactly the unbounded case the budget exists for. Entering the state again
+     is a new visit and does bring a fresh budget. When the budget is spent the
+     ticket stalls here, through this same path and no other: it stays in its
+     state, is out of the running for the rest of the run, is named in the halt
+     with the attempts it spent and the artifact it still owes, and the run's
+     exit code is the one step 9 gives any run that ends with tickets
+     unfinished. No transition fires on an exhausted budget — an error edge, a
+     timeout edge, or a move to `cancelled` would record a verdict on work the
+     engine never saw.
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
@@ -230,6 +253,29 @@ from silently completing fresh tasks without executing them.
    [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
 
+   This is the **pass loop's** bound, and it is not the attempt budget of step
+   5. The two answer different questions and neither substitutes for the other:
+   the budget bounds how many times one visit to a state may be spawned, across
+   runs; the pass loop bounds how long *this* run keeps trying, given what its
+   passes achieve.
+
+   A ticket that stalled under step 5 is out of the running for the rest of that
+   pass. A pass that moved *something* — any ticket, any transition — does not
+   release those tickets; it records that the run has made progress since the
+   last release, and the pass loop goes on to the tickets that are still
+   claimable. A pass that ends with a ticket newly stalled and other claimable
+   tickets still untried also continues, since it has not yet asked everything
+   it could ask.
+
+   The release happens at the one moment the run would otherwise stop: a pass
+   that moved nothing and has no untried ticket left. If some earlier pass had
+   made progress, every stalled ticket is released and given another turn, and
+   the run continues; if that turn moves nothing either, the run ends and names
+   every ticket still stalled. So the allowance is not one extra pass per run —
+   it renews every time the run makes progress — and it is not a bound on how
+   often one ticket may be re-spawned. That bound is the attempt budget above,
+   which is per state visit and outlives the run.
+
 ### Who supplies the result on a terminal edge
 
 `rhei run` never invents one. Each route says who does:
@@ -241,7 +287,7 @@ from silently completing fresh tasks without executing them.
 | Timeout (§FS-rhei-agents.7.3) | The engine, which knows the timeout that ended the work and writes it as the result message. |
 | Unavailable required tooling (§FS-rhei-agents.6) | The engine, which names the kind and the unavailable ids. |
 | Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |
-| Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. No subprocess ran in the source state, so there is nobody else who knows more than the engine does. |
+| Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. What it says about the worker is what it can prove: with a spawn record for the source state on disk (§FS-rhei-agents.8.4) the sentence names the worker that ran — `agent '<id>'` or `program \`<command>\`` — its log, and how it ended; only with no such record does it say that no worker ran. |
 | Human gate released from a live surface — browser dashboard (§FS-rhei-viz.5.1) or TUI (§FS-rhei-run-tui.1.5.5) | The human who released it, through the gate surface's own optional **Result** field. The message rides the transition like `rhei transition --result` does. Left blank with no result on disk, a release into a terminal state is refused, and the refusal names `rhei transition <id> --from <state> --to <state> --result "<why>"`. Releasing a gate into a non-terminal state is unaffected either way. |
 
 The line the table draws is one rule: **the engine writes a result only for the
@@ -259,6 +305,32 @@ result of its own, so a callback that writes one is never overwritten or
 contradicted. Recording "no worker result was recorded" is the point — it is
 the fact the old, empty result file withheld, and the reason the audit trail
 used to depend on which verb drove the plan.
+
+The clause about the worker is checked, not assumed, and what it is checked
+against is the spawn record of §FS-rhei-agents.8.4 — never the presence of a log
+file. A log is opened, and its header written, *before* the subprocess starts,
+so a `command:` naming a binary that does not exist leaves a log behind for a
+worker that never ran; recording that such a worker "ran in that state earlier"
+would be the same class of lie as recording that none did. A spawn record is
+written when a subprocess **ends**, so its presence is proof one ran.
+
+Where a record is found the recorded sentence names the worker — the agent id,
+or the program's command — the log it wrote, how it ended, and that it wrote no
+result: the fact the reader needs, and the opposite of what "no agent ran" would
+have told them. The record is matched by its `task` and `state` fields, so a
+state never inherits the account of a state whose name it is a prefix of. With
+no record, the sentence says that no agent or program ran in that state, which
+is then true.
+
+The account also says whether the state's declared `outputs:` were verified on
+this edge — not asserted, reported: the check either ran and passed immediately
+before the result was recorded, or it was waived because the edge lands on the
+reserved `cancelled` state (§FS-rhei-states.1.4), and the sentence says which.
+A state that declares no `outputs:` has nothing to report and the clause is
+omitted.
+
+The accounting record is deliberately not the evidence: it is written only for
+agents that support accounting (step 6), so a missing one proves nothing.
 
 `rhei run` does not transition out of [gating states](rhei-states.spec.md#12-per-state-fields) — exiting one requires an explicit human-initiated `rhei transition` call.
 

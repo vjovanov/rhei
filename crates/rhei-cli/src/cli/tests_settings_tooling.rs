@@ -35,6 +35,7 @@
             "task-7",
             "pending",
             1,
+            1,
             &tooling,
             runtime_dir.path(),
             None,
@@ -75,6 +76,7 @@
             None,
             "t",
             "pending",
+            1,
             1,
             &tooling,
             runtime_dir.path(),
@@ -1072,6 +1074,7 @@ states:
             "1",
             "pending",
             1,
+            1,
             &gate.tooling,
             runtime_dir.path(),
             None,
@@ -1119,6 +1122,7 @@ states:
             0,
             Arc::new(RecordingSink::default()),
             None,
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("agent runs");

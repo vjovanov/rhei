@@ -97,6 +97,7 @@ can start in different states within the same state machine.
 | `agent` | string | No | The coding agent CLI that executes work in this state. Must be an agent id resolved against the merged `agents` registry (built-ins → global → project `settings.json`). Inline agent objects are not permitted — define custom agents in the `agents` registry. See [Agents Specification](rhei-agents.spec.md). |
 | `agent_mode` | string | No | Named flag set applied to the resolved agent for this state. Must match a key in the resolved agent's `modes` map. See [Agents Specification — Modes](rhei-agents.spec.md#22-modes). |
 | `agent_timeout` | string | No | Maximum time an agent may work in this state before being killed (e.g., `30m`, `1h`). See [Agents Specification — Timeout Handling](rhei-agents.spec.md#7-timeout-handling). |
+| `attempts` | integer | No | How many times **one visit** to this state may be spawned before `rhei run` halts the ticket. Distinct from `visits`, which bounds how many times the ticket may *enter* the state. Defaults to `2` — the invocation plus one informed retry. See [Agents Specification — Attempt Budget](rhei-agents.spec.md#323-attempt-budget). |
 | `program` | string or object | No | The program command to execute in this state. String form runs via shell. Object form specifies `command`, `env`, `working_directory`, and `shell`. Mutually exclusive with `agent`. See [Program States Specification](rhei-programs.spec.md). |
 | `program_timeout` | string | No | Maximum time the program may run before being killed (e.g., `10m`, `1h`). Same duration format and timeout handling as `agent_timeout`. See [Program States Specification](rhei-programs.spec.md#4-timeout-handling). |
 | `inputs` | artifact array | No | Artifacts that must exist before the task can enter this state. Individual entries may be marked `optional: true` to skip the existence check. |
@@ -176,6 +177,7 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
 - `state.agent` on a `gating: true` state is a validation warning (gating states are human-only; the agent will never be invoked by `rhei run`).
 - `state.agent_mode`, when present, must be a non-empty string and requires `state.agent` to be set. The mode name must match a key in the resolved agent's `modes` map, or the agent must declare no modes. See [Agents Specification — Mode Resolution Order](rhei-agents.spec.md#141-mode-resolution-order).
 - `state.agent_timeout`, when present, must be a valid duration string (e.g., `30s`, `5m`, `1h`, `2h30m`).
+- `state.attempts`, when present, must be a positive integer. A value below `1` is raised to `1`: a visit always gets the invocation that makes it a visit.
 - A state must not declare both `agent` and `program`.
 - `state.program`, when present, must be a non-empty string or a valid program object with at least a `command` field. See [Program States Specification](rhei-programs.spec.md).
 - `state.program` on a `final: true` state is a validation error (terminal states have no work to execute).

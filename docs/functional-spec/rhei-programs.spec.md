@@ -80,6 +80,7 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | `RHEI_RESULT_PATH` | Absolute path to the ticket's result file, `runtime/results/<task-id>.md` under the Rhei artifact root. Always set, and always the ticket-level file: `rhei run` spawns a program once per ticket, so a program state has one invocation and never writes the per-invocation result fragments a fanned-out agent state does, whatever else the state declares (§FS-rhei-states.3.3). A program whose exit routes the ticket into a `final: true` state must leave this file non-empty (§FS-rhei-states.3.3) |
 | `RHEI_STATE` | Current state name |
 | `RHEI_VISIT_COUNT` | Current visit number (for counted-loop states) |
+| `RHEI_ATTEMPT` | Which attempt of this state visit the program is, counting from 1. A program has no prompt, so this is the only way it can tell a retry from a first run — and it re-spawns on an unmet completion condition exactly as an agent does (§FS-rhei-agents.3.2.1) |
 | `RHEI_INPUT_<NAME>_EXISTS` | `true` or `false` — whether the declared input artifact exists on disk. Set for every declared input, required or optional. `<NAME>` is the artifact `name` uppercased with hyphens and spaces replaced by underscores (e.g., `continuation-notes` → `RHEI_INPUT_CONTINUATION_NOTES_EXISTS`). |
 | `RHEI_INPUT_<NAME>_PATH` | Resolved path of the declared input artifact. Set for every declared input regardless of whether the file exists. Same name transform as `RHEI_INPUT_<NAME>_EXISTS`. |
 
@@ -215,6 +216,18 @@ Program stdout and stderr are captured using the same log format and naming conv
 |----------|---------------|
 | Simple state | `runtime/logs/task-{task_id}-{state}.log` |
 | Counted-loop state | `runtime/logs/task-{task_id}-{state}-{visit_count}.log` |
+| Retry within one visit | the name above with `-attempt{n}` appended, `n` counting from 2 |
+
+A program state re-spawns for the same reason an agent state does — it is never
+skipped at scheduling, and a pass that finds its completion condition unmet runs
+it again — so the attempt rule of
+[Agents Specification — Log File Naming](rhei-agents.spec.md#81-log-file-naming)
+applies here in full: the attempt is keyed to the state visit, a fresh entry
+into the state starts over at the unsuffixed name, and a retry never truncates
+the transcript that says why the attempt before it did not finish. A program
+spawn writes the same record as an agent spawn
+(§FS-rhei-agents.8.4), with `kind` `program` and `worker` the resolved command,
+and it spends the same per-visit attempt budget (§FS-rhei-agents.3.2.3).
 
 ### 5.2. Log Format
 

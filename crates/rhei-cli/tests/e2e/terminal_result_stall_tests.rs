@@ -277,3 +277,161 @@ if task != 'plan.2':
     assert_task_state(&plan_path, &machine_path, "2", "work");
     assert_task_state(&plan_path, &machine_path, "3", "completed");
 }
+
+const RESULT_ONLY_MISSING_PLAN: &str = r#"# Rhei: Result Only Missing
+
+## Tasks
+
+### Task 1: Implement
+**State:** implement
+"#;
+
+/// The shape of issue #105: the state declares an output, the agent writes it
+/// and exits 0, and the edge out of the state is terminal — so the ticket's
+/// result is the one artifact of the completion condition still owed.
+// §FS-rhei-agents.3.2 §FS-rhei-states.3.3
+const RESULT_ONLY_MISSING_MACHINE: &str = r#"name: result-only-missing
+version: 1
+states:
+  implement:
+    initial: true
+    description: Writes its declared output and never its result
+    agent: mock
+    agent_timeout: 20s
+    outputs:
+      - name: report
+        path: artifacts/report-{task_id}.md
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: implement
+    to: completed
+"#;
+
+/// Publishes the declared output, counts the attempt so the test can tell one
+/// spawn from the next, and exits 0 without touching `RHEI_RESULT_PATH`.
+const OUTPUT_WITHOUT_RESULT_AGENT: &str = r#"root = pathlib.Path(env('RHEI_ROOT'))
+counter = root / 'attempts.txt'
+n = int(counter.read_text().strip()) + 1 if counter.exists() else 1
+write(counter, str(n))
+write(root / 'artifacts' / ('report-' + env('RHEI_TASK_ID') + '.md'), 'the report\n')
+sys.stdout.write('ATTEMPT-{}\n'.format(n))
+"#;
+
+fn setup_result_only_missing(name: &str) -> (TestDir, PathBuf, PathBuf) {
+    let dir = unique_temp_dir(name);
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", RESULT_ONLY_MISSING_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", RESULT_ONLY_MISSING_MACHINE);
+    let agent = write_python_agent(&dir, "mock-agent.py", OUTPUT_WITHOUT_RESULT_AGENT);
+    write_mock_agent_settings(&dir, &agent);
+    (dir, plan_path, machine_path)
+}
+
+/// A ticket that failed the completion condition on one pass was read on the
+/// next as having nothing left to do — its declared outputs were on disk — and
+/// was advanced into its terminal state carrying a result that said no agent had
+/// run. The scheduler asks the whole condition now, so the recovery is the one
+/// the execution loop prescribes: run the state again.
+// §FS-rhei-agents.3.2 §FS-rhei-run.3
+#[test]
+fn an_agent_owing_only_the_result_is_respawned_rather_than_advanced() {
+    let (dir, plan_path, machine_path) = setup_result_only_missing("terminal-result-only-missing");
+
+    let first = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!first.status.success(), "the first run halts on the result the agent owes");
+    assert_task_state(&plan_path, &machine_path, "1", "implement");
+
+    let second = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    let combined = format!("{}{}", second.stdout, second.stderr);
+    assert!(
+        combined.contains("Re-spawning Task plan.1 in state 'implement'"),
+        "the next pass runs the state again, and says why; got:\n{combined}"
+    );
+    assert!(!second.status.success(), "a second silent attempt halts the same way");
+    assert_task_state(&plan_path, &machine_path, "1", "implement");
+    assert_eq!(
+        fs::read_to_string(dir.join("attempts.txt")).expect("attempt counter").trim(),
+        "2",
+        "the agent was spawned again rather than skipped"
+    );
+
+    // Asserting on the file's *contents* would pass against an empty string
+    // whatever the engine had said; the fact under test is that the engine wrote
+    // nothing for a ticket it did not finish. §FS-rhei-states.3.3
+    let result_path = dir.join("runtime/results/plan.1.md");
+    assert!(
+        !result_path.exists(),
+        "no transition fired, so no result was recorded; got:\n{}",
+        fs::read_to_string(&result_path).unwrap_or_default()
+    );
+}
+
+/// The re-spawn used to truncate the log of the attempt it was retrying, which
+/// is the one file that says why that attempt did not finish.
+///
+/// Asserting only that `-attempt2` appeared would not have caught the other
+/// half of the same mistake: an `-attempt2` written for a spawn that is not a
+/// retry at all. So the whole listing is checked — two spawns of one visit,
+/// two transcripts, and no third name from anywhere else.
+// §FS-rhei-agents.8.1
+#[test]
+fn a_respawn_keeps_the_earlier_attempts_transcript() {
+    let (dir, plan_path, machine_path) = setup_result_only_missing("terminal-result-attempt-logs");
+
+    for _ in 0..2 {
+        run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    }
+
+    let logs = dir.join("runtime/logs");
+    let first = fs::read_to_string(logs.join("task-plan.1-implement.log"))
+        .expect("the first attempt keeps the unsuffixed name");
+    let second = fs::read_to_string(logs.join("task-plan.1-implement-attempt2.log"))
+        .expect("the re-spawn writes its own attempt log");
+    assert!(first.contains("ATTEMPT-1"), "attempt 1's transcript survives; got:\n{first}");
+    assert!(second.contains("ATTEMPT-2"), "attempt 2 wrote its own file; got:\n{second}");
+
+    let mut names = fs::read_dir(&logs)
+        .expect("read logs")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["task-plan.1-implement-attempt2.log", "task-plan.1-implement.log"],
+        "two spawns of one visit leave two transcripts and nothing else"
+    );
+}
+
+/// `--no-agent` walks an edge with no worker spawned under it, but a worker may
+/// well have run in that state on an earlier run. The engine's own account says
+/// what the log proves rather than that no agent ran.
+// §FS-rhei-run.3 §FS-rhei-agents.8.1
+#[test]
+fn callback_only_advancement_names_an_agent_that_ran_earlier() {
+    let (dir, plan_path, machine_path) = setup_result_only_missing("terminal-result-no-agent-stub");
+
+    let first = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!first.status.success(), "the agent ran and left the result unwritten");
+
+    let advanced =
+        run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks", "--no-agent"]);
+    assert_success(&advanced);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    let recorded =
+        fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("read result file");
+    assert!(
+        recorded.contains("agent 'mock' ran in that state earlier"),
+        "the account names the agent the log proves ran; got:\n{recorded}"
+    );
+    assert!(
+        recorded.contains("task-plan.1-implement.log"),
+        "and where that agent's transcript is; got:\n{recorded}"
+    );
+    assert!(
+        !recorded.contains("No agent or program ran"),
+        "which is the opposite of what it used to say; got:\n{recorded}"
+    );
+}

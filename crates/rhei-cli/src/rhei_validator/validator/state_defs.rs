@@ -89,6 +89,12 @@ pub struct StateDef {
     /// Maximum time an agent may work in this state (e.g., `"30m"`, `"1h"`).
     #[serde(default)]
     pub agent_timeout: Option<String>,
+    /// How many times one *visit* to this state may be spawned before `rhei
+    /// run` halts the ticket. Distinct from `visits`, which bounds how many
+    /// times the ticket may enter the state at all.
+    // §FS-rhei-agents.3.2.3: the per-visit attempt budget.
+    #[serde(default)]
+    pub attempts: Option<u32>,
     /// Deterministic program command for this state (mutually exclusive with `agent`).
     #[serde(default)]
     pub program: Option<serde_yaml::Value>,

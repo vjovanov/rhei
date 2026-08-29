@@ -19,6 +19,7 @@ fn run_sequential_program_work_items(
     plan_title: &str,
     input: &Path,
     machines: &ExecutionMachines,
+    settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
     runtime_dir: &Path,
@@ -67,10 +68,47 @@ fn run_sequential_program_work_items(
             tooling: None,
             memory: None,
         };
-        let log = program_log_path(runtime_dir, task_id_str, current_state);
+        // A program is never skipped at scheduling, so it re-spawns for the
+        // same reason an agent does — and gets the same attempt log and the
+        // same per-visit budget. §FS-rhei-agents.8.1 §FS-rhei-agents.3.2.3
+        let plan = plan_spawn_attempt(
+            runtime_dir,
+            &task_workspace_root,
+            task_id_str,
+            current_state,
+            None,
+        );
+        let budget = resolve_attempt_budget(machine.states.get(current_state.as_str()), settings);
+        if plan.budget_spent(budget) {
+            let owed = collect_missing_required_outputs(
+                workspace_root,
+                &task_workspace_root,
+                machine,
+                loaded.rhei.metadata.as_ref(),
+                task,
+                current_state,
+                selected_forward_transition(&loaded.rhei, machine, task).as_deref(),
+            );
+            run_warn!(
+                "{}",
+                budget_spent_halt_line(
+                    task_id_str,
+                    current_state,
+                    budget,
+                    &completion_debt_label(&owed)
+                )
+            );
+            progress.stalled_tasks.insert(task_id_str.clone());
+            continue;
+        }
+        let log = plan.log.clone();
 
         run_info!("\nSpawning program for Task {}: {}", task_id_str, task.title);
         run_info!("  Log: {}", log.display());
+        // §FS-rhei-agents.3.2.1: a retry says it is one, and what it is retrying.
+        if let Some(note) = plan.respawn_note(task_id_str, current_state, budget) {
+            run_info!("{note}");
+        }
 
         let started_at = std::time::Instant::now();
         let started_wall = std::time::SystemTime::now();
@@ -87,7 +125,7 @@ fn run_sequential_program_work_items(
         });
 
         let spawn_result =
-            spawn_and_wait_program(resolved, &render_context, &log, sink);
+            spawn_and_wait_program(resolved, &render_context, &log, &plan, sink);
         let duration_ms = started_at.elapsed().as_millis() as u64;
         let finished_wall = SystemTime::now();
         let (outcome, exit_code) = slot_outcome(&spawn_result);
@@ -206,6 +244,7 @@ fn run_sequential_program_work_items(
                                 task_id_str,
                                 current_state,
                                 &missing_required_outputs,
+                                plan.retry_outlook(budget),
                                 sink,
                             );
                             progress.stalled_tasks.insert(task_id_str.clone());

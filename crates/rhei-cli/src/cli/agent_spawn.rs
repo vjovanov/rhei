@@ -163,6 +163,10 @@ fn spawn_and_wait_agent(
     slot: rhei_tui::Slot,
     sink: Arc<dyn rhei_tui::EventSink>,
     intervene: Option<&Arc<RunInterveneSink>>,
+    // Which attempt of which visit this is. Recorded here, beside the footer,
+    // because this is the one place that knows the subprocess actually ran.
+    // §FS-rhei-agents.8.4
+    plan: &SpawnPlan,
     // Fan-out key of this invocation; decides the `RHEI_RESULT_PATH` it is
     // handed. §FS-rhei-states.3.3
     result_identity: Option<&str>,
@@ -272,6 +276,7 @@ fn spawn_and_wait_agent(
         task_id,
         state_name,
         visit_count,
+        plan.attempt,
         tooling,
         runtime_dir,
         result_identity,
@@ -452,23 +457,40 @@ fn spawn_and_wait_agent(
 
     // §FS-rhei-agents.8: Agent log footer, timeout and interruption causes.
     let elapsed = start.elapsed();
+    let duration = format_duration_human(elapsed.as_secs());
+    let ended_wall = std::time::SystemTime::now();
     let timeout_message =
         if timed_out { resolved.timeout_secs.map(format_duration_human) } else { None };
+    // The spawn ran. Say so where the next pass, the next run, and the engine's
+    // own account of this state will all read it. §FS-rhei-agents.8.4
+    plan.record_spawn(SpawnEnding {
+        task_id,
+        state_name,
+        kind: "agent",
+        worker: resolved.agent.id(),
+        started: &format_iso8601_utc(started_wall),
+        ended: &format_iso8601_utc(ended_wall),
+        duration: &duration,
+        code: status.code(),
+        ending: if timed_out {
+            "timed out"
+        } else if interrupted {
+            "interrupted"
+        } else {
+            "exited"
+        },
+    });
     with_agent_log(&log_file, |f| {
         if let Some(duration) = &timeout_message {
             writeln!(f, "\nagent timed out after {duration}")?;
         } else if interrupted {
             // The run was shutting down, not the agent failing. §FS-rhei-run.3.2
-            writeln!(
-                f,
-                "\nagent interrupted by run shutdown after {}",
-                format_duration_human(elapsed.as_secs())
-            )?;
+            writeln!(f, "\nagent interrupted by run shutdown after {duration}")?;
         }
         writeln!(f, "\n=== exit ===")?;
         writeln!(f, "code: {}", status.code().unwrap_or(-1))?;
-        writeln!(f, "duration: {}", format_duration_human(elapsed.as_secs()))?;
-        writeln!(f, "ended: {}", format_iso8601_utc(std::time::SystemTime::now()))?;
+        writeln!(f, "duration: {duration}")?;
+        writeln!(f, "ended: {}", format_iso8601_utc(ended_wall))?;
         if timed_out {
             writeln!(f, "timed_out: true")?;
         }

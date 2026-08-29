@@ -54,6 +54,11 @@ struct ParallelAgentCompletion {
     log: PathBuf,
     snapshot_preload: SnapshotPreload,
     visit_count: u64,
+    /// Whether the visit this invocation belongs to has an attempt left after
+    /// it. Decided at the spawn, where the budget is resolved, and read where
+    /// the run says what it will do next.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
+    retry_outlook: RetryOutlook,
     result: MietteResult<AgentSpawnOutcome>,
     accounting_recorded: bool,
     accounting_warning: Option<String>,
@@ -70,6 +75,11 @@ struct ParallelAgentExit {
     log: PathBuf,
     snapshot_preload: SnapshotPreload,
     visit_count: u64,
+    /// Whether the visit this invocation belongs to has an attempt left after
+    /// it. Decided at the spawn, where the budget is resolved, and read where
+    /// the run says what it will do next.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
+    retry_outlook: RetryOutlook,
     accounting_recorded: bool,
     outcome: AgentSpawnOutcome,
 }
@@ -77,6 +87,11 @@ struct ParallelAgentExit {
 struct ParallelProgramCompletion {
     task_id_str: String,
     state_name: String,
+    /// Whether the visit this invocation belongs to has an attempt left after
+    /// it. Decided at the spawn, where the budget is resolved, and read where
+    /// the run says what it will do next.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
+    retry_outlook: RetryOutlook,
     result: MietteResult<ProgramSpawnOutcome>,
     slot: rhei_tui::Slot,
 }
@@ -274,25 +289,18 @@ fn collect_ready_agent_work_items(
             continue;
         }
 
-        let pending = if state_def.outputs.is_empty() {
-            invocations
-        } else {
-            invocations
-                .into_iter()
-                .filter(|resolved| {
-                    !state_outputs_exist_for_resolved_invocation(
-                        workspace_root,
-                        task,
-                        &current_state,
-                        task.state.as_str(),
-                        machine,
-                        loaded.rhei.metadata.as_ref(),
-                        state_def,
-                        resolved,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
+        // The rule the pass driver and the post-exit check apply: a refill
+        // re-spawns an invocation whose completion condition is unmet, and skips
+        // only one that is genuinely finished. §FS-rhei-agents.3.2
+        let pending = agent_invocations_to_spawn(
+            loaded,
+            workspace_root,
+            task,
+            machine,
+            &current_state,
+            state_def,
+            invocations,
+        );
 
         if pending.is_empty() {
             continue;

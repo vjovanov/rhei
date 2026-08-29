@@ -200,6 +200,9 @@ fn render_state_machine_json(machine: &rhei_validator::StateMachine) -> Result<S
                 "concurrent": def.concurrent,
                 "poll": &def.poll,
                 "visits": def.visits,
+                // Beside `visits` on purpose: one bounds entries, the other
+                // spawns within one entry. §FS-rhei-agents.3.2.3
+                "attempts": def.attempts,
                 "execute_on": &def.execute_on,
                 "target": &def.target,
                 "all_targets": &def.all_targets,

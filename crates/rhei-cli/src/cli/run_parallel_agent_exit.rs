@@ -33,6 +33,7 @@ fn handle_parallel_agent_exit(
         log,
         snapshot_preload,
         visit_count,
+        retry_outlook,
         accounting_recorded,
         outcome,
     } = exit;
@@ -228,6 +229,7 @@ fn handle_parallel_agent_exit(
                     &task_id_str,
                     &state_name,
                     &missing_required_outputs,
+                    retry_outlook,
                     sink,
                 );
                 progress.stalled_tasks.insert(task_id_str.clone());
@@ -380,6 +382,7 @@ fn handle_parallel_agent_exit(
                                 task,
                             )
                             .as_deref(),
+                            retry_outlook,
                             sink,
                         );
                         progress.stalled_tasks.insert(task_id_str.clone());

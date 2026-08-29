@@ -68,16 +68,66 @@ fn render_previous_log(render_context: &RuntimeTemplateContext<'_>) -> String {
     if visit <= 1 {
         return String::new();
     }
-    let path = agent_log_path(
+    // The previous visit's *last* attempt: where it was retried, that is the
+    // one that ran, and the earlier ones are kept beside it. §FS-rhei-agents.8.1
+    let Some(path) = latest_agent_log_path(
         &memory.runtime_dir,
         &render_context.task.id.to_string(),
         render_context.state_name,
         agent_log_suffix(render_context.target, render_context.model, Some(visit - 1)).as_deref(),
-    );
-    if !path.exists() {
+    ) else {
         return String::new();
-    }
+    };
     format!("\nPrevious log: `{}`\n", memory_path(render_context, &path))
+}
+
+/// What this visit already tried, when it has already tried something.
+///
+/// A re-spawn used to receive the prompt of the attempt it was recovering from,
+/// byte for byte: same `RHEI_VISIT_COUNT`, no attempt number, and no
+/// `Previous log:` line, because that line keys off the *previous visit* and a
+/// stalled ticket never left this one. So attempt two did what attempt one did
+/// and left the same thing unwritten. This paragraph is the difference: it says
+/// that this is a retry, which attempt it is, how the last one ended, and which
+/// file that attempt was obliged to write and did not — the result path, which
+/// the prompt already showed as where a finished task's result is *read from*,
+/// and which agents read as description rather than as obligation.
+///
+/// Rendered only when the record belongs to *this* visit. A record from an
+/// earlier stay in the state is not a retry, and telling a fresh entry that it
+/// is one is the same untruth in the other direction.
+// §FS-rhei-memory.3.3 §FS-rhei-memory.4.4 §FS-rhei-agents.3.2.1
+fn render_retry_notice(render_context: &RuntimeTemplateContext<'_>, task_root: &Path) -> String {
+    let Some(memory) = render_context.memory else { return String::new() };
+    let visit = render_visit_count(
+        render_context.metadata,
+        &render_context.task.id,
+        render_context.state_name,
+        render_context.current_state_raw,
+        render_context.machine,
+    );
+    let plan = plan_spawn_attempt(
+        &memory.runtime_dir,
+        task_root,
+        &render_context.task.id.to_string(),
+        render_context.state_name,
+        agent_log_suffix(render_context.target, render_context.model, Some(visit)).as_deref(),
+    );
+    let Some(previous) = plan.previous.as_ref() else { return String::new() };
+    let owed = match terminal_result_path_shown(render_context) {
+        Some(path) => format!(
+            " It did not write `{path}`, which a transition out of this state reads to finish \
+             this task."
+        ),
+        None => String::new(),
+    };
+    format!(
+        "\nRetrying this visit: attempt {}. The previous attempt {}.{owed} Its transcript is \
+         `{}`.\n",
+        plan.attempt,
+        previous.ending_sentence(),
+        memory_path(render_context, &previous.log)
+    )
 }
 
 /// Every verdict recorded against this task so far, pasted whole.
@@ -124,7 +174,11 @@ fn render_previous_visits(render_context: &RuntimeTemplateContext<'_>) -> Miette
     let task_id = render_context.task.id.to_string();
     let has_trail = ledger.iter().any(|(entry_task, _, _)| entry_task == &task_id);
     let result = read_task_result(render_context, &render_context.task.id)?;
-    if !has_trail && result.is_none() {
+    // A ticket retried on its first visit has neither a ledger line nor a
+    // result, and it is exactly the invocation that most needs to be told it is
+    // a retry. §FS-rhei-memory.4.4
+    let retry = render_retry_notice(render_context, root);
+    if !has_trail && result.is_none() && retry.is_empty() {
         return Ok(String::new());
     }
     let mut out = String::from("\n## Previous Visits\n\n");
@@ -133,5 +187,6 @@ fn render_previous_visits(render_context: &RuntimeTemplateContext<'_>) -> Miette
         out.push_str(&render_result_entries(render_context, &body));
     }
     out.push_str(&render_previous_log(render_context));
+    out.push_str(&retry);
     Ok(out)
 }

@@ -110,6 +110,49 @@ fn run_sequential_agent_invocation(
     let tooling = gate.tooling;
     // §FS-rhei-panta.6.2: the agent works in the owning rhei's root.
     let task_workspace_root = loaded.task_root(task_id_str, workspace_root);
+    let visit_count = render_visit_count(
+        loaded.rhei.metadata.as_ref(),
+        &task.id,
+        current_state,
+        task.state.as_str(),
+        machine,
+    );
+    // Settled before anything is composed or staged: a spawn this visit may not
+    // have costs nothing to decline, and every step below it costs something.
+    // §FS-rhei-agents.3.2.3 §FS-rhei-agents.8.1
+    let plan = plan_spawn_attempt(
+        runtime_dir,
+        &task_workspace_root,
+        task_id_str,
+        current_state,
+        resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
+    );
+    let budget = resolve_attempt_budget(machine.states.get(current_state), settings);
+    if plan.budget_spent(budget) {
+        // The same stall step 5 gives any unmet completion condition: the ticket
+        // keeps its state, no transition fires, and the pass moves on.
+        // §FS-rhei-run.3 §FS-rhei-agents.3.2.3
+        let owed = collect_missing_required_outputs(
+            workspace_root,
+            &task_workspace_root,
+            machine,
+            loaded.rhei.metadata.as_ref(),
+            task,
+            current_state,
+            selected_forward_transition(&loaded.rhei, machine, task).as_deref(),
+        );
+        run_warn!(
+            "{}",
+            budget_spent_halt_line(
+                task_id_str,
+                current_state,
+                budget,
+                &completion_debt_label(&owed)
+            )
+        );
+        progress.stalled_tasks.insert(task_id_str.clone());
+        return Ok(());
+    }
     let checkout_root = resolve_agent_checkout_root(&task_workspace_root, task_id_str)?;
     // A sequential pass runs one invocation at a time, so nothing else of this
     // run is in flight. §FS-rhei-memory.4.3
@@ -149,19 +192,9 @@ fn run_sequential_agent_invocation(
             return Ok(());
         }
     };
-    let visit_count = render_visit_count(
-        loaded.rhei.metadata.as_ref(),
-        &task.id,
-        current_state,
-        task.state.as_str(),
-        machine,
-    );
-    let log = agent_log_path(
-        runtime_dir,
-        task_id_str,
-        current_state,
-        resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
-    );
+    // A retry gets its own attempt log rather than truncating the transcript
+    // that explains the miss it is retrying. §FS-rhei-agents.8.1
+    let log = plan.log.clone();
 
     run_info!(
         "\nSpawning agent '{}' for Task {}: {}",
@@ -174,6 +207,12 @@ fn run_sequential_agent_invocation(
     }
     run_info!("  Checkout: {}", checkout_root.path.display());
     run_info!("  Log: {}", log.display());
+    // Names the rule, the attempt, and the budget it comes out of, so a loop is
+    // visible while it spends rather than at the halt.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-run.3
+    if let Some(note) = plan.respawn_note(task_id_str, current_state, budget) {
+        run_info!("{note}");
+    }
 
     // Spec § Execution Loop step 3: if the state declares
     // `snapshot.inherit:`, resolve and preload the source snapshot
@@ -225,6 +264,9 @@ fn run_sequential_agent_invocation(
         0,
         sink.clone(),
         intervene,
+        // Written when this spawn ends, so its presence proves one ran.
+        // §FS-rhei-agents.8.4
+        &plan,
         // A fanned-out invocation writes its own result fragment.
         // §FS-rhei-states.3.3
         fanout_result_identity(
@@ -294,6 +336,7 @@ fn run_sequential_agent_invocation(
             log,
             snapshot_preload,
             visit_count,
+            retry_outlook: plan.retry_outlook(budget),
             result: spawn_result,
         },
         progress,
