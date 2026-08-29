@@ -569,7 +569,7 @@ Some work description.
     }
 
     #[test]
-    fn rewrite_all_states_to_initial_updates_tasks_and_children() {
+    fn rewrite_states_to_authored_restores_recorded_states() {
         let raw = r#"# Rhei: Reset
 
 ## Tasks
@@ -583,22 +583,14 @@ Some work description.
 ### Task 2: Beta
 **State:** review
 "#;
-
-        let machine = rhei_validator::StateMachine::from_yaml_str(
-            r#"
-name: reset-test
-version: 1
-states:
-  pending:
-    description: Ready
-    initial: true
-  completed:
-    description: Done
-    final: true
-"#,
-        )
-        .expect("load reset machine");
-        let rewritten = rewrite_all_states_to_initial(raw, &machine).expect("rewrite states");
+        let authored: BTreeMap<String, String> = [
+            ("1".to_string(), "pending".to_string()),
+            ("1.1".to_string(), "pending".to_string()),
+            ("2".to_string(), "pending".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let rewritten = rewrite_states_to_authored(raw, &authored).expect("rewrite states");
 
         assert_eq!(rewritten.matches("**State:** pending").count(), 3);
         assert!(!rewritten.contains("**State:** completed"));
@@ -606,52 +598,45 @@ states:
         assert!(!rewritten.contains("**State:** review"));
     }
 
+    /// The §FS-rhei-reset.2.2 rule the supervised chain depends on: a task with
+    /// no recorded authored state never moved, so its line is left verbatim
+    /// rather than pulled to the machine's one `initial: true` state.
     #[test]
-    fn rewrite_all_states_to_initial_uses_resolved_profile_per_node() {
+    fn rewrite_states_to_authored_leaves_tasks_that_never_moved() {
         let raw = r#"# Rhei: Reset
 
 ## Tasks
 
-### Task 1: Alpha
-**State:** completed
+### Task 1: Supervisor
+**State:** supervising-3
 
-#### Task 1.1: Detail
-**State:** completed
+#### Task 1.1: Implement
+**State:** implement
+
+#### Task 1.2: Review
+**State:** review
 "#;
-        let machine = rhei_validator::StateMachine::from_yaml_str(
-            r#"
-name: profile-reset
-version: 3
-states:
-  draft: { description: Draft }
-  pending: { description: Pending }
-  completed: { description: Done, final: true }
-transitions:
-  - from: draft
-    to: pending
-  - from: pending
-    to: completed
-profiles:
-  reviewed:
-    initial: draft
-    allowed: [draft, pending, completed]
-  simple:
-    initial: pending
-    allowed: [pending, completed]
-node_policy:
-  root: reviewed
-  default: reviewed
-  overrides:
-    - match: { level: 2 }
-      profile: simple
-"#,
-        )
-        .expect("load profile reset machine");
+        // Only the supervisor ever moved.
+        let authored: BTreeMap<String, String> =
+            [("1".to_string(), "supervising".to_string())].into_iter().collect();
+        let rewritten = rewrite_states_to_authored(raw, &authored).expect("rewrite states");
 
-        let rewritten = rewrite_all_states_to_initial(raw, &machine).expect("rewrite states");
+        // The supervisor goes back to its authored state, losing the counted
+        // visit suffix.
+        assert!(rewritten.contains("### Task 1: Supervisor\n**State:** supervising\n"));
+        // The children are untouched — this is the regression rhei#100 filed.
+        assert!(rewritten.contains("#### Task 1.1: Implement\n**State:** implement"));
+        assert!(rewritten.contains("#### Task 1.2: Review\n**State:** review"));
+        assert!(!rewritten.contains("**State:** supervising-3"));
+    }
 
-        assert!(rewritten.contains("### Task 1: Alpha\n**State:** draft"));
-        assert!(rewritten.contains("#### Task 1.1: Detail\n**State:** pending"));
+    /// A plan with no `**State:**` line at all is the "wrong file" mistake and
+    /// still errors; zero *rewrites* is now an ordinary outcome.
+    #[test]
+    fn rewrite_states_to_authored_rejects_a_plan_with_no_states() {
+        let raw = "# Rhei: Reset\n\n## Tasks\n\nNo tasks here.\n";
+        let authored: BTreeMap<String, String> = BTreeMap::new();
+        assert!(rewrite_states_to_authored(raw, &authored).is_err());
     }
 
     #[test]
@@ -796,21 +781,13 @@ transitions:
 **State:** completed
 **Assignee:** claude-code
 "#;
-        let machine = rhei_validator::StateMachine::from_yaml_str(
-            r#"
-name: reset-assignee
-version: 1
-states:
-  draft:
-    description: Ready
-    initial: true
-  completed:
-    description: Done
-    final: true
-"#,
-        )
-        .expect("load reset machine");
-        let rewritten = rewrite_all_states_to_initial(raw, &machine).expect("rewrite states");
+        let authored: BTreeMap<String, String> = [
+            ("1".to_string(), "draft".to_string()),
+            ("1.1".to_string(), "draft".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let rewritten = rewrite_states_to_authored(raw, &authored).expect("rewrite states");
         let rewritten = strip_assignee_lines(&rewritten);
 
         assert_eq!(rewritten.matches("**State:** draft").count(), 2);

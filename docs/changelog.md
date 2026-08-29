@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **`rhei reset` no longer erases a pre-authored chain.** It returned every
+  task to the state machine's one `initial: true` state, so the shape
+  §FS-rhei-supervision.7 documents and the `supervised-delivery` template ships
+  — a supervisor in `supervising` with children authored in `implement`,
+  `review`, `fix`, … — came back with every child reading `**State:**
+  supervising`. `rhei validate` passed, because every task was in a legal
+  state, and the next `rhei run` dispatched the children *as supervisors*: on
+  the supervisor's target, with the supervisor's instructions, and without the
+  brief their own state gates on — the release gate of §FS-rhei-supervision.5.2
+  was simply gone. No `profiles` block could have expressed the chain either,
+  since `node_policy` resolves a profile from a node's kind and level
+  (§FS-rhei-states.9.2) and those children share both. Reset now returns each
+  task to the state it was **authored** in, recovered per-task from the first
+  `from` recorded for it in `runtime/state-transitions.log`: a task with no
+  recorded move never left its authored state and is not touched at all. With
+  no ledger anywhere, nothing records where a task came from, so reset changes
+  no state and names the tasks it left outside their initial state rather than
+  moving them somewhere they may never have been. The summary and the
+  `--dry-run` preview now name every task they move and where from, instead of
+  printing a count that read the same whether the reset was correct or
+  destructive. §FS-rhei-reset.2.2 §FS-rhei-reset.4 (PR #102)
+
 - A new grund kind, **`REQ`** (`docs/requirements/`), for cross-cutting
   requirements every feature is held to from the moment it is specified —
   distinct from the user-visible behaviour of one feature (`FS-`) and from an

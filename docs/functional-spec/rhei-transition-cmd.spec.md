@@ -209,7 +209,7 @@ Task <ID> transitioned: '<from>' -> '<to>' (callbacks skipped)
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it                   |
 | `rhei transition`  | Atomically changes a task's state; `--result` appends to the result file, and carries the message a terminal entry requires (§3.2) |
 | `rhei complete`    | Infers the one-hop terminal target and runs the same transition with `--result` |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
+| `rhei reset`       | Returns each task to the state it was authored in (§FS-rhei-reset.2.2), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 
