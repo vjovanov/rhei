@@ -172,27 +172,39 @@ fn list_command(
         return Ok(());
     }
 
-    // Pre-compute state map for ready/blocked checks (only top-level tasks
-    // declare priors, but checking the full flat set is harmless).
-    let state_map: HashMap<&TaskId, String> = flat
-        .iter()
-        .map(|(t, _)| (&t.id, normalized_state_name(t.state.as_str(), machines.for_task(&t.id))))
-        .collect();
+    // A listing that re-derived readiness drifted from the definition of it: it
+    // judged terminality, gating, priors and the supervision barrier, and never
+    // looked at the state's required `inputs:` or at a `poll:` deadline still
+    // ahead — so it named work both `rhei next` and `rhei run` refused, on the
+    // surface an operator checks first. Asking for the set is the only shape in
+    // which the three cannot disagree about readiness.
 
-    let priors_satisfied = |task: &rhei_core::ast::Task| -> bool {
-        task.prior.iter().all(|dep| {
-            state_map
-                .get(dep)
-                .map(|s| dependency_is_satisfied(s, machines.for_task(dep)))
-                .unwrap_or(false)
-        })
+    // §FS-rhei-list.3.1 §FS-rhei-next.3: `--ready` is the ready set itself —
+    // the set `rhei next` draws from, not the narrower one it claims out of, so
+    // an assigned or mid-workflow ticket is listed here and refused there.
+
+    // Whole-plan, and narrowed afterwards by the row filters exactly as
+    // `next_command` narrows after `find_claimable_tasks`. §FS-rhei-panta.6.1
+
+    // Built once, and only when a flag asks: this is the only filesystem read
+    // `list` does — the scan stats each required input artifact.
+    let ready_ids: HashSet<&TaskId> = if filters.ready || filters.blocked {
+        let workspace_root = execution_workspace_root(input);
+        find_ready_tasks(
+            &loaded.rhei,
+            &machines,
+            // §AR-rhei-panta.5: a member's inputs resolve at its own root.
+            &ReadySetRoots { workspace_root: &workspace_root, task_roots: &loaded.task_roots },
+            // Nothing is in flight beyond what the plan itself records: a
+            // listing has no run behind it. §FS-rhei-supervision.3.2
+            &HashSet::new(),
+        )
+        .into_iter()
+        .map(|task| &task.id)
+        .collect()
+    } else {
+        HashSet::new()
     };
-
-    // Built once for the whole listing rather than per row: the barrier walks
-    // a task's ancestors and its subtree. §FS-rhei-supervision.3.2
-    let all_tasks: Vec<&rhei_core::ast::Task> = flat.iter().map(|(task, _)| *task).collect();
-    let supervision_index = task_index(&all_tasks);
-    let no_run_spawned = HashSet::new();
 
     // Judged against every machine in the project rather than the `--rhei`
     // scope: a real state no in-scope rhei uses is an honest empty result.
@@ -315,30 +327,14 @@ fn list_command(
             continue;
         }
 
-        if filters.ready || filters.blocked {
-            let normalized = normalized_state_name(task.state.as_str(), machine);
-            let is_gating = machine.states.get(&normalized).map(|def| def.gating).unwrap_or(false);
-            let satisfied = priors_satisfied(task);
-            // A ticket whose subtree is still open is not work anyone can be
-            // handed — its children are. §FS-rhei-list.3.1 §FS-rhei-next.3
-
-            // Supervision refines both halves through the one verdict the
-            // ready set and `rhei next` also ask, so the three surfaces cannot
-            // disagree about what is work. §FS-rhei-supervision.3.2
-            let subtree_done = subtree_admits_to_ready_set(
-                task,
-                &supervision_index,
-                &machines,
-                loaded.rhei.metadata.as_ref(),
-                &no_run_spawned,
-            );
-            let task_ready = !is_terminal && !is_gating && satisfied && subtree_done;
-            if filters.ready && !task_ready {
-                continue;
-            }
-            if filters.blocked && (is_terminal || satisfied) {
-                continue;
-            }
+        if filters.ready && !ready_ids.contains(&task.id) {
+            continue;
+        }
+        // The complement of `--ready`, so every non-terminal ticket is one or
+        // the other — never both, never neither — and "why is this not moving?"
+        // has an answer from a single flag. §FS-rhei-list.3.1
+        if filters.blocked && (is_terminal || ready_ids.contains(&task.id)) {
+            continue;
         }
 
         matches.push(entry);

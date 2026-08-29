@@ -30,8 +30,8 @@ directory. Listing is project-wide: filters apply across every rhei, and
 | `--contains <TEXT>`      | Case-insensitive substring match against task title and content body.             |
 | `--terminal`             | Only tasks whose state is terminal in the resolved state machine.                 |
 | `--non-terminal`         | Only tasks whose state is non-terminal. Mutually exclusive with `--terminal`.     |
-| `--ready`                | Only tasks whose descendants are all terminal, whose `**Prior:**` set is satisfied, and whose state is non-terminal and non-gating — the claimable set (§3.1). Mutually exclusive with `--blocked`. |
-| `--blocked`              | Only non-terminal tasks with at least one unsatisfied prerequisite.               |
+| `--ready`                | Only tasks the ready set holds — descendants all terminal, `**Prior:**` set satisfied, state declared by the machine and neither terminal nor gating, the state's required `inputs:` on disk, and no `poll:` deadline still ahead (§3.1). Mutually exclusive with `--blocked`. |
+| `--blocked`              | Only non-terminal tasks that are not ready — the complement of `--ready` (§3.1).  |
 | `--limit <N>`            | Cap the number of printed tasks. `0` means no limit (default).                    |
 | `--json`                 | Emit a JSON array instead of human-readable text.                                 |
 
@@ -71,25 +71,61 @@ there is no declared set to check it against.
 2. Walk the task tree in source order, recording each task with its parent id.
 3. Apply filters in order; normalize `--state` values and the task's own state
    through that ticket's machine so aliases match.
-4. For `--ready` / `--blocked`, evaluate prerequisites against the current
-   plan state using the same dependency rule as `rhei next` (terminal,
-   non-cancelled).
+4. For `--ready` / `--blocked`, ask the ready set (§3.1) rather than
+   re-deriving readiness; the other filters narrow the answer, they never
+   change it.
 5. Apply `--limit` after filtering.
+6. Emit the result. The plan file is **not** modified and no lock is acquired.
 
 ### 3.1. What `--ready` means
 
 `--ready` answers "what work could be picked up", so it lists exactly the set
-`rhei next` draws from — including the descendant rule that command applies
-(§FS-rhei-next.3). A ticket whose subtree is still open is not work anyone can
-be handed: its children are. Once every descendant is terminal the parent is
-ordinary claimable work and is listed like any other ticket, because a non-leaf
-ticket is a task in its own right (§FS-rhei-plan-language.3).
+`rhei next` *draws from*: `rhei list` asks the same ready-set scan that
+`rhei next` (§FS-rhei-next.3) and `rhei run` (§FS-rhei-run.3) ask, and narrows
+the answer with its other filters. It does not re-derive readiness from its own
+copy of the conditions — a copy drifts, and the promise this section makes is
+only true when there is one definition for it to be true to.
+
+Drawn from, not equal to. `rhei next` narrows the ready set once more before it
+claims, keeping only a ticket that carries no `**Assignee:**` and is in its
+machine's initial state (§FS-rhei-next.3). So `--ready` is the wider of the two:
+everything `rhei next` would claim is listed here, and a listed ticket may still
+be one `rhei next` refuses. That is not the two surfaces disagreeing about
+readiness — it is `rhei next` asking a second question, about availability,
+that `--ready` deliberately does not ask.
+
+A ticket is ready when every descendant is terminal, every task in its
+`**Prior:**` field is in a successful terminal state, its own state is one the
+machine declares and is neither terminal nor gating, every required `inputs:`
+artifact declared on that state exists on disk, and no `poll:` deadline recorded
+for that state is still in the future. An input marked `optional: true` is not
+part of it, exactly as it is not for the scheduler (§FS-rhei-states.3).
+
+The declared-state condition is one only `rhei list` can reach. Every command
+that schedules validates the plan first and refuses it outright when a ticket
+holds a state no machine declares, but listing is read-only and loads leniently,
+so a misspelled state — or a machine edited after the plan was written — reaches
+the readiness question intact. Nothing can be said about readiness in a state
+that does not exist, so such a ticket is not ready, and `--blocked` is where it
+is reported.
+
+A ticket whose subtree is still open is not work anyone can be handed: its
+children are. Once every descendant is terminal the parent is ordinary claimable
+work and is listed like any other ticket, because a non-leaf ticket is a task in
+its own right (§FS-rhei-plan-language.3).
 
 `--ready` reports *readiness*, not *availability*: a ready ticket that already
 carries an `**Assignee:**` is still listed, because whether someone has claimed
 it is a separate question with its own filters. Compose them for the narrower
 answer — `rhei list --ready --no-assignee` is the unclaimed ready work.
-6. Emit the result. The plan file is **not** modified and no lock is acquired.
+
+`--blocked` is the exact complement of `--ready`: every non-terminal ticket is
+one or the other, never both and never neither. An operator asking "why is this
+not moving?" therefore gets an answer from a single flag, whether the reason is
+an unsatisfied `**Prior:**`, a missing required input, a gating state awaiting a
+human, a `poll:` retry whose deadline has not come round, a supervisor holding
+the ticket (§FS-rhei-supervision.3.2), a state no machine declares, or a
+non-leaf whose subtree is still open.
 
 ## 4. Output
 
