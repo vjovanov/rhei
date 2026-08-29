@@ -36,6 +36,7 @@
             0,
             recorder.clone(),
             None,
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("fake agent runs");
@@ -209,6 +210,7 @@ for line in sys.stdin:
             0,
             recorder,
             Some(&intervene),
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("fake stdin agent runs");
@@ -280,6 +282,7 @@ for line in sys.stdin:
             0,
             recorder.clone(),
             None,
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("timeout returns process status");
@@ -342,6 +345,7 @@ for line in sys.stdin:
             0,
             recorder,
             None,
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("agent should complete without waiting for inherited pipe EOF");
@@ -701,6 +705,7 @@ for line in sys.stdin:
             None,
             "task-1",
             "pending",
+            1,
             1,
             &tooling,
             runtime_dir.path(),

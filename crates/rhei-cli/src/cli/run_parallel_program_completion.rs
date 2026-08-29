@@ -24,6 +24,7 @@ fn handle_parallel_program_completion(
     let ParallelProgramCompletion {
         task_id_str,
         state_name,
+        retry_outlook,
         result,
         slot: _,
     } = completion;
@@ -153,6 +154,7 @@ fn handle_parallel_program_completion(
                             &task_id_str,
                             &state_name,
                             &missing_required_outputs,
+                            retry_outlook,
                             sink,
                         );
                         return Ok(ParallelProgramCompletionEffect {

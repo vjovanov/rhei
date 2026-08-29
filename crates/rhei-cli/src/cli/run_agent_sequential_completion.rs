@@ -20,6 +20,11 @@ struct SequentialAgentCompletion<'a> {
     log: PathBuf,
     snapshot_preload: SnapshotPreload,
     visit_count: u64,
+    /// Whether the visit this invocation belongs to has an attempt left after
+    /// it. Decided at the spawn, because that is where the budget is resolved,
+    /// and read here, where the run says what it will do next.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
+    retry_outlook: RetryOutlook,
     result: MietteResult<AgentSpawnOutcome>,
 }
 
@@ -50,6 +55,7 @@ fn handle_sequential_agent_completion(
         log,
         snapshot_preload,
         visit_count,
+        retry_outlook,
         result: spawn_result,
     } = completion;
     let task_id_str = &task_id_str;
@@ -239,6 +245,7 @@ fn handle_sequential_agent_completion(
                             task_id_str,
                             state_before,
                             &missing_required_outputs,
+                            retry_outlook,
                             sink,
                         );
                         progress.stalled_tasks.insert(task_id_str.clone());
@@ -352,6 +359,7 @@ fn handle_sequential_agent_completion(
                                 state_before,
                                 selected_forward_transition(&loaded.rhei, machine, task)
                                     .as_deref(),
+                                retry_outlook,
                                 sink,
                             );
                             // Did not move; the rest of the pass must look

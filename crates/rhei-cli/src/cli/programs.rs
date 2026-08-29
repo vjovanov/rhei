@@ -1,7 +1,3 @@
-fn program_log_path(runtime_dir: &Path, task_id: &str, state_name: &str) -> PathBuf {
-    runtime_dir.join("logs").join(format!("task-{task_id}-{state_name}.log"))
-}
-
 /// `interrupted` is set when the run was shutting down: the engine ended the
 /// program's process group, so its exit status says nothing about the ticket
 /// and **no transition may fire** for this invocation. §FS-rhei-run.3.2
@@ -30,6 +26,8 @@ impl InvocationOutcome for ProgramSpawnOutcome {
 fn build_program_command(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
+    // Which attempt of this state visit this run is. §FS-rhei-programs.2
+    attempt: u64,
 ) -> MietteResult<std::process::Command> {
     let working_dir = resolved
         .program
@@ -97,7 +95,10 @@ fn build_program_command(
                 render_context.machine,
             )
             .to_string(),
-        );
+        )
+        // A program has no prompt, so the environment is the only place it can
+        // be told it is a retry. §FS-rhei-programs.2
+        .env("RHEI_ATTEMPT", attempt.to_string());
     if let Some(path) = render_context.state_machine_path {
         cmd.env("RHEI_STATE_MACHINE_PATH", path);
     }
@@ -154,6 +155,9 @@ fn spawn_and_wait_program(
     resolved: &ResolvedProgram,
     render_context: &RuntimeTemplateContext<'_>,
     log_path: &Path,
+    // Which attempt of which visit this is, and where the record of it goes
+    // once the command has actually run. §FS-rhei-agents.8.4
+    plan: &SpawnPlan,
     // Only to carry the shutdown notice: a program's own output goes to its
     // log, not the journal. §FS-rhei-run.3.2
     sink: &Arc<dyn rhei_tui::EventSink>,
@@ -171,19 +175,18 @@ fn spawn_and_wait_program(
             help = program_log_help(),
             "failed to create log file '{}': {e}", log_path.display()
         ))?;
+    let command_label = match &resolved.program.command {
+        ProgramCommand::Shell(command) => resolve_runtime_template_text(command, render_context),
+        ProgramCommand::Exec(args) => args
+            .iter()
+            .map(|arg| resolve_runtime_template_text(arg, render_context))
+            .collect::<Vec<_>>()
+            .join(" "),
+    };
+    let started_wall = std::time::SystemTime::now();
     {
         use std::io::Write as _;
         let mut f = &log_file;
-        let command_label = match &resolved.program.command {
-            ProgramCommand::Shell(command) => {
-                resolve_runtime_template_text(command, render_context)
-            }
-            ProgramCommand::Exec(args) => args
-                .iter()
-                .map(|arg| resolve_runtime_template_text(arg, render_context))
-                .collect::<Vec<_>>()
-                .join(" "),
-        };
         let _ = writeln!(f, "=== rhei program log v1 ===");
         let _ = writeln!(f, "program: {command_label}");
         let _ = writeln!(f, "task: {}", render_context.task.id);
@@ -205,7 +208,7 @@ fn spawn_and_wait_program(
             help = program_log_help(),
             "failed to clone log file handle: {e}"
         ))?;
-    let mut cmd = build_program_command(resolved, render_context)?;
+    let mut cmd = build_program_command(resolved, render_context, plan.attempt)?;
     cmd.stdout(log_stdout).stderr(log_stderr);
     // A program is never handed the operator's terminal, and it leads its own
     // process group so its children go with it. §FS-rhei-run.3.2
@@ -257,6 +260,26 @@ fn spawn_and_wait_program(
     let timed_out = ended.cause == EndCause::TimedOut;
     let interrupted = ended.cause == EndCause::Interrupted;
 
+    let elapsed = start.elapsed().as_secs();
+    // The command ran. Recorded beside the footer, for the same reason an
+    // agent's spawn is: a log alone cannot prove it. §FS-rhei-agents.8.4
+    plan.record_spawn(SpawnEnding {
+        task_id: &render_context.task.id.to_string(),
+        state_name: render_context.state_name,
+        kind: "program",
+        worker: &command_label,
+        started: &format_iso8601_utc(started_wall),
+        ended: &format_iso8601_utc(std::time::SystemTime::now()),
+        duration: &format!("{elapsed}s"),
+        code: status.code(),
+        ending: if timed_out {
+            "timed out"
+        } else if interrupted {
+            "interrupted"
+        } else {
+            "exited"
+        },
+    });
     {
         use std::io::Write as _;
         let mut f = fs::OpenOptions::new()
@@ -280,12 +303,12 @@ fn spawn_and_wait_program(
             let _ = writeln!(
                 f,
                 "\nprogram interrupted by run shutdown after {}",
-                format_duration_human(start.elapsed().as_secs())
+                format_duration_human(elapsed)
             );
         }
         let _ = writeln!(f, "\n=== exit ===");
         let _ = writeln!(f, "code: {}", status.code().unwrap_or(-1));
-        let _ = writeln!(f, "duration: {}s", start.elapsed().as_secs());
+        let _ = writeln!(f, "duration: {elapsed}s");
         if timed_out {
             let _ = writeln!(f, "timed_out: true");
         }

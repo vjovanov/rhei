@@ -27,6 +27,7 @@ mod supervision_tests;
 mod template_example_sync_tests;
 mod templates_render_tests;
 mod templates_tests;
+mod terminal_result_attempt_tests;
 mod terminal_result_fanout_tests;
 mod terminal_result_redirect_tests;
 mod terminal_result_stall_tests;

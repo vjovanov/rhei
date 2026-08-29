@@ -584,6 +584,8 @@ fn scoped_runtime_targets(
         ScopedTarget::Exact(runtime.join("results").join(format!("{task_id}.md"))),
         // §FS-rhei-agents.9 / §FS-rhei-programs.5: `task-<id>-<state>[-…].log`.
         ScopedTarget::Prefixed { dir: runtime.join("logs"), prefix: format!("task-{task_id}-") },
+        // The record of every spawn those logs came from. §FS-rhei-agents.8.4
+        ScopedTarget::Prefixed { dir: runtime.join("spawns"), prefix: format!("task-{task_id}-") },
         // §FS-rhei-snapshots.4: `<id>-<state>-<slug>-<nonce>/` session dirs.
         ScopedTarget::Prefixed {
             dir: runtime.join("snapshot-sessions"),

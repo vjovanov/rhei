@@ -549,7 +549,11 @@ fn execute_transition_with_origin(
     // Only the reserved name waives it, in either spelling; anything else gets
     // the ordinary check and a refusal that says so. §FS-rhei-states.1.4
     let cancelling = rhei_validator::is_cancelled_state_name(&normalized_state_name(to, machine));
-    if !origin.skip_source_outputs && !cancelling {
+    // Whether the source state's outputs were actually established on this
+    // edge. The engine's own account of a callback-only move reports this
+    // rather than asserting it. §FS-rhei-run.3
+    let source_outputs_verified = !origin.skip_source_outputs && !cancelling;
+    if source_outputs_verified {
         ensure_state_outputs_exist_for_transition(
             files.artifact_root,
             Some(&task_info.task),
@@ -579,7 +583,10 @@ fn execute_transition_with_origin(
     let recorded_message = origin.result_message.clone().or_else(|| {
         let lands_terminal = machine.states.get(to).map(|def| def.terminal).unwrap_or(false);
         if lands_terminal && !task_result_is_present(files.artifact_root, files.artifact_id) {
-            origin.terminal_result_fallback.clone()
+            origin
+                .terminal_result_fallback
+                .as_ref()
+                .map(|account| account.sentence(source_outputs_verified))
         } else {
             None
         }

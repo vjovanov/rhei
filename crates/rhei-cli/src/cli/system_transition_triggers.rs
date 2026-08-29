@@ -25,31 +25,129 @@ struct TransitionOrigin {
     /// the ledger already carries, and not a result.
     // §FS-rhei-states.3.3 §FS-rhei-run.3
     result_message: Option<String>,
-    /// A message the engine records *only* when the effective target turns out
-    /// to be `final: true` and nothing else answered for the ticket.
+    /// The engine's own account of the move, recorded *only* when the effective
+    /// target turns out to be `final: true` and nothing else answered for the
+    /// ticket.
     ///
     /// Callback-only advancement sets it: taking the edge is an outcome the
     /// engine produced, with no subprocess in the source state that could know
     /// better, so the engine narrates exactly that. It is not a carried
     /// message, because the same sentence would be a lie on a non-terminal hop
-    /// and noise beside a result a callback did write.
-    // §FS-rhei-run.3
-    terminal_result_fallback: Option<String>,
+    /// and noise beside a result a callback did write. It is carried as facts
+    /// rather than as a finished sentence because one of its clauses — whether
+    /// the source state's declared `outputs:` were verified — is only settled
+    /// further down this very transition, by the check that the reserved
+    /// `cancelled` target waives.
+    // §FS-rhei-run.3 §FS-rhei-states.1.4
+    terminal_result_fallback: Option<CallbackOnlyAccount>,
 }
 
-/// The message `rhei run` records when it takes an edge itself, with no agent
-/// or program having run in the source state.
+/// What the engine can say about a state it advanced out of without spawning
+/// anything, held as facts until the transition settles the last of them.
+// §FS-rhei-run.3 §FS-rhei-agents.8.4
+#[derive(Debug, Clone)]
+struct CallbackOnlyAccount {
+    from: String,
+    /// The worker a spawn record proves ran there earlier, already phrased.
+    /// `None` when no record answers for the state, which is the only case in
+    /// which the engine may say that nothing ran.
+    // §FS-rhei-agents.8.4
+    evidence: Option<String>,
+    /// Whether the source state declares `outputs:` at all. With none there is
+    /// nothing to report about them either way.
+    declares_outputs: bool,
+}
+
+impl CallbackOnlyAccount {
+    /// The sentence, finished at the point the outputs question has an answer.
+    ///
+    /// `outputs_verified` is not this function's guess: the caller passes what
+    /// the transition actually did — the source-outputs check ran and passed,
+    /// or it was waived for the reserved `cancelled` target. Asserting "all
+    /// present" without it is how this sentence came to claim a check that the
+    /// waiver had skipped.
+    // §FS-rhei-run.3 §FS-rhei-states.1.4
+    fn sentence(&self, outputs_verified: bool) -> String {
+        let from = &self.from;
+        let opening = format!(
+            "`rhei run`: this task was finished by callback-only orchestration from state \
+             '{from}'."
+        );
+        let Some(evidence) = &self.evidence else {
+            return format!(
+                "{opening} No agent or program ran in that state, so no worker result was \
+                 recorded."
+            );
+        };
+        let outputs = match (self.declares_outputs, outputs_verified) {
+            (false, _) => "",
+            (true, true) => " The state's declared outputs were checked on this edge and were \
+                             all present.",
+            (true, false) => " The state's declared outputs were not checked: this edge \
+                              abandons the work, which waives them.",
+        };
+        format!(
+            "{opening} No worker was spawned there on this run, but {evidence} and wrote no \
+             result.{outputs} No worker result was recorded here; that worker's account of its \
+             work is its log, not this file."
+        )
+    }
+}
+
+/// The facts `rhei run` records when it takes an edge itself rather than on a
+/// worker's behalf.
 ///
 /// It says plainly that no worker result was recorded — which is the fact a
 /// reader of the file needs, and the fact the old empty result file withheld.
 /// It is a fallback: a result a callback wrote wins, and on a non-terminal hop
 /// nothing is written at all.
-// §FS-rhei-run.3 §FS-rhei-states.3.3
-fn callback_only_terminal_result(from: &str) -> String {
-    format!(
-        "`rhei run`: this task was finished by callback-only orchestration from state '{from}'. \
-         No agent or program ran in that state, so no worker result was recorded."
-    )
+///
+/// What it says *about the worker* is checked rather than assumed. "No agent
+/// ran" is true of a machine with no autonomous state and of a run that was told
+/// not to spawn one, but it is a lie on a state an earlier run did work in —
+/// which is exactly the state a `--no-agent` run is most likely to walk out of.
+/// The evidence is the spawn record, and only that: a log file is opened before
+/// its subprocess starts, so a `command:` naming a binary that does not exist
+/// leaves one behind for a worker that never ran, and crediting that worker
+/// would be the same class of lie as denying a real one. The accounting record
+/// could not serve either — it exists only for agents that resolve a provider
+/// and model.
+// §FS-rhei-run.3 §FS-rhei-states.3.3 §FS-rhei-agents.8.4
+fn callback_only_terminal_result(
+    runtime_dir: &Path,
+    task_id: &str,
+    from: &str,
+    from_state_def: Option<&rhei_validator::StateDef>,
+) -> CallbackOnlyAccount {
+    CallbackOnlyAccount {
+        from: from.to_string(),
+        evidence: prior_worker_run(runtime_dir, task_id, from),
+        declares_outputs: from_state_def.is_some_and(|def| !def.outputs.is_empty()),
+    }
+}
+
+/// One sentence about the run a spawn record is evidence of: who ran, where the
+/// transcript is, and how it ended.
+///
+/// The record says which *kind* of worker ran, so the sentence names the agent
+/// or the program that was actually there rather than the agent this state
+/// would resolve to today.
+// §FS-rhei-agents.8.4 §FS-rhei-programs.5 §FS-rhei-run.3
+fn prior_worker_run(runtime_dir: &Path, task_id: &str, state: &str) -> Option<String> {
+    let record = newest_spawn_record_for_state(runtime_dir, task_id, state)?;
+    let ending = match record.code {
+        Some(code) => format!(", exit code {code}, after {}", record.duration),
+        None => format!(", after {}", record.duration),
+    };
+    let who = match record.kind.as_str() {
+        "program" => format!("program `{}` ran in that state earlier", record.worker),
+        _ => format!("agent '{}' ran in that state earlier", record.worker),
+    };
+    // Absolute, for the reason a missing result's path is absolute: the result
+    // file this lands in may sit under a different root than the run's logs, so
+    // a relative path is one the reader cannot follow. §FS-rhei-panta.6.2
+    let shown = std::path::absolute(&record.log).unwrap_or(record.log);
+    Some(format!("{who} (log: {}{ending})", shown.display()))
 }
 
 /// Variant of [`execute_transition`] for `rhei run`'s callback-only
@@ -64,7 +162,16 @@ fn execute_callback_only_transition(
     from: &str,
     to: &str,
     no_callbacks: bool,
+    // Where the run keeps spawn records, which is the evidence the engine's own
+    // account of the source state is built from. §FS-rhei-agents.8.4
+    runtime_dir: &Path,
 ) -> MietteResult<String> {
+    let account = callback_only_terminal_result(
+        runtime_dir,
+        files.artifact_id,
+        from,
+        machine.states.get(from),
+    );
     execute_transition_with_origin(
         files,
         callback_paths,
@@ -74,7 +181,7 @@ fn execute_callback_only_transition(
         to,
         no_callbacks,
         TransitionOrigin {
-            terminal_result_fallback: Some(callback_only_terminal_result(from)),
+            terminal_result_fallback: Some(account),
             ..TransitionOrigin::default()
         },
     )

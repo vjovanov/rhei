@@ -310,6 +310,7 @@ fn run_callback_mode(
                 &current_state,
                 &to_state,
                 opts.no_callbacks(),
+                &runtime_dir,
             ) {
                 Ok(effective_to) => {
                     run_info!(
@@ -490,6 +491,9 @@ fn emit_exit_zero_warnings(
     task_id_str: &str,
     state_name: &str,
     selected_to: Option<&str>,
+    // Carried from the spawn that just finished: only it knows whether the
+    // visit has an attempt left. §FS-rhei-agents.3.2.1
+    outlook: RetryOutlook,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) {
     let missing = collect_missing_required_outputs(
@@ -515,6 +519,7 @@ fn emit_exit_zero_warnings(
             task_id_str,
             state_name,
             &missing,
+            outlook,
             sink,
         );
     }
@@ -536,6 +541,9 @@ fn emit_exit_zero_missing_required_outputs_warning(
     task_id_str: &str,
     state_name: &str,
     missing: &[String],
+    // What the run will actually do next, which is not decided by the missing
+    // artifacts alone. §FS-rhei-agents.3.2.1
+    outlook: RetryOutlook,
     sink: &Arc<dyn rhei_tui::EventSink>,
 ) {
     sink.emit(rhei_tui::RunEvent::Message {
@@ -547,6 +555,13 @@ fn emit_exit_zero_missing_required_outputs_warning(
             state_name,
             missing.join(", ")
         ),
+    });
+    // The warning says *what* is missing; this says what the run is doing about
+    // it — and after the last budgeted attempt what it does is nothing, so this
+    // is conditioned on the budget. §FS-rhei-agents.3.2.1
+    sink.emit(rhei_tui::RunEvent::Message {
+        level: rhei_tui::MessageLevel::Warn,
+        text: outlook.halt_line(task_id_str, state_name, missing),
     });
     sink.emit(rhei_tui::RunEvent::TaskOutputsMissing {
         task: task_id_str.to_string(),

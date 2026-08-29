@@ -113,6 +113,7 @@ spawns.mkdir(parents=True, exist_ok=True)
             "1",
             "pending",
             &["required-report".to_string()],
+            RetryOutlook::AttemptsLeft,
             &sink,
         );
         let events = recorder.events.lock().expect("events");
@@ -180,6 +181,7 @@ spawns.mkdir(parents=True, exist_ok=True)
             0,
             recorder,
             None,
+            &spawn_plan_for_test(&log_path),
             None,
         )
         .expect("timeout returns process status");

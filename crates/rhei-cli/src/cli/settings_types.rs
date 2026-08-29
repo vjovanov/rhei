@@ -162,6 +162,10 @@ struct SettingsDefaults {
     /// §FS-rhei-agents.1.1.1: Default program timeout.
     #[serde(default)]
     program_timeout: Option<String>,
+    /// Default per-visit attempt budget for states that do not set `attempts:`.
+    // §FS-rhei-agents.3.2.3: the resolution chain this is the second level of.
+    #[serde(default)]
+    attempts: Option<u32>,
     #[serde(default)]
     mcp_servers: Option<Vec<StateMcpEntry>>,
     #[serde(default)]

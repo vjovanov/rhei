@@ -364,25 +364,18 @@ fn run_agent_mode(
                     ));
                 }
 
-                let pending = if state_def.outputs.is_empty() {
-                    invocations
-                } else {
-                    invocations
-                        .into_iter()
-                        .filter(|resolved| {
-                            !state_outputs_exist_for_resolved_invocation(
-                                &workspace_root,
-                                task,
-                                &current_state,
-                                task.state.as_str(),
-                                machine,
-                                loaded.rhei.metadata.as_ref(),
-                                state_def,
-                                resolved,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                };
+                // The whole completion condition decides this, not the
+                // declared outputs alone: an invocation that wrote its outputs
+                // but not the result has not finished. §FS-rhei-agents.3.2
+                let pending = agent_invocations_to_spawn(
+                    &loaded,
+                    &workspace_root,
+                    task,
+                    machine,
+                    &current_state,
+                    state_def,
+                    invocations,
+                );
 
                 if pending.is_empty() {
                     callback_tasks.push((task_id_str, current_state_raw, current_state));
@@ -487,6 +480,7 @@ fn run_agent_mode(
                 current_state,
                 &to_state,
                 opts.no_callbacks(),
+                &runtime_dir,
             ) {
                 Ok(effective_to) => {
                     run_info!(
@@ -600,6 +594,7 @@ fn run_agent_mode(
                 &plan_title,
                 input,
                 machines,
+                settings,
                 opts,
                 &workspace_root,
                 &runtime_dir,

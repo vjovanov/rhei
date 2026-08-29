@@ -143,6 +143,11 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
         } else {
             global.defaults.program_timeout
         },
+        attempts: if json_nested_field_present(project_raw, "defaults", "attempts") {
+            project.defaults.attempts
+        } else {
+            global.defaults.attempts
+        },
         mcp_servers: if json_nested_field_present(project_raw, "defaults", "mcp_servers") {
             project.defaults.mcp_servers
         } else {

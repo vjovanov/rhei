@@ -215,6 +215,10 @@ Result entries so far:
     ```
 
 Previous log: `runtime/logs/{log file of the previous visit of this state}`
+
+Retrying this visit: attempt {n}. The previous attempt {ending}. It did not
+write `{result path}`, which a transition out of this state reads to finish
+this task. Its transcript is `{previous attempt log}`.
 ```
 
 - The trail is the state sequence of this task's ledger lines, in order — the
@@ -230,6 +234,15 @@ Previous log: `runtime/logs/{log file of the previous visit of this state}`
 - `Previous log:` names the log file of the previous visit of this same state
   by the naming rule of §FS-rhei-agents.8.1, only if that file exists. The
   log is not pasted; it is a transcript, and the path is enough.
+- The retry paragraph is rendered only when *this visit* has already been
+  spawned — when a spawn record for this invocation belongs to this visit
+  (§FS-rhei-agents.8.4). It exists because a re-spawn that is handed the same
+  prompt as the attempt it is recovering from will do the same thing again: the
+  invocation has to be told that it is a retry, what ended the last attempt, and
+  which file that attempt was obliged to write and did not. The result path is
+  named because naming it is the whole point — the built-in prompt already shows
+  it as where a finished task's result is *read from*, which agents read as
+  description rather than obligation.
 
 ### 3.4. `## Rhei Commands` Additions
 
@@ -361,8 +374,21 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    **last** 100 with the overflow line `… earlier entries omitted; read <path>`
    first. The legacy fallback of §4.3.3 applies here too, and `<path>` names
    whichever file was read.
-3. `prev_log` = the path of §FS-rhei-agents.8.1 for `(task, state, identity,
-   visit_count − 1)`; emit the `Previous log:` line only when that file exists.
+3. `prev_log` = the log named by the spawn record (§FS-rhei-agents.8.4) of
+   `(task, state, identity, visit_count − 1)` — the last thing that actually
+   ran there, whichever attempt of that visit it was — falling back to that
+   visit's unsuffixed log file where no record answers, which is what a runtime
+   written before records existed has. Emit the `Previous log:` line only when
+   the named file is on disk.
+4. `retry` = the spawn record of `(task, state, identity, visit_count)`, when
+   one exists **and** it belongs to this visit: its `moves` equals the number of
+   moves the ticket has made, i.e. the ticket has not left the state since that
+   spawn. Render the retry paragraph from it — `attempt` + 1 as `{n}`, its
+   `ending` and `code` as `{ending}`, its `log` as `{previous attempt log}` —
+   and name the result path this invocation is handed as `{result path}`,
+   omitting that clause on a state no terminal edge leaves. A record from an
+   earlier visit is not a retry and renders nothing: re-entering a state is a
+   fresh start, not a second attempt.
 
 ### 4.5. Fencing and Rendering
 

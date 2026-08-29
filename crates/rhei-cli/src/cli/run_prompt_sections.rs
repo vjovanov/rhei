@@ -162,6 +162,30 @@ fn render_declared_exports(render_context: &RuntimeTemplateContext<'_>) -> Strin
 /// same reason.
 // §FS-rhei-agents.3 §FS-rhei-states.3.3
 fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String {
+    let Some(shown) = terminal_result_path_shown(render_context) else { return String::new() };
+    // §FS-rhei-supervision.4.1: on a supervising state only the visit that finds
+    // the subtree closed finishes the task; every earlier one just releases.
+    let qualifier = if task_is_supervising(render_context.task, render_context.machine) {
+        format!(" {SUPERVISOR_RESULT_QUALIFIER}")
+    } else {
+        String::new()
+    };
+    format!(
+        "\n## Result\n\n\
+         A transition from this state can finish this task. The finished task's result is read \
+         from this file.{qualifier}\n\n- `{shown}`\n"
+    )
+}
+
+/// The result path this invocation is handed, exactly as the `## Result`
+/// section shows it — or `None` on a state no terminal edge leaves.
+///
+/// One expression, two readers: the section that states the obligation and the
+/// retry paragraph that says the previous attempt did not meet it. A second copy
+/// would be a second chance to name a different file than the one
+/// `RHEI_RESULT_PATH` holds.
+// §FS-rhei-states.3.3 §FS-rhei-memory.4.4
+fn terminal_result_path_shown(render_context: &RuntimeTemplateContext<'_>) -> Option<String> {
     let can_finish = render_context.machine.transitions().iter().any(|rule| {
         rule.from.0 == render_context.state_name
             && render_context
@@ -172,7 +196,7 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
                 .unwrap_or(false)
     });
     if !can_finish {
-        return String::new();
+        return None;
     }
     let task_id = render_context.task.id.to_string();
     // A fanned-out invocation writes its own fragment, so the path it is shown
@@ -198,25 +222,13 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
     // Same rule declared artifacts follow: relative under the artifact root,
     // absolute when the agent's cwd is somewhere else entirely.
     // §FS-rhei-agents.4
-    let shown = if render_context.checkout_root == render_context.workspace_root {
+    Some(if render_context.checkout_root == render_context.workspace_root {
         relative
     } else {
         invocation_result_file_path(render_context.workspace_root, &task_id, invocation)
             .display()
             .to_string()
-    };
-    // §FS-rhei-supervision.4.1: on a supervising state only the visit that finds
-    // the subtree closed finishes the task; every earlier one just releases.
-    let qualifier = if task_is_supervising(render_context.task, render_context.machine) {
-        format!(" {SUPERVISOR_RESULT_QUALIFIER}")
-    } else {
-        String::new()
-    };
-    format!(
-        "\n## Result\n\n\
-         A transition from this state can finish this task. The finished task's result is read \
-         from this file.{qualifier}\n\n- `{shown}`\n"
-    )
+    })
 }
 
 /// Render the exports this task consumes from prior tasks.

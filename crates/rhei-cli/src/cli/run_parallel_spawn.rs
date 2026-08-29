@@ -1,10 +1,11 @@
-// Putting one work item on a worker thread: the slot it takes, the prompt and
-// snapshot staging it needs before the process starts, and the completion it
+// Putting one agent work item on a worker thread: the slot it takes, the prompt
+// and snapshot staging it needs before the process starts, and the completion it
 // sends back down the channel.
 //
 // Its own part because spawning is where an invocation stops being schedulable
 // data and becomes a live subprocess; the scheduler next door only decides
-// which items get this far, and how many at a time.
+// which items get this far, and how many at a time. A program work item is
+// spawned by the part after this one.
 
 // §AR-source-file-size.3 §FS-rhei-run.3
 
@@ -54,6 +55,50 @@ fn spawn_parallel_agent_work_item(
     // Attribute the spawned unit to its owning rhei: prompts, logs, and
     // artifacts resolve against that rhei's execution root. §FS-rhei-panta.6.2
     let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
+    let visit_count = render_visit_count(
+        loaded.rhei.metadata.as_ref(),
+        &task.id,
+        &item.current_state,
+        task.state.as_str(),
+        machine,
+    );
+    // Settled before anything is composed or staged, as in the sequential path:
+    // a spawn this visit may not have costs nothing to decline.
+    // §FS-rhei-agents.3.2.3 §FS-rhei-agents.8.1
+    let plan = plan_spawn_attempt(
+        runtime_dir,
+        &task_workspace_root,
+        &item.task_id_str,
+        &item.current_state,
+        resolved_agent_log_suffix(&item.resolved, Some(visit_count)).as_deref(),
+    );
+    let budget =
+        resolve_attempt_budget(machine.states.get(item.current_state.as_str()), settings);
+    if plan.budget_spent(budget) {
+        // `Skipped` is the pool's stall: the scheduler records it in
+        // `stalled_tasks`, so the ticket keeps its state and is out of the
+        // running for the rest of the run. §FS-rhei-run.3 §FS-rhei-agents.3.2.3
+        let owed = collect_missing_required_outputs(
+            workspace_root,
+            &task_workspace_root,
+            machine,
+            loaded.rhei.metadata.as_ref(),
+            task,
+            &item.current_state,
+            selected_forward_transition(&loaded.rhei, machine, task).as_deref(),
+        );
+        emit_run_message(
+            sink,
+            rhei_tui::MessageLevel::Warn,
+            budget_spent_halt_line(
+                &item.task_id_str,
+                &item.current_state,
+                budget,
+                &completion_debt_label(&owed),
+            ),
+        );
+        return Ok(ParallelAgentSpawnOutcome::Skipped);
+    }
     let workspace_root = task_workspace_root.as_path();
 
     let tooling = resolve_tooling(machine, &item.current_state, settings);
@@ -148,19 +193,9 @@ fn spawn_parallel_agent_work_item(
             return Ok(ParallelAgentSpawnOutcome::Unpromptable(item.task_id_str.clone()));
         }
     };
-    let visit_count = render_visit_count(
-        loaded.rhei.metadata.as_ref(),
-        &task.id,
-        &item.current_state,
-        task.state.as_str(),
-        machine,
-    );
-    let log = agent_log_path(
-        runtime_dir,
-        &item.task_id_str,
-        &item.current_state,
-        resolved_agent_log_suffix(&item.resolved, Some(visit_count)).as_deref(),
-    );
+    // A retry gets its own attempt log rather than truncating the transcript
+    // that explains the miss it is retrying. §FS-rhei-agents.8.1
+    let log = plan.log.clone();
     let working_dir = checkout_root.path.clone();
     let worktree_root = checkout_root.worktree_root.clone();
     let plan_path = callback_paths.plan_path.clone();
@@ -194,6 +229,12 @@ fn spawn_parallel_agent_work_item(
         rhei_tui::MessageLevel::Info,
         format!("  Log: {}", log.display()),
     );
+    // Names the rule, the attempt, and the budget it comes out of, so a loop is
+    // visible while it spends rather than at the halt.
+    // §FS-rhei-agents.3.2.1 §FS-rhei-run.3
+    if let Some(note) = plan.respawn_note(&item.task_id_str, &item.current_state, budget) {
+        emit_run_message(sink, rhei_tui::MessageLevel::Info, note);
+    }
 
     let snapshot_preload = preload_snapshot_inherit_before_spawn(
         input,
@@ -233,6 +274,10 @@ fn spawn_parallel_agent_work_item(
     let to_for_thread = item.current_state.clone();
     let tid_for_event = item.task_id_str.clone();
     let runtime_dir_for_thread = runtime_dir.to_path_buf();
+    // Read before the plan moves into the worker: only here are the plan and
+    // the resolved budget both in hand. §FS-rhei-agents.3.2.1
+    let outlook_for_result = plan.retry_outlook(budget);
+    let plan_for_thread = plan;
     let snapshot_preload_for_thread = snapshot_preload.clone();
     let snapshot_preload_for_result = snapshot_preload.clone();
     let visit_for_result = visit_count;
@@ -269,6 +314,9 @@ fn spawn_parallel_agent_work_item(
                 slot,
                 sink_for_thread.clone(),
                 intervene_for_thread.as_ref(),
+                // Written when this spawn ends, so its presence proves one ran.
+                // §FS-rhei-agents.8.4
+                &plan_for_thread,
                 result_identity.as_deref(),
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
@@ -313,6 +361,7 @@ fn spawn_parallel_agent_work_item(
                 log: log_for_result,
                 snapshot_preload: snapshot_preload_for_result,
                 visit_count: visit_for_result,
+                retry_outlook: outlook_for_result,
                 result,
                 accounting_recorded,
                 accounting_warning,
@@ -328,146 +377,6 @@ fn spawn_parallel_agent_work_item(
     });
 
     Ok(ParallelAgentSpawnOutcome::Spawned(ParallelAgentSpawned {
-        task_id_str: item.task_id_str.clone(),
-        state_name: item.current_state.clone(),
-        handle,
-    }))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_parallel_program_work_item(
-    item: &ProgramWorkItem,
-    slot: rhei_tui::Slot,
-    tx: std::sync::mpsc::Sender<ParallelAgentThreadMessage>,
-    input: &Path,
-    machines: &ExecutionMachines,
-    workspace_root: &Path,
-    runtime_dir: &Path,
-    sink: &Arc<dyn rhei_tui::EventSink>,
-) -> MietteResult<ParallelProgramSpawnOutcome> {
-    // As for agents: a slot was reserved for this item before the interrupt,
-    // and the shutdown starts nothing further. §FS-rhei-run.3.2
-    if interrupt_requested() {
-        return Ok(ParallelProgramSpawnOutcome::Skipped);
-    }
-    let loaded = load_plan(input)?;
-    let target_id = parse_task_id(&item.task_id_str);
-    // The item's owning rhei supplies its machine and callback base.
-    // §DA-per-rhei-state-machines
-    let machine = machines.for_task_str(&item.task_id_str);
-    let callback_paths = machines.callbacks_for_str(&item.task_id_str);
-    let task = find_task_by_id(&loaded.rhei.tasks, &target_id);
-    let Some(task) = task else { return Ok(ParallelProgramSpawnOutcome::Skipped) };
-
-    // Programs run against the owning rhei's execution root. §FS-rhei-panta.6.2
-    let task_workspace_root = loaded.task_root(&item.task_id_str, workspace_root);
-    let workspace_root = task_workspace_root.as_path();
-
-    let log = program_log_path(runtime_dir, &item.task_id_str, &item.current_state);
-    emit_run_message(
-        sink,
-        rhei_tui::MessageLevel::Info,
-        format!("\nSpawning program for Task {}: {} (parallel)", item.task_id_str, task.title),
-    );
-    emit_run_message(sink, rhei_tui::MessageLevel::Info, format!("  Log: {}", log.display()));
-
-    let from_state = task.state.as_str().to_string();
-    let started_at = std::time::Instant::now();
-    let started_wall = std::time::SystemTime::now();
-    sink.emit(rhei_tui::RunEvent::SlotAssigned {
-        slot,
-        task: item.task_id_str.clone(),
-        from: from_state.clone(),
-        to: item.current_state.clone(),
-        agent: None,
-        template_context: None,
-        log_path: log.clone(),
-        started_at,
-        wall_clock: started_wall,
-    });
-
-    let resolved_for_thread = item.resolved.clone();
-    let workspace_root_for_thread = workspace_root.to_path_buf();
-    let task_roots_for_thread = loaded.task_roots.clone();
-    let callback_paths_for_thread = callback_paths.clone();
-    let plan_title_for_thread = loaded.rhei.title.clone();
-    let task_for_thread = task.clone();
-    let state_name_for_thread = item.current_state.clone();
-    let current_state_raw_for_thread = task.state.as_str().to_string();
-    let machine_for_thread = machine.clone();
-    let metadata_for_thread = loaded.rhei.metadata.clone();
-    let log_for_thread = log.clone();
-    let sink_for_thread = sink.clone();
-    let task_id_for_result = item.task_id_str.clone();
-    let state_name_for_result = item.current_state.clone();
-    let task_id_for_panic = item.task_id_str.clone();
-    let state_for_panic = item.current_state.clone();
-    // §FS-rhei-run.3.2: the program's group belongs to this run.
-    let run_owner = current_run_owner();
-
-    let handle = std::thread::spawn(move || {
-        inherit_run_owner(run_owner);
-        let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let render_context = RuntimeTemplateContext {
-                workspace_root: &workspace_root_for_thread,
-                task_roots: Some(&task_roots_for_thread),
-                // A program state renders no supervisor brief, and the task
-                // tree does not cross into the worker thread.
-                plan_tasks: None,
-                checkout_root: &workspace_root_for_thread,
-                plan_path: &callback_paths_for_thread.plan_path,
-                state_machine_path: callback_paths_for_thread.state_machine_path.as_deref(),
-                plan_title: &plan_title_for_thread,
-                task: &task_for_thread,
-                state_name: &state_name_for_thread,
-                current_state_raw: &current_state_raw_for_thread,
-                machine: &machine_for_thread,
-                metadata: metadata_for_thread.as_ref(),
-                target: None,
-                model: None,
-                model_provider: None,
-                model_name: None,
-                agent: None,
-                agent_mode: None,
-                tooling: None,
-                memory: None,
-            };
-            let result = spawn_and_wait_program(
-                &resolved_for_thread,
-                &render_context,
-                &log_for_thread,
-                &sink_for_thread,
-            );
-            let duration_ms = started_at.elapsed().as_millis() as u64;
-            let (outcome, exit_code) = slot_outcome(&result);
-            sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
-                slot,
-                task: task_id_for_result.clone(),
-                from: from_state,
-                to: state_name_for_result.clone(),
-                log_path: log_for_thread,
-                outcome,
-                finished_at: std::time::Instant::now(),
-                wall_clock: std::time::SystemTime::now(),
-                exit_code,
-                duration_ms,
-            });
-            ParallelAgentThreadMessage::ProgramCompleted(ParallelProgramCompletion {
-                task_id_str: task_id_for_result,
-                state_name: state_name_for_result,
-                result,
-                slot,
-            })
-        }));
-        let message = thread_result.unwrap_or(ParallelAgentThreadMessage::Panicked {
-            task_id_str: task_id_for_panic,
-            state_name: state_for_panic,
-            slot,
-        });
-        let _ = tx.send(message);
-    });
-
-    Ok(ParallelProgramSpawnOutcome::Spawned(ParallelProgramSpawned {
         task_id_str: item.task_id_str.clone(),
         state_name: item.current_state.clone(),
         handle,
