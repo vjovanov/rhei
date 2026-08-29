@@ -47,9 +47,11 @@ Deliberate automation states the intent once with `--yes`.
 1. Load the state machine and plan. Validate the plan (reset refuses to operate on an invalid plan).
 2. Acquire a file lock on the plan file (single-file) or on `index.rhei.md` (workspace).
 3. For every task node in the merged task graph (including all descendants):
-   - Recover the task's authored state (§2.2). A task that never moved is
-     already in it and its `**State:**` line is left alone; a task that moved
-     has its `**State:**` line rewritten back to that state.
+   - Recover the task's authored state (§2.2) and rewrite the task's
+     `**State:**` line to it. A task that never moved is already in that state,
+     so the line keeps its state name — but it is still rewritten in normalized
+     form, because the counted-visit suffix below is runtime state and is
+     cleared whether or not the state name changes.
    - Remove the `**Assignee:**` line if present.
    - Remove the `> **Result:**` link block from the task body if present.
    - Clear any counted-visit suffix; `stateVisits` entries for the task in frontmatter `metadata.tasks.<id>.stateVisits` are deleted, together with the task's `supervision` block (§FS-rhei-supervision.3.3). A `metadata.tasks.<id>` entry left empty by those deletions is removed as well, and so are `metadata.tasks` and `metadata` when nothing else remains in them: an empty entry is a record of nothing, and the next reader would have to decide whether it meant something.
@@ -135,14 +137,39 @@ in-scope task:
   authored state and reset leaves the line untouched. This is what keeps a
   pre-authored chain intact through a reset that follows a run in which only
   the supervisor moved.
-- **There is no ledger at all** — a plan that never ran, or one whose
-  `runtime/` was removed by hand. These are the same picture from here, so
-  every task is left where it is and reset **names the tasks it left outside
-  their profile's `initial` state** (§4), which is the only recourse it can
-  offer: with nothing recording where they came from, only the operator knows.
-  A task left in a state the operator can edit is recoverable; a task silently
-  moved to a state it was never authored in is not, which is why the ambiguous
-  case changes nothing.
+- **The task's execution root has no ledger** — a plan that never ran, or one
+  whose `runtime/` was removed by hand. These are the same picture from here,
+  so the task is left where it is. Ledger presence is judged **per execution
+  root**: one rhei's history says nothing about another's, and a project where
+  only some rheis ran must not treat the others as having stood still.
+
+  Reset then **names the tasks it left outside their profile's `initial`
+  state** (§4), which is the only recourse it can offer: with nothing recording
+  where they came from, only the operator knows. It names only tasks a run
+  plausibly touched — those whose execution root still holds runtime output, or
+  that carry a claim, a result link, or a counted-visit suffix. A pre-authored
+  chain's children are authored outside `initial` by construction, so listing
+  every one of them on an ordinary reset of a plan that never ran would cry
+  wolf on each and bury the one task that is genuinely stale.
+
+  That test is deliberately best-effort. A `rhei transition` into a non-final
+  state leaves nothing behind but the state itself, which is exactly what a
+  hand-authored plan looks like, so a task moved that way and then stripped of
+  its whole `runtime/` directory goes unnamed. Missing one costs a line of
+  report; naming one wrongly would put every child of every supervised chain on
+  the list, which is the failure that makes a report stop being read.
+
+  A task named this way keeps its state while its results and logs are removed
+  with the rest of the runtime output, so it can be left reading `completed`
+  with nothing behind it. That is the honest end of an ambiguous case, and it
+  is why the report says so: a task left in a state the operator can edit is
+  recoverable, a task silently moved to a state it was never authored in is
+  not.
+
+- **The recorded state is one the machine no longer declares** — it was renamed
+  since the run. Writing it back would leave a plan that no longer validates,
+  and the ledger that explained it is deleted moments later, so reset keeps the
+  task where it stands and says which state it could not restore (§4).
 
 Reset therefore never invents a state a task did not hold. It moves a task only
 where the ledger says that task has been.
@@ -177,22 +204,19 @@ the supervisor's self-loops, say — the middle block is one line instead:
 No task had moved from its authored state.
 ```
 
-When there was no ledger at all, that line would be a claim reset cannot make:
-it would report an absence of evidence as evidence of absence. It reports what
-it found instead, naming every task it left outside its profile's `initial`
-state so the operator can act on it:
+Tasks reset could not account for are named after the move list, whether or
+not anything moved:
 
 ```text
-No transition ledger, so nothing records where these <K> task(s) came from; they were left as authored:
+Nothing records where these <K> task(s) came from, so they were left as they stand, without the results and logs the rest of this reset removed:
   Task <id>: <state>
 Edit their **State:** lines directly if that is not where they should be.
 ```
 
-and, when no task is outside its initial state either — the ordinary
-never-ran plan — one line:
+and a state the machine has since dropped gets one line per task:
 
 ```text
-No transition ledger, and every task is in its initial state.
+Task <id> started in '<recorded>', which this state machine no longer declares; left in '<current>'.
 ```
 
 When the task graph contains child tasks, the first line also reports the

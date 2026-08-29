@@ -17,9 +17,18 @@
   task to the state it was **authored** in, recovered per-task from the first
   `from` recorded for it in `runtime/state-transitions.log`: a task with no
   recorded move never left its authored state and is not touched at all. With
-  no ledger anywhere, nothing records where a task came from, so reset changes
-  no state and names the tasks it left outside their initial state rather than
-  moving them somewhere they may never have been. The summary and the
+  no ledger at a task's execution root — judged per root, so one rhei's history
+  never speaks for another's — nothing records where that task came from, so
+  reset changes no state and names the tasks it left outside their initial
+  state rather than moving them somewhere they may never have been. It names
+  only tasks a run plausibly touched, because a pre-authored chain's children
+  are outside `initial` by construction and listing all of them would bury the
+  one that is genuinely stale. A recorded state the machine no longer declares
+  is reported and not written back, so a reset can never leave a plan that
+  fails `rhei validate`. A counted-visit suffix is cleared whether or not the
+  state name changes: it is runtime state, and leaving it behind while
+  `stateVisits` was wiped left a reset workspace already out of visits. The
+  summary and the
   `--dry-run` preview now name every task they move and where from, instead of
   printing a count that read the same whether the reset was correct or
   destructive. §FS-rhei-reset.2.2 §FS-rhei-reset.4 (PR #102)
