@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- **`rhei run` asks the whole completion condition before a pass skips an agent
+  invocation.** The condition has three parts — exit `0`, the declared
+  `outputs:` on disk, and, when the edge the exit selects lands on a `final:
+  true` state, the ticket's non-empty terminal result — and it lived in two
+  places with two different rules. The post-exit check asked all three; the
+  scheduling filter asked only whether the declared outputs existed. So a ticket
+  that correctly failed the condition on one pass, with its outputs written and
+  its result never written, was read on the next as having nothing left to do:
+  it fell through to callback-only advancement, took the terminal edge the
+  condition had just refused, and had "No agent or program ran in that state, so
+  no worker result was recorded" written into its permanent result — of a state
+  where an agent had run for twelve minutes and published its export.
+  §FS-rhei-run.3 step 5 already said that no transition fires and the ticket
+  stays where it is, and that the engine never speaks for a worker that ran; the
+  rule is now asked in one place and a state that has not met it is run again
+  rather than reclassified as finished. The same weak filter on the parallel
+  refill path goes with it. Two things follow from running the state again.
+  First, the engine no longer *infers* that a worker ran, and that this is a
+  retry, from a log file's name and existence — an inference that credited a
+  header-only log from a spawn that never started, claimed a hyphenated sibling
+  state's log as its own, and narrated a re-entry as a retry because an uncounted
+  state's visit number is pinned at `1`. A record written when a subprocess ends,
+  keyed by the ticket's move count, answers both questions instead
+  (§FS-rhei-agents.8.4), and each attempt keeps its own transcript rather than
+  truncating the one that explains the previous miss. Second, a retry that
+  repeats the previous prompt byte-for-byte is only spend, so a re-spawned
+  invocation is told it is retrying and which artifact the previous attempt left
+  unwritten, and a new **`attempts:` budget** bounds a visit — the state's own
+  field, then `defaults.attempts`, then `2` — after which the ticket halts where
+  it is and the run names what it owes (§FS-rhei-agents.3.2.3). `visits:` bounds
+  how many times a ticket may *enter* a state; `attempts:` bounds how many times
+  one entry may be *spawned*. The budget rides the same record, so it holds
+  across separate `rhei run` invocations, and a genuine re-entry starts a fresh
+  one; poll states keep their own `poll.max_attempts`, and an interrupted spawn
+  takes an attempt log without spending budget. Without the budget the fix would
+  trade a false result for unbounded re-spawning, which is why the two land
+  together. §FS-rhei-agents.3.2 §FS-rhei-states.3.3 (PR #106)
+
 - **`rhei list --ready` is the ready set, not a second opinion about it.** It
   re-derived readiness inline from four of the six conditions the scan applies —
   terminal state, gating state, `**Prior:**` satisfaction and the supervision
