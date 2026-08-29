@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **The `rhei-plan-writer` skill says where a plan file belongs.** It specified
+  the plan format, states, ids, and validation and never named a location, so an
+  agent following it saved a plan at a host repository's root and `rhei init`
+  refused to adopt the directory until the file moved. The refusal is the good
+  case: inside a project that already exists, discovery reads the project
+  directory's immediate children and nothing else, so a plan at the repository
+  root or under `panta/plans/` is not a rhei — `rhei list` never shows its
+  tickets and `rhei validate` prints "Validation succeeded" over it. `## File
+  Extension` becomes `## File Location and Name`, because naming a plan and
+  placing it are one decision taken at one moment; it gives the default for both
+  plan shapes, says to look for `index.panta.md` or run `rhei list` first,
+  prefers `rhei new` over hand-writing a path, and names what the silence looks
+  like when the guess is wrong. Creating the project stays the human's call, as
+  the skill already said of `rhei init` under `rhei new` — the guidance is to ask
+  for it and write to `panta/<id>.rhei.md` meanwhile, which a later init adopts —
+  and the gitignored `panta/` now comes with its answer, `rhei init --here`,
+  rather than only the question. The naming rule gained the two constraints that
+  fail loudly and were unwritten: a Directory Workspace takes its id from the
+  directory name, and an id must start with a letter and hold only letters,
+  digits, `_` or `-`, with `basin` reserved. `## Planning Workflow` gained a save
+  step, because an agent working the numbered list went from setting initial
+  states to running the validation checklist without ever being told where the
+  file goes. (PR #109)
+
 - **`rhei run` asks the whole completion condition before a pass skips an agent
   invocation.** The condition has three parts — exit `0`, the declared
   `outputs:` on disk, and, when the edge the exit selects lands on a `final:
