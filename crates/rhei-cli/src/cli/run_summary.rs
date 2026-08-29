@@ -217,7 +217,12 @@ fn emit_run_report(
     // The commands the report suggests carry the plan, so they run from
     // wherever the operator is reading it. §FS-rhei-errors.2
     let plan_arg = plan_arg_for_help(input);
-    let mut report = RunSummaryReport::build(&loaded.rhei, machines, summary, stats, &plan_arg);
+    // The run's own per-ticket execution roots, beside the run's own workspace
+    // root in `stats`: the report explains a halted ticket under exactly the
+    // roots its ready-set scan looked under. §AR-rhei-panta.5
+    let task_roots = &loaded.task_roots;
+    let mut report =
+        RunSummaryReport::build(&loaded.rhei, machines, summary, stats, &plan_arg, task_roots);
     // Write the durable report even when stdout is piped, so CI runs leave the
     // artifact; a dry run writes nothing, leaving `report_path` unset so no pointer
     // prints below. §FS-rhei-run-report.1 §FS-rhei-run-report.3.5
@@ -651,13 +656,18 @@ const MAX_ATTENTION_ROWS: usize = 5;
 
 impl RunSummaryReport {
     /// Build the report from the on-disk plan, the run's spawn counts, and the
-    /// per-task activity captured by [`SummarySink`]. §FS-rhei-run-report.8
+    /// per-task activity captured by [`SummarySink`]. `task_roots` with
+    /// `stats.workspace_root` are the roots the run's own ready-set scan
+    /// resolved artifacts under, so the report explains a halted ticket exactly
+    /// as the halt message did.
+    // §FS-rhei-run-report.8 §AR-rhei-panta.5
     pub fn build(
         rhei: &rhei_core::ast::Rhei,
         machines: &rhei_validator::MachineSet,
         summary: &SummarySink,
         stats: RunStats,
         plan_arg: &str,
+        task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
     ) -> Self {
         let activity = summary.snapshot();
         // Read once: the ledger answers both "why is this ticket halted" below
@@ -698,6 +708,8 @@ impl RunSummaryReport {
                     )
             },
             plan_arg,
+            // The run's own roots, so every surface of one run agrees. §AR-rhei-panta.5
+            &ReadySetRoots { workspace_root: &stats.workspace_root, task_roots },
         )
         .into_iter()
         .map(|(task, cause)| (task.id.to_string(), cause))
@@ -1707,6 +1719,11 @@ mod run_summary_tests {
         rhei_validator::StateMachine::builtin_default()
     }
 
+    /// A single-file plan gives its tickets no execution roots of their own.
+    fn no_task_roots() -> std::collections::HashMap<String, std::path::PathBuf> {
+        std::collections::HashMap::new()
+    }
+
     /// Parse a tiny plan whose tasks carry the given `(id, state)` pairs.
     fn report(tasks: &[(&str, &str)]) -> RunSummaryReport {
         let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
@@ -1714,7 +1731,7 @@ mod run_summary_tests {
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), test_stats(), "plan.rhei.md")
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), test_stats(), "plan.rhei.md", &no_task_roots())
     }
 
     /// `RunStats` with non-zero spawn counts and empty run metadata, for the
@@ -1833,6 +1850,7 @@ transitions:
             &SummarySink::new(),
             test_stats(),
             "plan.rhei.md",
+            &no_task_roots(),
         );
 
         assert_eq!(
@@ -1931,7 +1949,7 @@ transitions:
             md.push_str(&format!("### Task {id}: Task {id}\n**State:** {state}\n\n"));
         }
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), stats, "plan.rhei.md")
+        RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &SummarySink::new(), stats, "plan.rhei.md", &no_task_roots())
     }
 
     #[test]
@@ -2089,7 +2107,7 @@ transitions:
         let mut md = String::from("# Rhei: Test Plan\n\n## Tasks\n\n");
         md.push_str("### Task 1: Task 1\n**State:** completed\n\n");
         let rhei = rhei_core::parse(&md).expect("plan parses");
-        let report = RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &summary, stats, "plan.rhei.md");
+        let report = RunSummaryReport::build(&rhei, &rhei_validator::MachineSet::single(machine()), &summary, stats, "plan.rhei.md", &no_task_roots());
         let md = report.render_markdown();
         // The spawned agent row and the synthesized callback advance both appear.
         assert!(md.contains("| 1 | build | review | agent |"), "{md}");

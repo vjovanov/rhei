@@ -56,6 +56,56 @@ fn ensure_state_inputs_exist_for_transition(
     Ok(())
 }
 
+/// Every required input of `state_name` that is not on disk, across the state's
+/// resolved invocation contexts, deduplicated and in declaration order.
+///
+/// Mirrors [`ensure_state_inputs_exist_for_transition`]'s resolution so a halt
+/// line names the same files readiness looked for.
+// §FS-rhei-run-report.3.1
+#[allow(clippy::too_many_arguments)]
+fn missing_state_inputs_for_transition(
+    workspace_root: &Path,
+    task: Option<&rhei_core::ast::Task>,
+    task_id: &str,
+    state_name: &str,
+    state_def: &rhei_validator::StateDef,
+    visit_count: Option<u64>,
+    machine: &rhei_validator::StateMachine,
+    settings: &RheiSettings,
+) -> Vec<String> {
+    let invocations = resolve_agent_invocations_for_task(
+        machine,
+        state_name,
+        settings,
+        &default_run_options(),
+        task,
+    )
+    .unwrap_or_default();
+    let mut missing: Vec<String> = Vec::new();
+    for (target, model, model_provider, model_name, agent, agent_mode) in
+        transition_contexts_for_state(state_def, &invocations)
+    {
+        for entry in missing_state_inputs(
+            workspace_root,
+            task_id,
+            state_name,
+            state_def,
+            visit_count,
+            target,
+            model,
+            model_provider,
+            model_name,
+            agent,
+            agent_mode,
+        ) {
+            if !missing.contains(&entry) {
+                missing.push(entry);
+            }
+        }
+    }
+    missing
+}
+
 #[allow(clippy::too_many_arguments)]
 fn ensure_state_outputs_exist_for_transition(
     workspace_root: &Path,

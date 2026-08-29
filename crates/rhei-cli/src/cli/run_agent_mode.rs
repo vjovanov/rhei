@@ -178,14 +178,13 @@ fn run_agent_mode(
             break;
         }
         let loaded = load_plan(input)?;
+        // §AR-rhei-panta.5: every look at this pass's ready set — the scan, the
+        // held-ticket pass, and the halt report that explains what it refused —
+        // resolves artifacts under the roots the loaded plan gives its tickets.
+        let roots =
+            ReadySetRoots { workspace_root: &workspace_root, task_roots: &loaded.task_roots };
         let ready = narrow_to_rhei_scope(
-            find_runnable_tasks(
-                &loaded.rhei,
-                &machines.set,
-                &workspace_root,
-                &loaded.task_roots,
-                &HashSet::new(),
-            ),
+            find_runnable_tasks(&loaded.rhei, &machines.set, &roots, &HashSet::new()),
             &rhei_scope,
         );
         if ready.is_empty() {
@@ -223,8 +222,10 @@ fn run_agent_mode(
             // exits having explained nothing, and a dry run reported success
             // on a project the real run halts on. §FS-rhei-run.4
             if pass == 0 {
+                // The same roots the ready-set scan just used, so a halt line
+                // names the file it looked for. §AR-rhei-panta.5
                 let (lines, needs_human) =
-                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope, input);
+                    halted_task_report(&loaded.rhei, &machines.set, &rhei_scope, input, &roots);
                 if !lines.is_empty() {
                     run_info!("\nNothing to schedule. Why each remaining ticket is not moving:");
                     for line in &lines {
@@ -260,10 +261,7 @@ fn run_agent_mode(
         // A ticket someone already claimed is ready but unschedulable; saying
         // nothing made it look like it was not ready at all. §FS-rhei-run.3
         let held =
-            narrow_to_rhei_scope(
-            find_held_tasks(&loaded.rhei, &machines.set, &workspace_root, &loaded.task_roots),
-            &rhei_scope,
-        );
+            narrow_to_rhei_scope(find_held_tasks(&loaded.rhei, &machines.set, &roots), &rhei_scope);
         if !held.is_empty() {
             run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
         }

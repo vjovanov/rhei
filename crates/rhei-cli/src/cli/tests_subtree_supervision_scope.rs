@@ -224,13 +224,7 @@ transitions:
         let ready = |plan: &rhei_core::ast::Rhei| -> Vec<String> {
             let machines = rhei_validator::MachineSet::single(scope_machine());
             let dir = tempfile::tempdir().expect("tmpdir");
-            find_ready_tasks(
-                plan,
-                &machines,
-                dir.path(),
-                &std::collections::HashMap::new(),
-                &HashSet::new(),
-            )
+            find_ready_tasks(plan, &machines, &ReadySetRoots::plan_only(dir.path()), &HashSet::new())
             .iter()
             .map(|task| task.id.to_string())
             .collect()

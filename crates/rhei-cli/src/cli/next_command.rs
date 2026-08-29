@@ -88,8 +88,10 @@ fn next_command(
                 find_claimable_tasks(
                     &loaded.rhei,
                     &machines.set,
-                    &workspace_root,
-                    &loaded.task_roots,
+                    &ReadySetRoots {
+                        workspace_root: &workspace_root,
+                        task_roots: &loaded.task_roots,
+                    },
                 ),
                 &scope,
             );
@@ -229,7 +231,11 @@ fn next_command(
     } else {
         // §FS-rhei-panta.6.1: `--rhei` narrows candidates, not prior resolution.
         let ready = narrow_to_rhei_scope(
-            find_claimable_tasks(&loaded.rhei, &machines.set, &workspace_root, &loaded.task_roots),
+            find_claimable_tasks(
+                &loaded.rhei,
+                &machines.set,
+                &ReadySetRoots { workspace_root: &workspace_root, task_roots: &loaded.task_roots },
+            ),
             &scope,
         );
         if ready.is_empty() {

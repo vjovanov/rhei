@@ -8,6 +8,19 @@ fn canonical_path_text(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
+/// A path spelled the way the CLI renders one, for asserting against output.
+///
+/// [`canonical_path_text`] cannot serve: it compares two canonicalizations
+/// against each other, where Windows' verbatim `\\?\` prefix cancels. Printed
+/// output has that prefix taken back off, so this takes it off too.
+// §REQ-cross-platform.5
+fn rendered_path_text(path: &Path) -> String {
+    rhei_core::platform::canonical_path(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
+}
+
 fn recorded_value<'a>(recorded: &'a str, prefix: &str) -> &'a str {
     recorded
         .lines()
@@ -1028,13 +1041,13 @@ transitions:
 "#;
 
 /// The orchestrated loop resolves a member's required inputs at the member's own
-/// execution root.
+/// execution root, and says so when it cannot find them.
 ///
 /// The reported shape — a supervisor writing a brief for the child it holds —
 /// takes this path, not the callback loop's, because the supervising state
-/// carries a `target:`. Both loops call `find_runnable_tasks` for themselves,
-/// so covering one covers neither.
-// §AR-rhei-panta.5
+/// carries a `target:`. Both loops call `find_runnable_tasks` and
+/// `halted_task_report` for themselves, so covering one covers neither.
+// §AR-rhei-panta.5 §FS-rhei-run-report.3.1
 #[test]
 fn run_agent_mode_resolves_a_panta_member_input_at_its_own_execution_root() {
     let project = create_panta_project(
@@ -1084,9 +1097,19 @@ result('## Result\n\nDone.\n')
     };
 
     // The project root is not this member's execution root, so the scan refuses
-    // the ticket and the run halts with nothing spawned. §AR-rhei-panta.5
+    // the ticket — and the halt line names the file and the root it wanted it
+    // under, absolutely, which is the whole question. §FS-rhei-run-report.3.1
     let (advanced, stdout) = run();
+    let wanted = Path::new(&rendered_path_text(&member_root))
+        .join("runtime")
+        .join("auth.1.md")
+        .display()
+        .to_string();
     assert!(!advanced, "a brief at the project root must not schedule the member: {stdout}");
+    assert!(
+        stdout.contains("required input(s) not found: brief") && stdout.contains(&wanted),
+        "the orchestrated loop's halt line should name {wanted}: {stdout}"
+    );
     assert!(!invocations.exists(), "no agent should have been spawned: {stdout}");
 
     // The same file under the root the member's own prompt names schedules it.

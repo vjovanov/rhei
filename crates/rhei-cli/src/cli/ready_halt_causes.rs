@@ -70,6 +70,21 @@ enum HaltCause {
     /// the report rather than only from the plan's own directory.
     // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1 §FS-rhei-errors.2
     MissingOutputs { entries: Vec<String>, plan: String },
+    /// A required `inputs:` artifact of the ticket's current state is not on
+    /// disk, so readiness refused to schedule it. `entries` are the
+    /// `name (path)` renderings of the files that were looked for.
+    ///
+    /// Named ahead of `NotScheduled` because it *is* why the ticket was never
+    /// scheduled: "rerun to pick it up" sent the operator back to a run that
+    /// halts identically, with nothing said about the file being waited on —
+    /// and a Panta member looks for it under its own execution root, not the
+    /// project's, so the path is the whole answer.
+    ///
+    /// Only when the missing file is what readiness stopped at, though: a poll
+    /// deadline still ahead and a supervisor draining its subtree are refused
+    /// before inputs are read, and writing the file would not release either.
+    // §FS-rhei-run-report.3.1 §FS-rhei-states.3 §AR-rhei-panta.5
+    MissingInputs { entries: Vec<String> },
     /// The run never scheduled this ticket: nothing about it is known to have
     /// failed, so it must not borrow the stalled reading.
     // §FS-rhei-run-report.3.1
@@ -167,6 +182,15 @@ impl HaltCause {
                     if plan.is_empty() { String::new() } else { format!(" {plan}") }
                 ),
             ),
+            // Name the path, not just the fact: the file the operator wrote and
+            // the file readiness looked for can sit under different roots.
+            // §FS-rhei-run-report.3.1
+            HaltCause::MissingInputs { entries } => (
+                format!("required input(s) not found: {}", entries.join(", ")),
+                "write the file(s) at the path(s) above — that is where this state looks for \
+                 them — then rerun, or mark the input `optional: true` in the state machine"
+                    .to_string(),
+            ),
             HaltCause::NotScheduled => (
                 format!("not scheduled before the run halted, still in '{state}'"),
                 format!(
@@ -223,6 +247,14 @@ fn suggested_final_state(machine: &rhei_validator::StateMachine, state: &str) ->
 /// case rather than a scheduling one; `missing` carries the required artifacts
 /// its last exit-0 worker left unwritten, when the run recorded any;
 /// `interrupted` marks one whose last invocation the run's shutdown ended.
+///
+/// `roots` are the artifact roots the ready-set scan resolves against, so a
+/// ticket refused for a file that is not there is explained by the file rather
+/// than by never having been scheduled. Every caller has them — the run knows
+/// the roots it just scanned with — so no surface can be short of them and
+/// quietly give a halted ticket a reading of its own.
+// §AR-rhei-panta.5 §FS-rhei-run-report.3.1: one classification, one set of
+// roots, every surface of the run.
 #[allow(clippy::too_many_arguments)]
 fn classify_halt(
     task: &rhei_core::ast::Task,
@@ -234,6 +266,7 @@ fn classify_halt(
     missing: Option<Vec<String>>,
     interrupted: bool,
     plan_arg: &str,
+    roots: &ReadySetRoots<'_>,
 ) -> HaltCause {
     let machine = machines.for_task(&task.id);
     let state = normalized_state_name(task.state.as_str(), machine);
@@ -302,6 +335,15 @@ fn classify_halt(
             _ => HaltCause::Stalled,
         };
     }
+    // Readiness refused this ticket because a file it needs is not there — but
+    // only say so when the input is what the scan stopped at, never over a wait
+    // no file can end. §FS-rhei-run-report.3.1 §FS-rhei-states.3
+    if !ready_scan_stops_before_inputs(task, rhei, machines, machine, &state) {
+        let entries = missing_state_inputs_for_ready_set(roots, rhei, machine, task, &state);
+        if !entries.is_empty() {
+            return HaltCause::MissingInputs { entries };
+        }
+    }
     match find_next_transition(task, rhei, machine) {
         Ok(None) => HaltCause::NoTransition,
         // Nothing ran against this ticket, so nothing about it stalled. It was
@@ -322,6 +364,7 @@ fn classify_halt(
 // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2: non-leaf tickets are classified
 // alongside leaves, so a parent nobody can advance is nameable as the reason a
 // dependent is stuck; an interrupted worker explains its ticket before its work does.
+#[allow(clippy::too_many_arguments)]
 fn classify_halted_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
@@ -330,6 +373,7 @@ fn classify_halted_tasks<'a>(
     missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
     interrupted: &dyn Fn(&str) -> bool,
     plan_arg: &str,
+    roots: &ReadySetRoots<'_>,
 ) -> Vec<(&'a rhei_core::ast::Task, HaltCause)> {
     let mut all = Vec::new();
     collect_plan_tasks(&rhei.tasks, &mut all);
@@ -354,6 +398,7 @@ fn classify_halted_tasks<'a>(
                 missing(&id, &state),
                 interrupted(&id),
                 plan_arg,
+                roots,
             );
             (task, cause)
         })
@@ -379,6 +424,7 @@ fn halted_task_report(
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
     plan_path: &Path,
+    roots: &ReadySetRoots<'_>,
 ) -> (Vec<String>, bool) {
     let mut lines = Vec::new();
     // Suggested commands carry the plan, so they run from wherever the operator
@@ -394,6 +440,7 @@ fn halted_task_report(
         &|_, _| None,
         &|_| false,
         &plan_arg,
+        roots,
     ) {
         let machine = machines.for_task(&task.id);
         let state = normalized_state_name(task.state.as_str(), machine);

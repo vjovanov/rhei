@@ -37,6 +37,121 @@ fn state_inputs_exist_for_ready_set(
     .is_ok()
 }
 
+/// The roots the ready-set scan resolves a ticket's artifacts against: the
+/// plan's own root, and the per-ticket execution roots a Panta project adds.
+///
+/// One value because the two are only ever right together. As separate
+/// arguments the mistake type-checks, and it was made: `find_runnable_tasks`
+/// and `find_held_tasks` handed a plan's root beside an empty map for as long
+/// as Panta members have had roots of their own, so a member's inputs were
+/// looked for under the project. Everything that reads the ready set — the
+/// scan, its wrappers, and the halt classifier that explains what it refused —
+/// takes the pair.
+// §AR-rhei-panta.5
+struct ReadySetRoots<'a> {
+    workspace_root: &'a Path,
+    task_roots: &'a std::collections::HashMap<String, std::path::PathBuf>,
+}
+
+impl<'a> ReadySetRoots<'a> {
+    /// Where `task_id`'s artifacts live: its owning rhei's execution root in a
+    /// Panta project, the plan's own root otherwise. §AR-rhei-panta.5
+    fn artifact_root(&self, task_id: &str) -> &'a Path {
+        self.task_roots.get(task_id).map_or(self.workspace_root, |root| root.as_path())
+    }
+
+    /// A plan with no per-ticket roots at all: a single-file plan, the shape
+    /// the unit tests build. A loaded Panta project always carries roots, so
+    /// nothing on the run path constructs this. §AR-rhei-panta.5
+    #[cfg(test)]
+    fn plan_only(workspace_root: &'a Path) -> Self {
+        type TaskRoots = std::collections::HashMap<String, std::path::PathBuf>;
+        static EMPTY: std::sync::OnceLock<TaskRoots> = std::sync::OnceLock::new();
+        Self { workspace_root, task_roots: EMPTY.get_or_init(TaskRoots::new) }
+    }
+}
+
+/// The required inputs the ready-set scan could not find for `task` in
+/// `state_name`; empty when the state may start, and empty when nothing can be
+/// determined — a halt line must name files, never guess at them.
+///
+/// Resolved exactly as [`state_inputs_exist_for_ready_set`] resolves them, so
+/// the halt report names the files that scan looked for.
+// §AR-rhei-panta.5 §FS-rhei-run-report.3.1
+fn missing_state_inputs_for_ready_set(
+    roots: &ReadySetRoots<'_>,
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+) -> Vec<String> {
+    let Some(state_def) = machine.states.get(state_name) else {
+        return Vec::new();
+    };
+    if state_def.inputs.is_empty() {
+        return Vec::new();
+    }
+    let Ok(settings) = load_merged_settings(roots.workspace_root) else {
+        return Vec::new();
+    };
+    let task_id = task.id.to_string();
+    let visit_count = Some(render_visit_count(
+        rhei.metadata.as_ref(),
+        &task.id,
+        state_name,
+        task.state.as_str(),
+        machine,
+    ));
+    missing_state_inputs_for_transition(
+        roots.artifact_root(&task_id),
+        Some(task),
+        &task_id,
+        state_name,
+        state_def,
+        visit_count,
+        machine,
+        &settings,
+    )
+}
+
+/// Whether the ready-set scan refused this ticket *before* it ever looked at
+/// the state's `inputs:`.
+///
+/// Two skips in [`find_ready_tasks`] come first and have no halt cause of their
+/// own: a `poll:` state whose next attempt is still in the future, and a
+/// supervisor that has released its subtree or still has work draining beneath
+/// it. Either can be true at the same time as a missing input, and naming the
+/// input then is the less useful of two true readings — the operator writes the
+/// file, reruns, and the ticket still does not schedule.
+// §FS-rhei-run-report.3.1 §FS-rhei-supervision.3.2
+fn ready_scan_stops_before_inputs(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machines: &rhei_validator::MachineSet,
+    machine: &rhei_validator::StateMachine,
+    state_name: &str,
+) -> bool {
+    if machine.states.get(state_name).and_then(|def| def.poll.as_ref()).is_some()
+        && poll_next_attempt_at(rhei.metadata.as_ref(), &task.id, state_name)
+            .is_some_and(|deadline| deadline > current_unix_secs())
+    {
+        return true;
+    }
+    if !task_is_supervising(task, machine) {
+        return false;
+    }
+    let mut all = Vec::new();
+    collect_plan_tasks(&rhei.tasks, &mut all);
+    let verdict = supervision_verdict_for(
+        task,
+        &task_index(&all),
+        machines,
+        rhei.metadata.as_ref(),
+        &HashSet::new(),
+    );
+    matches!(verdict, SupervisionVerdict::SupervisorWaiting)
+}
+
 /// Every descendant of `task` that is not yet terminal, in preorder.
 // §DA-per-rhei-state-machines: each node is judged under the machine its own
 // id resolves to, so a mixed-machine project cannot misread a child's state.
@@ -124,8 +239,7 @@ fn format_open_descendants(
 fn find_ready_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
-    workspace_root: &Path,
-    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
+    roots: &ReadySetRoots<'_>,
     spawned: &HashSet<String>,
 ) -> Vec<&'a rhei_core::ast::Task> {
     use std::collections::HashMap;
@@ -187,12 +301,11 @@ fn find_ready_tasks<'a>(
                 .unwrap_or(false)
         });
 
-        let task_id = task.id.to_string();
         // §AR-rhei-panta.5: input artifacts resolve from the owning rhei execution root.
-        let artifact_root = task_roots.get(&task_id).map_or(workspace_root, |root| root.as_path());
+        let artifact_root = roots.artifact_root(&task.id.to_string());
         if all_priors_done
             && state_inputs_exist_for_ready_set(
-                workspace_root,
+                roots.workspace_root,
                 artifact_root,
                 rhei,
                 machine,
@@ -212,19 +325,14 @@ fn find_ready_tasks<'a>(
 /// This keeps the readiness semantics used by the run loop, but skips
 /// tasks that already carry an assignee so a manual claim cannot be stolen by
 /// the orchestrator.
-///
-/// `task_roots` is the loaded plan's per-ticket execution roots, taken here for
-/// the same reason `find_claimable_tasks` takes it: a Panta member's required
-/// inputs live under the rhei that owns the ticket.
 // §AR-rhei-panta.5: inputs resolve against the owning rhei's execution root.
 fn find_runnable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
-    workspace_root: &Path,
-    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
+    roots: &ReadySetRoots<'_>,
     spawned: &HashSet<String>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, task_roots, spawned)
+    find_ready_tasks(rhei, machines, roots, spawned)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -233,14 +341,13 @@ fn find_runnable_tasks<'a>(
 /// Ready tickets `rhei run` will not touch because someone already holds them.
 /// The loop counts only what it can schedule, so a held ticket vanished from
 /// the pass report and read as "not ready". §FS-rhei-run.3
-// §AR-rhei-panta.5: `task_roots` keeps a member's inputs resolving at its own root.
+// §AR-rhei-panta.5: `roots` keeps a member's inputs resolving at its own root.
 fn find_held_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
-    workspace_root: &Path,
-    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
+    roots: &ReadySetRoots<'_>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new())
+    find_ready_tasks(rhei, machines, roots, &HashSet::new())
         .into_iter()
         .filter(|task| task.assignee.is_some())
         .collect()
@@ -301,10 +408,9 @@ fn format_held_tasks(held: &[&rhei_core::ast::Task]) -> String {
 fn find_claimable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
-    workspace_root: &Path,
-    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
+    roots: &ReadySetRoots<'_>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new())
+    find_ready_tasks(rhei, machines, roots, &HashSet::new())
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .filter(|task| {

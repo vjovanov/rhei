@@ -362,9 +362,9 @@
             "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let dir = tempfile::tempdir().expect("tmpdir");
-        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new());
+        let ready = find_ready_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new());
         assert_eq!(ready.len(), 2);
-        let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new());
+        let runnable = find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new());
         assert_eq!(
             runnable.iter().map(|task| task.id.to_string()).collect::<Vec<_>>(),
             vec!["2".to_string()]
@@ -384,7 +384,7 @@
         let dir = tempfile::tempdir().expect("tmpdir");
         let ready_ids = |plan: &str| {
             let rhei = rhei_core::parse(plan).expect("parse plan");
-            find_ready_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new(), &HashSet::new())
+            find_ready_tasks(&rhei, &machines, &ReadySetRoots::plan_only(dir.path()), &HashSet::new())
                 .iter()
                 .map(|task| task.id.to_string())
                 .collect::<Vec<_>>()
@@ -489,8 +489,7 @@ structure:
         let ready = find_ready_tasks(
             &rhei,
             &rhei_validator::MachineSet::single(machine),
-            dir.path(),
-            &std::collections::HashMap::new(),
+            &ReadySetRoots::plan_only(dir.path()),
             &HashSet::new(),
         );
         assert_eq!(
@@ -517,7 +516,7 @@ structure:
         let dir = tempfile::tempdir().expect("tmpdir");
 
         // §FS-rhei-run-tui.1.5.7: gate-only runs reach the empty-ready wait path.
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
     }
 
     #[test]
@@ -559,7 +558,7 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
         assert!(has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
         assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
@@ -601,7 +600,7 @@ transitions:
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
         assert!(should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
 
@@ -648,7 +647,7 @@ transitions:
 
         // The parent is not schedulable while its subtree is open, and the
         // child is gated, so nothing is runnable — but the gate is the reason.
-        assert!(find_runnable_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &machines, &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
 
@@ -702,7 +701,7 @@ transitions:
         // Nothing is runnable: the parent waits on its subtree, the child is
         // gated, and the dependent waits on the parent — one gate, three
         // tickets, and the gate is still the whole reason.
-        assert!(find_runnable_tasks(&rhei, &machines, dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &machines, &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
         assert!(remaining_work_is_only_gating_or_poll_blocked(&rhei, &machines, &None));
         assert!(should_wait_for_human_gate(&rhei, &machines, &None));
     }
@@ -874,7 +873,7 @@ transitions: []
         );
         let dir = tempfile::tempdir().expect("tmpdir");
 
-        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), dir.path(), &std::collections::HashMap::new(), &HashSet::new()).is_empty());
+        assert!(find_runnable_tasks(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &ReadySetRoots::plan_only(dir.path()), &HashSet::new()).is_empty());
         assert!(!has_pending_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone())));
         assert!(!should_wait_for_human_gate(&rhei, &rhei_validator::MachineSet::single(machine.clone()), &None));
     }
@@ -895,12 +894,12 @@ transitions: []
 
         let mut cli_opts = default_run_options();
         cli_opts.agent.agent = Some("codex".to_string());
-        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &default_settings(), &cli_opts, dir.path(), &std::collections::HashMap::new())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &default_settings(), &cli_opts, &ReadySetRoots::plan_only(dir.path()))
             .expect("cli agent mode selection"));
 
         let mut defaults_agent = default_settings();
         defaults_agent.defaults.agent = Some(AgentConfig::from("codex"));
-        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_agent, &default_run_options(), dir.path(), &std::collections::HashMap::new())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_agent, &default_run_options(), &ReadySetRoots::plan_only(dir.path()))
             .expect("defaults.agent mode selection"));
 
         let mut defaults_model = default_settings();
@@ -914,7 +913,7 @@ transitions: []
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_model, &default_run_options(), dir.path(), &std::collections::HashMap::new())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(bare_machine.clone()), &defaults_model, &default_run_options(), &ReadySetRoots::plan_only(dir.path()))
             .expect("defaults.model mode selection"));
 
         let mut model_default_agent = default_settings();
@@ -927,7 +926,7 @@ transitions: []
                 agents: BTreeMap::new(),
             },
         );
-        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(model_machine.clone()), &model_default_agent, &default_run_options(), dir.path(), &std::collections::HashMap::new())
+        assert!(should_use_agent_mode(&rhei, &rhei_validator::MachineSet::single(model_machine.clone()), &model_default_agent, &default_run_options(), &ReadySetRoots::plan_only(dir.path()))
             .expect("models.<id>.default_agent mode selection"));
     }
 
