@@ -241,11 +241,13 @@ fn panta_run_dry_run_resolves_inputs_from_owning_rhei_root() {
         .expect("create owning rhei runtime");
     fs::write(&owning_input, "brief").expect("write input artifact");
 
+    // Run from inside the project with a relative target, because that is the
+    // invocation that would print a relative path if the halt line rendered one.
+    // §FS-rhei-run-report.3.1
     let dry_run = || {
         let output = rhei_command()
-            .arg("run")
-            .arg(&project)
-            .arg("--dry-run")
+            .current_dir(&project)
+            .args(["run", ".", "--dry-run"])
             .output()
             .expect("run --dry-run should run");
         String::from_utf8_lossy(&output.stdout).into_owned()
@@ -257,7 +259,8 @@ fn panta_run_dry_run_resolves_inputs_from_owning_rhei_root() {
         "an input at the owning rhei root should schedule the ticket: {stdout}"
     );
 
-    // The same file at the project root is not the one this ticket needs.
+    // The same file at the project root is not the one this ticket needs, and
+    // the halt line names the root the scan looked under. §FS-rhei-run-report.3.1
     let project_input = project.join("runtime").join("auth.1.md");
     fs::create_dir_all(project_input.parent().expect("project runtime parent"))
         .expect("create project runtime");
@@ -267,6 +270,15 @@ fn panta_run_dry_run_resolves_inputs_from_owning_rhei_root() {
     assert!(
         !stdout.contains("would transition:"),
         "an input at the project root must not schedule a member's ticket: {stdout}"
+    );
+    let wanted = Path::new(&rendered_path_text(&owning_root))
+        .join("runtime")
+        .join("auth.1.md")
+        .display()
+        .to_string();
+    assert!(
+        stdout.contains("required input(s) not found: brief") && stdout.contains(&wanted),
+        "the halt line should name the absolute path it looked under, {wanted}: {stdout}"
     );
 }
 

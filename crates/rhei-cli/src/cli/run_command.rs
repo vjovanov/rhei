@@ -239,14 +239,9 @@ fn run_command(
         eprintln!("warning: {warning}");
     }
 
-    let use_standalone_mode = should_use_agent_mode(
-        &loaded.rhei,
-        &machines.set,
-        &settings,
-        &opts,
-        &workspace_root,
-        &loaded.task_roots,
-    )?;
+    let roots = ReadySetRoots { workspace_root: &workspace_root, task_roots: &loaded.task_roots };
+    let use_standalone_mode =
+        should_use_agent_mode(&loaded.rhei, &machines.set, &settings, &opts, &roots)?;
 
     let result = if use_standalone_mode {
         run_agent_mode(input, &machines, &settings, &opts, effective_parallel, &identity)
@@ -270,8 +265,7 @@ fn should_use_agent_mode(
     machines: &rhei_validator::MachineSet,
     settings: &RheiSettings,
     opts: &RunOptions,
-    workspace_root: &Path,
-    task_roots: &std::collections::HashMap<String, PathBuf>,
+    roots: &ReadySetRoots<'_>,
 ) -> MietteResult<bool> {
     if !opts.no_agent()
         && machines.distinct().iter().any(|machine| {
@@ -285,7 +279,7 @@ fn should_use_agent_mode(
     }
 
     for task in narrow_to_rhei_scope(
-        find_runnable_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new()),
+        find_runnable_tasks(rhei, machines, roots, &HashSet::new()),
         &rhei_scope_set(opts.rhei_scope()),
     ) {
         let machine = machines.for_task(&task.id);

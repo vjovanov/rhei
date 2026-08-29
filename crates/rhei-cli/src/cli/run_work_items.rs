@@ -239,8 +239,7 @@ fn collect_ready_agent_work_items(
         find_runnable_tasks(
             &loaded.rhei,
             &machines.set,
-            workspace_root,
-            &loaded.task_roots,
+            &ReadySetRoots { workspace_root, task_roots: &loaded.task_roots },
             active_task_ids,
         ),
         &rhei_scope,
@@ -356,8 +355,7 @@ fn collect_ready_program_work_items(
         find_runnable_tasks(
             &loaded.rhei,
             &machines.set,
-            workspace_root,
-            &loaded.task_roots,
+            &ReadySetRoots { workspace_root, task_roots: &loaded.task_roots },
             active_task_ids,
         ),
         &rhei_scope,

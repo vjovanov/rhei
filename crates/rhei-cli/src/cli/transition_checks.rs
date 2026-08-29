@@ -86,6 +86,80 @@ fn ensure_state_inputs_exist(
     Ok(())
 }
 
+/// The required inputs of `state_def` that are not on disk, each rendered
+/// `name (<absolute path>)` and carrying the same pre-qualification rename hint
+/// [`ensure_state_inputs_exist`] raises.
+///
+/// The same files that check refuses on, as data rather than as an error: a
+/// halt report has to name them, not raise them.
+///
+/// The path is made absolute, and spelled in the platform's own separators,
+/// because the whole question a held ticket raises is *which root* the file was
+/// looked for under, and `rhei run <project>` would otherwise print it relative
+/// to wherever the operator stood. The missing file cannot be canonicalized —
+/// that is what missing means — but the root it was looked for under exists, so
+/// the root is canonicalized and the resolved relative path rejoined to it.
+// §FS-rhei-states.3 §FS-rhei-run-report.3.1 §AR-rhei-panta.5 §REQ-cross-platform.5
+#[allow(clippy::too_many_arguments)]
+fn missing_state_inputs(
+    workspace_root: &Path,
+    task_id: &str,
+    state_name: &str,
+    state_def: &rhei_validator::StateDef,
+    visit_count: Option<u64>,
+    target: Option<&ExecutionTarget>,
+    model: Option<&str>,
+    model_provider: Option<&str>,
+    model_name: Option<&str>,
+    agent: Option<&str>,
+    agent_mode: Option<&str>,
+) -> Vec<String> {
+    let root = absolutize(workspace_root);
+    let local_id = rhei_local_id_str(task_id);
+    state_def
+        .inputs
+        .iter()
+        .filter(|artifact| !artifact.optional)
+        .filter_map(|artifact| {
+            let resolve = |id: &str| {
+                resolve_artifact_path(
+                    workspace_root,
+                    artifact,
+                    id,
+                    state_name,
+                    visit_count,
+                    target,
+                    model,
+                    model_provider,
+                    model_name,
+                    agent,
+                    agent_mode,
+                )
+            };
+            let (relative, path) = resolve(task_id);
+            if path.exists() {
+                return None;
+            }
+            // Pre-qualification artifacts are keyed by the rhei-local id; when
+            // one exists the fix is a rename, and the halt line is the only
+            // place the operator hears it. §FS-rhei-panta.6
+            let renameable = (local_id != task_id && artifact.path.contains("{task_id}"))
+                .then(|| resolve(local_id))
+                .filter(|(_, legacy_path)| legacy_path.exists())
+                .map(|(legacy_relative, _)| {
+                    format!("; rename the pre-qualification artifact at '{legacy_relative}'")
+                })
+                .unwrap_or_default();
+            // Component by component: an artifact template spells its path
+            // with `/`, and joining that whole leaves a Windows path mixed,
+            // `C:\proj\auth\runtime/brief.md`. §REQ-cross-platform.5
+            let mut looked_for = root.clone();
+            looked_for.extend(Path::new(&relative).components());
+            Some(format!("{} ({}{})", artifact.name, looked_for.display(), renameable))
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn ensure_state_outputs_exist(
     workspace_root: &Path,

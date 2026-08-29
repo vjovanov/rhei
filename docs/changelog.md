@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- `rhei run` looks for a **member rhei's required `inputs:` under the rhei that
+  owns the ticket**, not under the enclosing Panta project. The ready-set scan
+  already picked an artifact root per ticket, but the two wrappers `rhei run`
+  reaches it through passed no per-ticket roots, so every input resolved against
+  the project root while `RHEI_ROOT`, the supervisor prompt's own
+  `## Supervising This Subtree` paths, and `rhei next --peek` all used the
+  member's own. A supervised member therefore halted after its supervisor's
+  first visit: the brief was written exactly where the prompt said to write it,
+  and the run went looking one directory up. A ticket held back by a missing
+  required input now says so — on the halt message, the end-of-run summary, and
+  every section of the durable report, which are one classification made under
+  the roots that run scanned with — and names the absolute path it looked for,
+  instead of "not scheduled before the run halted — rerun to pick it up", which
+  sent the reader back to a run that halts identically.
+  §AR-rhei-panta.5 §FS-rhei-run-report.3.1 (PR #101)
+
 - **`rhei reset` no longer erases a pre-authored chain.** It returned every
   task to the state machine's one `initial: true` state, so the shape
   §FS-rhei-supervision.7 documents and the `supervised-delivery` template ships

@@ -125,12 +125,33 @@ the summary prints five stacked groups:
    failing describes their tickets by the failure instead, never by "re-run to
    continue"; a manual-only initial state; a worker that ran and
    left a required artifact unwritten — agent or program alike, since both are
-   workers and both stall the same way; a ticket the run never scheduled; no
+   workers and both stall the same way; a required `inputs:` artifact of the
+   ticket's current state that is not on disk (§FS-rhei-states.3), named with
+   the path readiness looked for; a ticket the run never scheduled; no
    declared outgoing transition; anything else. Interruption is classified
    ahead of the missing-artifact class because it explains it: a worker the run
    killed had no chance to write what it owed, and telling the operator to
    write those files by hand would be advice about a stall that did not
-   happen. Non-leaf tasks are classified alongside leaves
+   happen. A missing required input is classified ahead of "never scheduled"
+   for the same reason: it *is* why the ticket was never scheduled, and
+   "rerun to pick it up" sends the operator back to a run that halts
+   identically — but only when the missing file is what readiness stopped at:
+   a `poll:` state whose next attempt is still ahead, and a supervisor still
+   draining its subtree, are refused before inputs are read at all, and writing
+   the file releases neither. The path is named, and named absolutely, because
+   the file the operator wrote and the file readiness looked for can differ — a
+   rhei that is a member of a Panta project resolves its inputs against its own
+   execution root (§AR-rhei-panta.5), not the project's, so *which root* is the
+   whole question a relative path leaves open.
+
+   The classification is one answer per run, not one per surface: it is made
+   under the artifact roots that run's own ready-set scan resolved against —
+   which the run has, and hands to it — so the halt message, this group, and
+   every section of the durable report give one ticket one reading. A surface
+   classifying without those roots would contradict the halt message ten lines
+   above it.
+
+   Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
    (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
    waiting on that subtree, which is a structural consequence rather than
