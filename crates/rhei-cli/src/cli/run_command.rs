@@ -239,8 +239,14 @@ fn run_command(
         eprintln!("warning: {warning}");
     }
 
-    let use_standalone_mode =
-        should_use_agent_mode(&loaded.rhei, &machines.set, &settings, &opts, &workspace_root)?;
+    let use_standalone_mode = should_use_agent_mode(
+        &loaded.rhei,
+        &machines.set,
+        &settings,
+        &opts,
+        &workspace_root,
+        &loaded.task_roots,
+    )?;
 
     let result = if use_standalone_mode {
         run_agent_mode(input, &machines, &settings, &opts, effective_parallel, &identity)
@@ -257,12 +263,15 @@ fn run_command(
     git_consistency.verify_after_success()
 }
 
+// §AR-rhei-panta.5: the mode probe reads the same ready set the run will, so it
+// resolves a member's inputs at the owning rhei's execution root too.
 fn should_use_agent_mode(
     rhei: &rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     settings: &RheiSettings,
     opts: &RunOptions,
     workspace_root: &Path,
+    task_roots: &std::collections::HashMap<String, PathBuf>,
 ) -> MietteResult<bool> {
     if !opts.no_agent()
         && machines.distinct().iter().any(|machine| {
@@ -276,7 +285,7 @@ fn should_use_agent_mode(
     }
 
     for task in narrow_to_rhei_scope(
-        find_runnable_tasks(rhei, machines, workspace_root, &HashSet::new()),
+        find_runnable_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new()),
         &rhei_scope_set(opts.rhei_scope()),
     ) {
         let machine = machines.for_task(&task.id);

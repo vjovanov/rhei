@@ -218,6 +218,58 @@ fn panta_next_peek_resolves_inputs_from_owning_rhei_root() {
     assert!(stdout.contains("auth.1"), "peek should report the claimable ticket: {stdout}");
 }
 
+/// The run's ready-set scan resolves a member rhei's required `inputs:` against
+/// that rhei's own execution root, exactly as `rhei next --peek` above does.
+/// `rhei run` read them from the *project* root instead, so a brief written
+/// where every other surface says to write it left the run halting with the
+/// ticket reported as never scheduled.
+// §AR-rhei-panta.5
+#[test]
+fn panta_run_dry_run_resolves_inputs_from_owning_rhei_root() {
+    let project = create_panta_project(
+        "panta-run-input-root",
+        "# Panta: Run Inputs\n**States:** panta-input-machine\n",
+        &[
+            ("auth/index.rhei.md", "# Rhei: Auth\n\n"),
+            ("auth/tasks/login.md", "### Task 1: Login\n**State:** pending\n"),
+        ],
+        PANTA_INPUT_STATE_MACHINE,
+    );
+    let owning_root = project.join("auth");
+    let owning_input = owning_root.join("runtime").join("auth.1.md");
+    fs::create_dir_all(owning_input.parent().expect("owning runtime parent"))
+        .expect("create owning rhei runtime");
+    fs::write(&owning_input, "brief").expect("write input artifact");
+
+    let dry_run = || {
+        let output = rhei_command()
+            .arg("run")
+            .arg(&project)
+            .arg("--dry-run")
+            .output()
+            .expect("run --dry-run should run");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let stdout = dry_run();
+    assert!(
+        stdout.contains("would transition: Task auth.1"),
+        "an input at the owning rhei root should schedule the ticket: {stdout}"
+    );
+
+    // The same file at the project root is not the one this ticket needs.
+    let project_input = project.join("runtime").join("auth.1.md");
+    fs::create_dir_all(project_input.parent().expect("project runtime parent"))
+        .expect("create project runtime");
+    fs::rename(&owning_input, &project_input).expect("move the input to the project root");
+
+    let stdout = dry_run();
+    assert!(
+        !stdout.contains("would transition:"),
+        "an input at the project root must not schedule a member's ticket: {stdout}"
+    );
+}
+
 #[test]
 fn panta_validates_task_links_from_owning_rhei_root() {
     let project = create_panta_project(
