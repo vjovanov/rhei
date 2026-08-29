@@ -263,10 +263,11 @@ enum Commands {
         /// Only tasks whose state is non-terminal
         #[arg(long, conflicts_with = "terminal")]
         non_terminal: bool,
-        /// Only tasks whose prior dependencies are satisfied and state is non-terminal/non-gating
+        /// Only tasks in the ready set — required inputs and poll deadlines
+        /// included; `rhei next` narrows it further by assignee and initial state
         #[arg(long, conflicts_with = "blocked")]
         ready: bool,
-        /// Only tasks blocked by unsatisfied prerequisites
+        /// Only non-terminal tasks that are not ready (the complement of --ready)
         #[arg(long, conflicts_with = "ready")]
         blocked: bool,
         /// Maximum number of tasks to print (0 means no limit)

@@ -63,6 +63,21 @@ A task is *claimable* when:
 3. The task has no `**Assignee:**` field (not already claimed by another agent).
 4. Its current state is not terminal (`final: true`) and not gating (`gating: true`).
 5. All required `inputs` declared on the task's current state exist.
+6. No `poll:` deadline stands in the way: if the current state declares a
+   `poll:` block and `metadata.tasks.<id>.pollNextAttemptAt.<state-name>` is
+   later than the current wall-clock time, the task is not claimable until the
+   interval elapses (§FS-rhei-states.2). This is the same exclusion `rhei run`
+   applies to the ready set (§FS-rhei-run.3).
+7. Its current state is the machine's initial state for that task node. Claim
+   mode enters a ticket at the top of its workflow; one already partway through
+   is being worked by whoever holds it, so automatic selection passes over it.
+   `--task` names a ticket explicitly and bypasses selection (§3.4).
+
+Rules 1, 2, 4, 5 and 6 are the *ready set* — the one definition `rhei run`
+(§FS-rhei-run.3) schedules from and `rhei list --ready` reports
+(§FS-rhei-list.3.1). Rules 3 and 7 are this command's own narrowing, about
+availability rather than readiness, which is why a ticket `rhei list --ready`
+names can still be one `rhei next` declines to claim.
 
 Rule 1 is the eligibility half of the non-leaf model
 (§FS-rhei-plan-language.3): a non-leaf task node is a task in its own right —

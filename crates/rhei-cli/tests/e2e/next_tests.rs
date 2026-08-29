@@ -967,7 +967,7 @@ fn next_auto_claims_a_child_before_its_parent() {
     assert!(content.contains("#### Task 1.1: First subtask\n**State:** pending"));
 }
 
-const PARENT_WITH_ONE_OPEN_CHILD: &str = r#"# Rhei: Parent Eligibility
+pub const PARENT_WITH_ONE_OPEN_CHILD: &str = r#"# Rhei: Parent Eligibility
 
 ## Tasks
 
@@ -985,7 +985,7 @@ const PARENT_WITH_ONE_OPEN_CHILD: &str = r#"# Rhei: Parent Eligibility
 **Prior:** Task 1
 "#;
 
-const PARENT_WITH_TERMINAL_SUBTREE: &str = r#"# Rhei: Parent Eligibility
+pub const PARENT_WITH_TERMINAL_SUBTREE: &str = r#"# Rhei: Parent Eligibility
 
 ## Tasks
 
@@ -1309,38 +1309,4 @@ transitions:
         !dir.join("runtime/results/plan.1.md").exists(),
         "result file should not be written on failure"
     );
-}
-
-/// `rhei list --ready` answers "what could be picked up", so it tracks the same
-/// eligibility rule: a parent appears only once its subtree is terminal.
-// §FS-rhei-list.3.1
-#[test]
-fn list_ready_admits_a_parent_only_once_its_subtree_is_terminal() {
-    let (open_dir, open_plan, machine_path) =
-        setup_single_file("list-ready-open", PARENT_WITH_ONE_OPEN_CHILD);
-    let open = run_cli("list", &open_plan, &machine_path, &["--ready", "--json"]);
-    assert_success(&open);
-    let ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&open.stdout)
-        .expect("parse JSON")
-        .as_array()
-        .expect("array")
-        .iter()
-        .map(|task| task["id"].as_str().expect("id").to_string())
-        .collect();
-    assert_eq!(ids, vec!["plan.1.2".to_string()], "only the open child is ready");
-    fs::remove_dir_all(open_dir).expect("cleanup");
-
-    let (done_dir, done_plan, machine_path) =
-        setup_single_file("list-ready-closed", PARENT_WITH_TERMINAL_SUBTREE);
-    let done = run_cli("list", &done_plan, &machine_path, &["--ready", "--json"]);
-    assert_success(&done);
-    let ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&done.stdout)
-        .expect("parse JSON")
-        .as_array()
-        .expect("array")
-        .iter()
-        .map(|task| task["id"].as_str().expect("id").to_string())
-        .collect();
-    assert_eq!(ids, vec!["plan.1".to_string()], "the parent is ready once its subtree closes");
-    fs::remove_dir_all(done_dir).expect("cleanup");
 }

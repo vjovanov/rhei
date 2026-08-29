@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **`rhei list --ready` is the ready set, not a second opinion about it.** It
+  re-derived readiness inline from four of the six conditions the scan applies —
+  terminal state, gating state, `**Prior:**` satisfaction and the supervision
+  barrier — and never looked at the two that touch the world: the current
+  state's required `inputs:` being on disk, and a `poll:` state whose next
+  attempt is still ahead. So a ticket whose brief had not been written was
+  printed as ready while `rhei next` answered "no tickets are ready to claim"
+  and `rhei run` halted it by name, on the surface an operator checks first.
+  §FS-rhei-list.3.1 already promised the listing "lists exactly the set `rhei
+  next` draws from"; it is now asked of `find_ready_tasks` itself and narrowed
+  afterwards by the ordinary row filters, so there is one definition of
+  readiness for the three surfaces to agree on rather than two that drift.
+  Drawn from, not equal to: `rhei next` still narrows the ready set by assignee
+  and initial state before it claims, so a listed ticket can be one it refuses.
+  `optional: true` inputs are not part of the condition, exactly as they are not
+  for the scheduler. `--blocked` becomes the exact complement — every
+  non-terminal ticket is either ready or blocked, never both and never neither —
+  which widens it to name the ticket waiting on a missing input, a human gate, a
+  poll deadline, or a supervisor, instead of answering only the prior question.
+  A third behavior moves with them: a ticket whose state no machine declares —
+  a typo, or a machine edited after the plan — used to be listed as ready and is
+  now reported as blocked. `rhei list` loads leniently and never validates, so
+  it is the one surface that can reach such a ticket at all; nothing can be said
+  about readiness in a state that does not exist, and the commands that schedule
+  refuse the plan outright. This is the first filesystem read `list` does, so it
+  happens only when `--ready` or `--blocked` asks for it.
+  §FS-rhei-next.3 §FS-rhei-run.3 (PR #104)
+
 - `rhei run` looks for a **member rhei's required `inputs:` under the rhei that
   owns the ticket**, not under the enclosing Panta project. The ready-set scan
   already picked an artifact root per ticket, but the two wrappers `rhei run`

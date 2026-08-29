@@ -7,6 +7,7 @@ mod headless_support;
 mod headless_tests;
 mod headless_undecided_tests;
 mod install_skills_tests;
+mod list_ready_tests;
 mod memory_map_tests;
 mod memory_prompt_tests;
 mod new_guard_tests;

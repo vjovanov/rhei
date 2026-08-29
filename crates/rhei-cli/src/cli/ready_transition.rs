@@ -226,8 +226,22 @@ fn format_open_descendants(
     format!("{}{}", items.join(", "), suffix)
 }
 
-/// Find tasks that are ready to advance: not in a terminal or gating state,
-/// with every descendant terminal, and all prior dependencies satisfied.
+/// Find tasks that are ready to advance — the one definition of readiness, that
+/// `rhei run`, `rhei next` and `rhei list --ready` all answer from.
+///
+/// A task is ready when every descendant is terminal, its own state is one the
+/// machine declares and is neither terminal nor gating, no `poll:` deadline
+/// recorded for that state is still ahead, every task in its `**Prior:**` field
+/// is in a successful terminal state, and every required `inputs:` artifact
+/// that state declares exists under the ticket's own artifact root. An
+/// `optional: true` input is not part of it.
+///
+/// A state the machine does not declare fails the input check outright: nothing
+/// can be said about readiness in a state that does not exist, and every caller
+/// that schedules validates the plan first, so only a lenient reader gets here.
+///
+/// Assignees and the initial state are deliberately absent: `rhei next` narrows
+/// this set by both, and `rhei list --ready` reports the set itself.
 ///
 /// `spawned` names the tickets a live run has an invocation out for. It only
 /// matters under supervision, where a supervisor is ready once its subtree is
