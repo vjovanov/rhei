@@ -11,6 +11,7 @@ include!("integration_markdown_plans/run_programs_callbacks.rs");
 include!("integration_markdown_plans/run_agent_regressions.rs");
 include!("integration_markdown_plans/release.rs");
 include!("integration_markdown_plans/reset.rs");
+include!("integration_markdown_plans/reset_unrecorded.rs");
 include!("integration_markdown_plans/workspace_validation.rs");
 include!("integration_markdown_plans/workspace_validation_diagnostics.rs");
 include!("integration_markdown_plans/workspace_validation_project.rs");

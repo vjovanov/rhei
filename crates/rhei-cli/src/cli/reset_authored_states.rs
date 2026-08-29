@@ -8,7 +8,7 @@
 // §AR-source-file-size.3 §FS-rhei-reset.2.2
 
 /// One task `rhei reset` moves back, as the preview and the summary print it.
-/// §FS-rhei-reset.4
+// §FS-rhei-reset.4
 struct StateMove {
     /// Project-qualified, because that is the id the operator types.
     task_id: String,
@@ -18,9 +18,14 @@ struct StateMove {
     to: String,
 }
 
-/// Authored states ready for the rewrite: the file holding a task's heading,
-/// then that task's *file-local* id — headings inside a rhei are rhei-local
-/// even when the ledger keys are project-qualified. §AR-rhei-panta.3
+/// The state to write on each task's `**State:**` line, keyed by the file
+/// holding the heading and then by the task's *file-local* id — headings
+/// inside a rhei are rhei-local even when ledger keys are project-qualified.
+///
+/// Every in-scope task has an entry, so every line is rewritten in normalized
+/// form even when the state name does not change: a counted-visit suffix is
+/// runtime state, and reset clears it either way.
+// §AR-rhei-panta.3 §FS-rhei-reset.2
 type AuthoredByFile = BTreeMap<PathBuf, BTreeMap<String, String>>;
 
 /// What reset learned from the ledgers before it deletes them.
@@ -28,15 +33,16 @@ struct AuthoredStates {
     by_file: AuthoredByFile,
     /// Every recovered move, sorted by task id.
     moves: Vec<StateMove>,
-    /// Whether any in-scope execution root had a ledger at all. A plan that
-    /// never ran and a plan whose `runtime/` was removed by hand are the same
-    /// picture from here, and §FS-rhei-reset.2.2 leaves both alone.
-    any_ledger: bool,
-    /// With no ledger anywhere, the tasks sitting outside their profile's
-    /// `initial` state — the ones an operator most likely expected to move.
-    /// Empty whenever a ledger exists, because there absence of a line is a
-    /// positive finding ("never moved") rather than missing information.
+    /// Tasks whose execution root has no ledger, that show a trace of having
+    /// run, and that sit outside their profile's `initial` state — the ones
+    /// whose position reset cannot account for. A task with no trace of a run
+    /// is authored where it stands and is not listed: for a pre-authored chain
+    /// that is every child, and naming them all would bury the real one.
     stranded: Vec<(String, String)>,
+    /// `(task, state now, state recorded)` where the ledger names a state the
+    /// task's machine no longer declares — renamed since the run. Writing it
+    /// back would leave a plan that no longer validates.
+    undeclared: Vec<(String, String, String)>,
 }
 
 /// Parse one execution root's ledger into `task-id → the first state it left`.
@@ -68,9 +74,23 @@ fn ledger_first_departures(root: &Path) -> BTreeMap<String, String> {
     first
 }
 
-/// Recover every in-scope task's authored state from the ledgers of the
-/// execution roots that own them, and list the tasks that have moved away from
-/// it. Reads only — the caller rewrites, then deletes the ledgers.
+/// Whether this task carries a trace of having been run: a claim, a result
+/// link, or a counted-visit suffix on its state. Used only to keep the
+/// "cannot account for this" report off a plan that plainly never ran.
+///
+/// Best effort, and it has to be: a `rhei transition` into a non-final state
+/// leaves nothing behind but the state itself, which is exactly what a hand
+/// authored plan looks like. Missing such a task costs a line of report; a
+/// false positive would put every child of a pre-authored chain in the list.
+fn shows_run_trace(task: &rhei_core::ast::Task, normalized_state: &str) -> bool {
+    task.assignee.is_some()
+        || task.state.as_str() != normalized_state
+        || task.content.contains("> **Result:**")
+}
+
+/// Recover every in-scope task's authored state from the ledger of the
+/// execution root that owns it, and list the tasks that moved away from it.
+/// Reads only — the caller rewrites, then deletes the ledgers.
 // §FS-rhei-reset.2.2
 fn collect_authored_states(
     loaded: &LoadedPlan,
@@ -78,9 +98,9 @@ fn collect_authored_states(
     scope: &RheiScope,
     machines: &rhei_validator::MachineSet,
 ) -> AuthoredStates {
-    let mut in_scope: Vec<String> = Vec::new();
-    fn collect(task: &rhei_core::ast::Task, out: &mut Vec<String>) {
-        out.push(task.id.to_string());
+    let mut in_scope: Vec<&rhei_core::ast::Task> = Vec::new();
+    fn collect<'a>(task: &'a rhei_core::ast::Task, out: &mut Vec<&'a rhei_core::ast::Task>) {
+        out.push(task);
         for child in &task.children {
             collect(child, out);
         }
@@ -92,151 +112,108 @@ fn collect_authored_states(
     }
 
     // One read per execution root: sibling rheis share one ledger, and a task
-    // graph can hold thousands of nodes.
+    // graph can hold thousands of nodes. Ledger presence is judged per root,
+    // never across them — one rhei's history says nothing about another's.
     let mut ledgers: BTreeMap<PathBuf, BTreeMap<String, String>> = BTreeMap::new();
-    // A pre-qualification ledger keys by the rhei-local id, so falling back to
-    // it is only unambiguous when exactly one in-scope task at that root wears
-    // that local id. §FS-rhei-panta.6.4
-    let mut local_id_owners: BTreeMap<(PathBuf, String), usize> = BTreeMap::new();
+    // A root holding runtime output but no ledger is a run whose history was
+    // removed — evidence for every task there, not just the ones that left a
+    // mark in the plan.
+    let mut root_ran: BTreeMap<PathBuf, bool> = BTreeMap::new();
+    let mut result = AuthoredStates {
+        by_file: BTreeMap::new(),
+        moves: Vec::new(),
+        stranded: Vec::new(),
+        undeclared: Vec::new(),
+    };
 
-    let mut routes: Vec<(String, TaskRoute)> = Vec::with_capacity(in_scope.len());
-    for task_id in &in_scope {
-        let route = loaded.task_route(task_id, input);
-        ledgers
+    for task in in_scope {
+        let task_id = task.id.to_string();
+        let route = loaded.task_route(&task_id, input);
+        let ledger = ledgers
             .entry(route.execution_root.clone())
             .or_insert_with(|| ledger_first_departures(&route.execution_root));
-        *local_id_owners
-            .entry((route.execution_root.clone(), route.local_id.clone()))
-            .or_insert(0) += 1;
-        routes.push((task_id.clone(), route));
-    }
-    let any_ledger = ledgers.values().any(|entries| !entries.is_empty());
+        let ran_here = *root_ran
+            .entry(route.execution_root.clone())
+            .or_insert_with(|| route.execution_root.join("runtime").is_dir());
 
-    let current_states = current_states_by_id(&loaded.rhei, machines);
-    let mut by_file: AuthoredByFile = BTreeMap::new();
-    let mut moves: Vec<StateMove> = Vec::new();
-    for (task_id, route) in routes {
-        let ledger = ledgers.get(&route.execution_root).expect("ledger read above");
-        let authored = ledger.get(&task_id).or_else(|| {
-            let unambiguous = local_id_owners
-                .get(&(route.execution_root.clone(), route.local_id.clone()))
-                .is_some_and(|owners| *owners == 1);
-            (route.local_id != task_id && unambiguous).then(|| ledger.get(&route.local_id))?
-        });
-        let Some(authored) = authored else {
-            // No recorded history: the task never moved, so its `**State:**`
-            // line already holds the authored state. §FS-rhei-reset.2.2
-            continue;
+        let machine = machines.for_task_str(&task_id);
+        let current = normalized_state_name(task.state.as_str(), machine);
+
+        // The project-qualified key only. A pre-qualification ledger keys by
+        // the rhei-local id, but a local id can equal another rhei's qualified
+        // id at the same root, and taking that line would move a task that
+        // never ran — the very defect this command is being fixed for.
+        let recorded = ledger.get(&task_id);
+        let recovered = match recorded {
+            Some(state) if !machine.states.contains_key(state.as_str()) => {
+                result.undeclared.push((task_id.clone(), current.clone(), state.clone()));
+                None
+            }
+            other => other,
         };
-        by_file
-            .entry(route.task_file.clone())
-            .or_default()
-            .insert(route.local_id.clone(), authored.clone());
-        if let Some(current) = current_states.get(&task_id) {
-            if current != authored {
-                moves.push(StateMove {
-                    task_id: task_id.clone(),
-                    from: current.clone(),
-                    to: authored.clone(),
-                });
-            }
-        }
-    }
-    moves.sort_by(|a, b| a.task_id.cmp(&b.task_id));
 
-    // Only meaningful with no ledger at all: that is the one case where
-    // "no line" means "no information" instead of "never moved".
-    let mut stranded: Vec<(String, String)> = Vec::new();
-    if !any_ledger {
-        for (task_id, current) in &current_states {
-            let Some(task) = find_task(&loaded.rhei, task_id) else { continue };
-            if !task_in_rhei_scope(scope, task_id) {
-                continue;
-            }
-            let machine = machines.for_task_str(task_id);
+        let target = recovered.cloned().unwrap_or_else(|| current.clone());
+        if target != current {
+            result.moves.push(StateMove {
+                task_id: task_id.clone(),
+                from: current.clone(),
+                to: target.clone(),
+            });
+        } else if recovered.is_none()
+            && ledger.is_empty()
+            && (ran_here || shows_run_trace(task, &current))
+        {
+            // No ledger at this root, so "no line" carries no information —
+            // unlike a root whose ledger exists, where it means "never moved".
             let initial = initial_state_for_node(machine, &task.kind, task.profile_level());
-            if initial.is_ok_and(|initial| &initial != current) {
-                stranded.push((task_id.clone(), current.clone()));
+            if initial.is_ok_and(|initial| initial != current) {
+                result.stranded.push((task_id.clone(), current.clone()));
             }
         }
-        stranded.sort();
+
+        // Every in-scope task gets an entry, so its line is rewritten in
+        // normalized form and loses any counted-visit suffix.
+        result.by_file.entry(route.task_file.clone()).or_default().insert(route.local_id, target);
     }
 
-    AuthoredStates { by_file, moves, any_ledger, stranded }
-}
-
-/// Find one task anywhere in the merged graph by its qualified id.
-fn find_task<'a>(
-    rhei: &'a rhei_core::ast::Rhei,
-    task_id: &str,
-) -> Option<&'a rhei_core::ast::Task> {
-    fn walk<'a>(
-        task: &'a rhei_core::ast::Task,
-        task_id: &str,
-    ) -> Option<&'a rhei_core::ast::Task> {
-        if task.id.to_string() == task_id {
-            return Some(task);
-        }
-        task.children.iter().find_map(|child| walk(child, task_id))
-    }
-    rhei.tasks.iter().find_map(|task| walk(task, task_id))
-}
-
-/// Every task's current state, normalized through its own rhei's machine so a
-/// counted-visit suffix does not read as a different state than the bare name
-/// the ledger records. §DA-per-rhei-state-machines
-fn current_states_by_id(
-    rhei: &rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-) -> BTreeMap<String, String> {
-    fn walk(
-        task: &rhei_core::ast::Task,
-        machine: &rhei_validator::StateMachine,
-        out: &mut BTreeMap<String, String>,
-    ) {
-        out.insert(task.id.to_string(), normalized_state_name(task.state.as_str(), machine));
-        for child in &task.children {
-            walk(child, machine, out);
-        }
-    }
-    let mut out = BTreeMap::new();
-    for task in &rhei.tasks {
-        walk(task, machines.for_task(&task.id), &mut out);
-    }
-    out
+    result.moves.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+    result.stranded.sort();
+    result.undeclared.sort();
+    result
 }
 
 /// Print the moves a reset makes, under `verb` ("Would move" for the preview,
 /// "Moved" for the summary). A count alone was true of the run that corrupted
-/// a supervised chain and of the run that did nothing. §FS-rhei-reset.4
+/// a supervised chain and of the run that did nothing.
+// §FS-rhei-reset.4
 fn report_state_moves(authored: &AuthoredStates, verb: &str) {
     if authored.moves.is_empty() {
-        // With no ledger anywhere, "no task had moved" would be a claim this
-        // command cannot make: it would be reporting an absence of evidence as
-        // evidence of absence. Say which one it is. §FS-rhei-reset.2.2
-        if authored.any_ledger {
-            println!("No task had moved from its authored state.");
-        } else if authored.stranded.is_empty() {
-            println!("No transition ledger, and every task is in its initial state.");
-        } else {
-            // Naming them is the whole recourse: with nothing recording where
-            // these came from, only the operator knows. §FS-rhei-reset.2.2
-            println!(
-                "No transition ledger, so nothing records where these {} task(s) came \
-                 from; they were left as authored:",
-                authored.stranded.len()
-            );
-            for (task_id, state) in &authored.stranded {
-                println!("  Task {task_id}: {state}");
-            }
-            println!(
-                "Edit their **State:** lines directly if that is not where they should be."
-            );
+        println!("No task had moved from its authored state.");
+    } else {
+        println!("{} {} task(s) back:", verb, authored.moves.len());
+        for mv in &authored.moves {
+            println!("  Task {}: {} → {}", mv.task_id, mv.from, mv.to);
         }
-        return;
     }
-    println!("{} {} task(s) back:", verb, authored.moves.len());
-    for mv in &authored.moves {
-        println!("  Task {}: {} → {}", mv.task_id, mv.from, mv.to);
+
+    if !authored.stranded.is_empty() {
+        // Naming them is the whole recourse: with nothing recording where
+        // these came from, only the operator knows.
+        println!(
+            "Nothing records where these {} task(s) came from, so they were left as they \
+             stand, without the results and logs the rest of this reset removed:",
+            authored.stranded.len()
+        );
+        for (task_id, state) in &authored.stranded {
+            println!("  Task {task_id}: {state}");
+        }
+        println!("Edit their **State:** lines directly if that is not where they should be.");
+    }
+
+    for (task_id, current, recorded) in &authored.undeclared {
+        println!(
+            "Task {task_id} started in '{recorded}', which this state machine no longer \
+             declares; left in '{current}'."
+        );
     }
 }

@@ -74,7 +74,7 @@ Execution:
   next        Transition the next ready task to the next state
   complete    Complete a task: transition to terminal state, write ledger/result,\n              link it from the task, and remove the assignee
   release     Drop a ticket's assignee so abandoned work can be claimed again
-  reset       Reset all tasks and subtasks to the initial state; for workspaces,\n              also remove runtime output
+  reset       Return every task to the state it was authored in; for workspaces,\n              also remove runtime output
 
 Authoring:
   new         Create a rhei under Panta, or a ticket inside one with --under
@@ -575,8 +575,8 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Reset every ticket in a rhei or project to the initial state and remove
-    /// runtime output
+    /// Return every ticket in a rhei or project to the state it was authored
+    /// in and remove runtime output
     Reset {
         /// Path to a states YAML file (uses built-in default when omitted)
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_yaml_path))]

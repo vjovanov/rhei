@@ -251,11 +251,12 @@ help = "finish the blocking priors first, or move this ticket deliberately with:
     Ok(())
 }
 
-/// Execute the `reset` subcommand: restore every task in the tree to the
-/// state machine's initial state.
+/// Execute the `reset` subcommand: return every task in the tree to the
+/// state it was authored in, recovered from the transition ledger.
 ///
 /// For directory workspaces, this also removes the generated `runtime/`
 /// directory so logs and artifacts do not survive the reset.
+// §FS-rhei-reset.2.2
 fn reset_command(
     input: &Path,
     state_machine_path: Option<&Path>,

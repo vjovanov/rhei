@@ -630,6 +630,53 @@ Some work description.
         assert!(!rewritten.contains("**State:** supervising-3"));
     }
 
+    /// The ledger is append-only, so the FIRST `from` recorded for a task is
+    /// the state it started in; later lines are later moves.
+    // §FS-rhei-reset.2.2
+    #[test]
+    fn ledger_first_departures_keeps_the_earliest_departure_per_task() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let runtime = dir.path().join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        fs::write(
+            runtime.join("state-transitions.log"),
+            "a.1 implement@completed\na.2 review@fix\na.1 completed@cancelled\n",
+        )
+        .expect("write ledger");
+
+        let first = ledger_first_departures(dir.path());
+
+        assert_eq!(first.get("a.1").map(String::as_str), Some("implement"));
+        assert_eq!(first.get("a.2").map(String::as_str), Some("review"));
+    }
+
+    /// A ledger line reset cannot parse is skipped, never guessed at: a bad
+    /// line must not become an authored state.
+    #[test]
+    fn ledger_first_departures_skips_lines_it_cannot_parse() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let runtime = dir.path().join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        fs::write(
+            runtime.join("state-transitions.log"),
+            "\nonly-an-id\nb.1 no-at-sign\nb.2 @completed\nb.3 review@fix\n",
+        )
+        .expect("write ledger");
+
+        let first = ledger_first_departures(dir.path());
+
+        assert_eq!(first.len(), 1, "only the well-formed line counts: {first:?}");
+        assert_eq!(first.get("b.3").map(String::as_str), Some("review"));
+    }
+
+    /// No ledger is no history, not an error — the case every never-run plan
+    /// is in. §FS-rhei-reset.2.2
+    #[test]
+    fn ledger_first_departures_is_empty_without_a_ledger() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        assert!(ledger_first_departures(dir.path()).is_empty());
+    }
+
     /// A plan with no `**State:**` line at all is the "wrong file" mistake and
     /// still errors; zero *rewrites* is now an ordinary outcome.
     #[test]

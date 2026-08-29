@@ -653,9 +653,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 return Err(miette!(
 help = "preview it first: rhei reset <plan-or-project> --dry-run",
 
-                    "`rhei reset` rewrites every in-scope ticket to the initial state \
-                     and deletes runtime artifacts, so it never infers its target. \
-                     Name the plan or project explicitly: `rhei reset <plan-or-project>`"
+                    "`rhei reset` rewrites in-scope ticket states and deletes runtime \
+                     artifacts, so it never infers its target. Name the plan or project \
+                     explicitly: `rhei reset <plan-or-project>`"
                 ));
             };
             // Reset never *infers* a target, but an explicit member rhei still
