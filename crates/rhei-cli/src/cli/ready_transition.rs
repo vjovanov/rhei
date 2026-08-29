@@ -212,13 +212,19 @@ fn find_ready_tasks<'a>(
 /// This keeps the readiness semantics used by the run loop, but skips
 /// tasks that already carry an assignee so a manual claim cannot be stolen by
 /// the orchestrator.
+///
+/// `task_roots` is the loaded plan's per-ticket execution roots, taken here for
+/// the same reason `find_claimable_tasks` takes it: a Panta member's required
+/// inputs live under the rhei that owns the ticket.
+// §AR-rhei-panta.5: inputs resolve against the owning rhei's execution root.
 fn find_runnable_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
+    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
     spawned: &HashSet<String>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(rhei, machines, workspace_root, &std::collections::HashMap::new(), spawned)
+    find_ready_tasks(rhei, machines, workspace_root, task_roots, spawned)
         .into_iter()
         .filter(|task| task.assignee.is_none())
         .collect()
@@ -227,21 +233,17 @@ fn find_runnable_tasks<'a>(
 /// Ready tickets `rhei run` will not touch because someone already holds them.
 /// The loop counts only what it can schedule, so a held ticket vanished from
 /// the pass report and read as "not ready". §FS-rhei-run.3
+// §AR-rhei-panta.5: `task_roots` keeps a member's inputs resolving at its own root.
 fn find_held_tasks<'a>(
     rhei: &'a rhei_core::ast::Rhei,
     machines: &rhei_validator::MachineSet,
     workspace_root: &Path,
+    task_roots: &std::collections::HashMap<String, std::path::PathBuf>,
 ) -> Vec<&'a rhei_core::ast::Task> {
-    find_ready_tasks(
-        rhei,
-        machines,
-        workspace_root,
-        &std::collections::HashMap::new(),
-        &HashSet::new(),
-    )
-    .into_iter()
-    .filter(|task| task.assignee.is_some())
-    .collect()
+    find_ready_tasks(rhei, machines, workspace_root, task_roots, &HashSet::new())
+        .into_iter()
+        .filter(|task| task.assignee.is_some())
+        .collect()
 }
 
 /// One line per supervisor whose barrier is stopping tickets this pass.

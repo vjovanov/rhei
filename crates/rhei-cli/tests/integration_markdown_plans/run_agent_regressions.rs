@@ -1002,3 +1002,101 @@ result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
     let task = rhei.tasks.iter().find(|task| task.id == TaskId::number(1)).expect("task");
     assert_eq!(task.state.as_str(), "completed");
 }
+
+/// A Panta member whose initial state both declares autonomous agent work and
+/// requires a brief. The agent makes `rhei run` take the orchestrated loop —
+/// which is the loop issue #99 was filed against, and whose ready-set scan and
+/// halt report are call sites of their own, untouched by the callback-mode
+/// sibling in `workspace_validation_panta.rs`.
+// §AR-rhei-panta.5
+const PANTA_AGENT_INPUT_STATE_MACHINE: &str = r#"name: panta-agent-input-machine
+version: 1
+states:
+  pending:
+    description: Needs a brief at the owning rhei's execution root
+    initial: true
+    agent: fake
+    inputs:
+      - name: brief
+        path: runtime/{task_id}.md
+  completed:
+    description: Task finished successfully
+    final: true
+transitions:
+  - from: pending
+    to: completed
+"#;
+
+/// The orchestrated loop resolves a member's required inputs at the member's own
+/// execution root.
+///
+/// The reported shape — a supervisor writing a brief for the child it holds —
+/// takes this path, not the callback loop's, because the supervising state
+/// carries a `target:`. Both loops call `find_runnable_tasks` for themselves,
+/// so covering one covers neither.
+// §AR-rhei-panta.5
+#[test]
+fn run_agent_mode_resolves_a_panta_member_input_at_its_own_execution_root() {
+    let project = create_panta_project(
+        "panta-run-agent-input-root",
+        "# Panta: Agent Run Inputs\n**States:** panta-agent-input-machine\n",
+        &[
+            ("auth/index.rhei.md", "# Rhei: Auth\n\n"),
+            ("auth/tasks/login.md", "### Task 1: Login\n**State:** pending\n"),
+        ],
+        PANTA_AGENT_INPUT_STATE_MACHINE,
+    );
+    let script = write_python_agent(
+        &project,
+        "fake-agent.py",
+        // §FS-rhei-states.3.3: `pending -> completed` is terminal, so the agent
+        // writes the ticket's result before it exits.
+        r#"append(
+    pathlib.Path(env('RHEI_ROOT')) / 'agent-invocations.txt',
+    env('RHEI_TASK_ID') + '\n',
+)
+result('## Result\n\nDone.\n')
+"#,
+    );
+    write_run_agent_settings(
+        &project,
+        &format!(
+            r#"{{ "agents": {{ "fake": {{ "command": {}, "timeout": "60s" }} }} }}"#,
+            fixture_command(&script)
+        ),
+    );
+
+    let member_root = project.join("auth");
+    let member_input = member_root.join("runtime").join("auth.1.md");
+    let project_input = project.join("runtime").join("auth.1.md");
+    let invocations = member_root.join("agent-invocations.txt");
+    fs::create_dir_all(project_input.parent().expect("project runtime")).expect("mkdir project");
+    fs::write(&project_input, "brief").expect("write the brief at the project root");
+
+    let run = || {
+        let output = rhei_command()
+            .arg("run")
+            .arg(&project)
+            .arg("--no-callbacks")
+            .output()
+            .expect("run should run");
+        (output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned())
+    };
+
+    // The project root is not this member's execution root, so the scan refuses
+    // the ticket and the run halts with nothing spawned. §AR-rhei-panta.5
+    let (advanced, stdout) = run();
+    assert!(!advanced, "a brief at the project root must not schedule the member: {stdout}");
+    assert!(!invocations.exists(), "no agent should have been spawned: {stdout}");
+
+    // The same file under the root the member's own prompt names schedules it.
+    fs::create_dir_all(member_input.parent().expect("member runtime")).expect("mkdir member");
+    fs::rename(&project_input, &member_input).expect("move the brief to the member root");
+    let (advanced, stdout) = run();
+    assert!(advanced, "a brief at the member's own root should schedule it: {stdout}");
+    assert_eq!(
+        fs::read_to_string(&invocations).expect("the orchestrated loop should spawn the agent"),
+        "auth.1\n",
+        "agent mode, not the callback loop, ran this ticket"
+    );
+}

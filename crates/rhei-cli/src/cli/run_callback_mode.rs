@@ -139,7 +139,13 @@ fn run_callback_mode(
         }
         let loaded = load_plan(input)?;
         let ready = narrow_to_rhei_scope(
-            find_runnable_tasks(&loaded.rhei, &machines.set, &workspace_root, &HashSet::new()),
+            find_runnable_tasks(
+                &loaded.rhei,
+                &machines.set,
+                &workspace_root,
+                &loaded.task_roots,
+                &HashSet::new(),
+            ),
             &rhei_scope,
         );
         if ready.is_empty() {
@@ -205,7 +211,10 @@ fn run_callback_mode(
         // A ticket someone already claimed is ready but unschedulable; saying
         // nothing made it look like it was not ready at all. §FS-rhei-run.3
         let held =
-            narrow_to_rhei_scope(find_held_tasks(&loaded.rhei, &machines.set, &workspace_root), &rhei_scope);
+            narrow_to_rhei_scope(
+            find_held_tasks(&loaded.rhei, &machines.set, &workspace_root, &loaded.task_roots),
+            &rhei_scope,
+        );
         if !held.is_empty() {
             run_info!("Held by an assignee, so not scheduled: {}", format_held_tasks(&held));
         }
