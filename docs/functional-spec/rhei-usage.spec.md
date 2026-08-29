@@ -99,7 +99,7 @@ The commands that coordinate through the state machine:
 | `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only, `--rhei <id>` to narrow) |
 | `rhei transition`  | Atomically changes a task's state via compare-and-swap; `--result` carries the message a `final: true` target requires (§FS-rhei-states.3.3) |
 | `rhei complete`    | Terminal transition invoked by a manual worker: the inferred one-hop terminal target plus the shared transition carrying `--result` |
-| `rhei reset`       | Returns each task to its resolved profile's `initial` state, removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
+| `rhei reset`       | Returns each task to the state it was authored in (§FS-rhei-reset.2.2), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
 | `rhei snapshot`    | Lists, shows, prunes, or continues from session snapshots captured by `rhei run` |
 
 `rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).

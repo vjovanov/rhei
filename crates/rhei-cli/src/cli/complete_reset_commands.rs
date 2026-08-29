@@ -270,7 +270,9 @@ fn reset_command(
     report_panta_scope_narrowed(&loaded, "reset", &scope);
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machines = resolved.validator_set();
-    let reset_summary = reset_initial_summary(&loaded.rhei, &machines, &scope)?;
+    // Read the ledgers now: step 4 deletes them, and they are the only record
+    // of what state each task started in. §FS-rhei-reset.2.2
+    let authored = collect_authored_states(&loaded, input, &scope, &machines);
 
     fn count_nodes(task: &rhei_core::ast::Task) -> usize {
         1 + task.children.iter().map(count_nodes).sum::<usize>()
@@ -292,7 +294,7 @@ fn reset_command(
     // The preview precedes every destructive reset, not just the one that
     // stops to ask: printing it only on the interactive path left exactly the
     // unattended runs — scripts, CI, agents — silent. §FS-rhei-reset.1.2
-    report_reset_preview(task_count, descendant_count, &reset_summary, &runtime_targets);
+    report_reset_preview(task_count, descendant_count, &authored, &runtime_targets);
     if dry_run {
         println!("\nDry run — nothing was changed.");
         return Ok(());
@@ -315,13 +317,13 @@ help = "re-run with -y to confirm, or --dry-run to preview what it would clear."
         }
     }
 
-    // Each plan file resets to the initial states of *its* rhei's machine.
-    // §DA-per-rhei-state-machines
-    for (file, sample_task_id) in reset_target_files(&loaded, input, &scope) {
-        let rhei_id = sample_task_id.split('.').next().unwrap_or("");
-        let machine =
-            machines.per_rhei.get(rhei_id).unwrap_or(&machines.default);
-        reset_plan_file_states(&file, machine)?;
+    // Each plan file's tasks return to the states *that file* authored them
+    // in; a file whose tasks never moved still has its runtime lines
+    // (assignee, result links) stripped. §FS-rhei-reset.2.2
+    let no_moves: BTreeMap<String, String> = BTreeMap::new();
+    for (file, _sample_task_id) in reset_target_files(&loaded, input, &scope) {
+        let file_authored = authored.by_file.get(&file).unwrap_or(&no_moves);
+        reset_plan_file_states(&file, file_authored)?;
     }
     if workspace::is_workspace(input) {
         clear_runtime_metadata_in_file(&input.join("index.rhei.md"), true)?;
@@ -345,7 +347,7 @@ help = "re-run with -y to confirm, or --dry-run to preview what it would clear."
             }
         }
         let removed = remove_scoped_runtime_artifacts(&loaded, input, &scope, &machines)?;
-        report_reset_summary(task_count, descendant_count, &reset_summary, removed);
+        report_reset_summary(task_count, descendant_count, &authored, removed);
         // A narrowed reset can only speak for ticket-owned artifacts; run-scoped
         // rollups belong to the run, not the ticket. Say so rather than leaving
         // the operator to discover the difference. §FS-rhei-panta.6.4
@@ -382,7 +384,7 @@ help = "re-run with -y to confirm, or --dry-run to preview what it would clear."
         }
     }
 
-    report_reset_summary(task_count, descendant_count, &reset_summary, removed_runtime);
+    report_reset_summary(task_count, descendant_count, &authored, removed_runtime);
     Ok(())
 }
 
@@ -407,20 +409,24 @@ fn reset_runtime_preview(loaded: &LoadedPlan, input: &Path, scope: &RheiScope) -
     dirs
 }
 
-/// Describe what a reset is about to destroy.
+/// Describe what a reset is about to destroy, and which tasks it would move.
+/// The preview and the summary print the same move list, so what the dry run
+/// promises and what the reset reports are the same text. §FS-rhei-reset.4
 fn report_reset_preview(
     task_count: usize,
     descendant_count: usize,
-    reset_summary: &str,
+    authored: &AuthoredStates,
     runtime_dirs: &[PathBuf],
 ) {
     if descendant_count == 0 {
-        println!("Would reset {task_count} task(s) {reset_summary}.");
+        println!("Would reset {task_count} task(s) to their authored states.");
     } else {
         println!(
-            "Would reset {task_count} task(s) and {descendant_count} subtask(s) {reset_summary}."
+            "Would reset {task_count} task(s) and {descendant_count} subtask(s) to their \
+             authored states."
         );
     }
+    report_state_moves(authored, "Would move");
     if runtime_dirs.is_empty() {
         println!("Would remove per-ticket runtime artifacts (results, ledgers).");
     } else {
@@ -453,20 +459,22 @@ help = "re-run with -y to confirm without a prompt.",
     Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
 }
 
+/// §FS-rhei-reset.4
 fn report_reset_summary(
     task_count: usize,
     descendant_count: usize,
-    reset_summary: &str,
+    authored: &AuthoredStates,
     removed_runtime: bool,
 ) {
     if descendant_count == 0 {
-        println!("Reset {} task(s) {}.", task_count, reset_summary);
+        println!("Reset {task_count} task(s) to their authored states.");
     } else {
         println!(
-            "Reset {} task(s) (and {} descendant task(s)) {}.",
-            task_count, descendant_count, reset_summary
+            "Reset {task_count} task(s) (and {descendant_count} descendant task(s)) to their \
+             authored states."
         );
     }
+    report_state_moves(authored, "Moved");
     if removed_runtime {
         println!("Removed runtime output.");
     } else {
@@ -691,44 +699,6 @@ fn prune_transition_ledger(root: &Path, task_ids: &BTreeSet<String>) -> MietteRe
     content.push('\n');
     write_file_atomic(&ledger, &content)?;
     Ok(true)
-}
-
-fn reset_initial_summary(
-    rhei: &rhei_core::ast::Rhei,
-    machines: &rhei_validator::MachineSet,
-    scope: &RheiScope,
-) -> MietteResult<String> {
-    fn collect(
-        task: &rhei_core::ast::Task,
-        machine: &rhei_validator::StateMachine,
-        states: &mut BTreeSet<String>,
-    ) -> MietteResult<()> {
-        states.insert(initial_state_for_node(machine, &task.kind, task.profile_level())?);
-        for child in &task.children {
-            collect(child, machine, states)?;
-        }
-        Ok(())
-    }
-
-    let mut states = BTreeSet::new();
-    // Only the states this invocation will actually write: a narrowed reset
-    // that summarized every machine's initial state named states no in-scope
-    // ticket can reach. §FS-rhei-reset.2.1
-    for task in &rhei.tasks {
-        if !task_in_rhei_scope(scope, &task.id.to_string()) {
-            continue;
-        }
-        collect(task, machines.for_task(&task.id), &mut states)?;
-    }
-
-    match states.len() {
-        0 => Ok("to resolved initial states".to_string()),
-        1 => Ok(format!("to initial state '{}'", states.iter().next().expect("one state"))),
-        _ => Ok(format!(
-            "to resolved profile initial states ({})",
-            states.into_iter().collect::<Vec<_>>().join(", ")
-        )),
-    }
 }
 
 fn initial_state_for_node(

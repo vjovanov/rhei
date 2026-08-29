@@ -222,7 +222,12 @@ fn reset_never_infers_an_omitted_target() {
         "a refused reset must not touch ticket states: {plan}"
     );
 
-    // The explicit form still works.
+    // The explicit form still works. The ledger records where Task 1 started,
+    // which is what reset returns it to. §FS-rhei-reset.2.2
+    let runtime = project.join("runtime");
+    fs::create_dir_all(&runtime).expect("create runtime dir");
+    fs::write(runtime.join("state-transitions.log"), "auth.1 pending@in-progress\n")
+        .expect("write ledger");
     let output = rhei_command()
         .arg("reset")
         .arg("-y")

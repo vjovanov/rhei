@@ -29,10 +29,16 @@ fn reset_target_files(
     files
 }
 
-fn reset_plan_file_states(path: &Path, machine: &rhei_validator::StateMachine) -> MietteResult<()> {
+/// `authored` maps this file's *local* task ids to the state each was authored
+/// in; a task absent from it never moved and keeps the line it has.
+/// §FS-rhei-reset.2.2
+fn reset_plan_file_states(
+    path: &Path,
+    authored: &BTreeMap<String, String>,
+) -> MietteResult<()> {
     let locked = LockedPlanFile::open(path)?;
     let raw = locked.read_to_string("failed to read plan file")?;
-    let new_raw = rewrite_all_states_to_initial(&raw, machine)?;
+    let new_raw = rewrite_states_to_authored(&raw, authored)?;
     let new_raw = strip_result_links(&new_raw);
     let new_raw = strip_assignee_lines(&new_raw);
     let new_raw = match rhei_core::parse(&new_raw) {
@@ -157,17 +163,25 @@ fn strip_assignee_lines(raw: &str) -> String {
     output
 }
 
-fn rewrite_all_states_to_initial(
+/// Rewrite each task's `**State:**` line back to the state that task was
+/// authored in. A task with no recorded authored state never moved, so its
+/// line is already right and is left exactly as written — that is what keeps a
+/// pre-authored chain intact across a reset.
+// §FS-rhei-reset.2.2 §FS-rhei-supervision.7
+fn rewrite_states_to_authored(
     raw: &str,
-    machine: &rhei_validator::StateMachine,
+    authored: &BTreeMap<String, String>,
 ) -> MietteResult<String> {
     let lines: Vec<&str> = raw.lines().collect();
     let mut result = Vec::with_capacity(lines.len());
-    let mut expecting_state: Option<String> = None;
-    let mut rewrites = 0usize;
+    // The authored state of the heading being read, and `None` once its
+    // `**State:**` line has been passed. The outer `Option` is "am I inside a
+    // heading", the inner one "does this task have an authored state".
+    let mut expecting_state: Option<Option<&str>> = None;
+    let mut state_lines = 0usize;
 
     let task_heading_re = regex::Regex::new(
-        r#"^(#{3,6})\s+([A-Za-z][A-Za-z0-9_-]*)\s+[A-Za-z0-9][A-Za-z0-9_.\-]*:\s+"#,
+        r#"^#{3,6}\s+[A-Za-z][A-Za-z0-9_-]*\s+([A-Za-z0-9][A-Za-z0-9_.\-]*):\s+"#,
     )
     .expect("task heading regex compiles");
 
@@ -179,23 +193,26 @@ fn rewrite_all_states_to_initial(
                     "could not find **State:** line before the next task header"
                 ));
             }
-            let heading = captures.get(1).expect("heading capture").as_str();
-            let kind = captures.get(2).expect("kind capture").as_str().to_ascii_lowercase();
-            let level = heading.len().saturating_sub(2) as u8;
-            expecting_state = Some(initial_state_for_node(machine, &kind, level)?);
+            let task_id = captures.get(1).expect("task id capture").as_str();
+            expecting_state = Some(authored.get(task_id).map(String::as_str));
             result.push((*line).to_string());
             continue;
         }
 
-        if let Some(initial_state) = expecting_state.as_deref() {
+        if let Some(authored_state) = expecting_state {
             if !line.starts_with("**State:**") {
                 result.push((*line).to_string());
                 continue;
             }
-            let formatted = format!("**State:** {}", format_state_metadata_value(initial_state));
-            result.push(formatted);
+            // A task with no recorded history keeps its line verbatim: reset
+            // moves a task only where its own ledger says it has been.
+            match authored_state {
+                Some(state) => result
+                    .push(format!("**State:** {}", format_state_metadata_value(state))),
+                None => result.push((*line).to_string()),
+            }
             expecting_state = None;
-            rewrites += 1;
+            state_lines += 1;
             continue;
         }
 
@@ -208,7 +225,9 @@ fn rewrite_all_states_to_initial(
             "could not find **State:** line at the end of the plan"
         ));
     }
-    if rewrites == 0 {
+    // Guards the "wrong file" mistake, not the "nothing moved" case: a plan
+    // with no `**State:**` line at all is not a plan this command can reset.
+    if state_lines == 0 {
         return Err(miette!(
             help = "this plan declares no task **State:** lines to reset. Check you passed the right plan.",
             "found no task state metadata to reset"
