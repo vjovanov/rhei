@@ -79,7 +79,7 @@ fn run_sequential_program_work_items(
             None,
         );
         let budget = resolve_attempt_budget(machine.states.get(current_state.as_str()), settings);
-        if plan.budget_spent(budget) {
+        if let Some(spent_budget) = plan.budget_spent(budget) {
             let owed = collect_missing_required_outputs(
                 workspace_root,
                 &task_workspace_root,
@@ -94,7 +94,7 @@ fn run_sequential_program_work_items(
                 budget_spent_halt_line(
                     task_id_str,
                     current_state,
-                    budget,
+                    spent_budget,
                     &completion_debt_label(&owed)
                 )
             );

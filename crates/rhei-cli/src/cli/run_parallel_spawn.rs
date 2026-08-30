@@ -74,7 +74,7 @@ fn spawn_parallel_agent_work_item(
     );
     let budget =
         resolve_attempt_budget(machine.states.get(item.current_state.as_str()), settings);
-    if plan.budget_spent(budget) {
+    if let Some(spent_budget) = plan.budget_spent(budget) {
         // `Skipped` is the pool's stall: the scheduler records it in
         // `stalled_tasks`, so the ticket keeps its state and is out of the
         // running for the rest of the run. §FS-rhei-run.3 §FS-rhei-agents.3.2.3
@@ -93,7 +93,7 @@ fn spawn_parallel_agent_work_item(
             budget_spent_halt_line(
                 &item.task_id_str,
                 &item.current_state,
-                budget,
+                spent_budget,
                 &completion_debt_label(&owed),
             ),
         );

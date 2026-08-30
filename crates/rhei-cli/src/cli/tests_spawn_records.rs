@@ -70,8 +70,9 @@ mod spawn_records {
         ended(&first, "exited", 0);
         let second = plan_for(dir.path());
         ended(&second, "exited", 0);
-        assert!(
-            plan_for(dir.path()).budget_spent(2),
+        assert_eq!(
+            plan_for(dir.path()).budget_spent(AttemptBudget::Visit(2)),
+            Some(2),
             "two recorded attempts spend a budget of two"
         );
 
@@ -82,7 +83,10 @@ mod spawn_records {
         assert_eq!(after.attempt, 1, "a fresh entry is not a third attempt at the last one");
         assert!(after.previous.is_none(), "and has nothing to narrate as a retry");
         assert!(after.log.ends_with("task-plan.1-implement.log"));
-        assert!(!after.budget_spent(2), "the budget came back with the visit");
+        assert!(
+            after.budget_spent(AttemptBudget::Visit(2)).is_none(),
+            "the budget came back with the visit"
+        );
     }
 
     /// An interrupted invocation keeps its transcript — it ran — but the run
@@ -98,15 +102,25 @@ mod spawn_records {
         ended(&first, "interrupted", -1);
         let second = plan_for(dir.path());
         assert_eq!(second.attempt, 2, "the interrupted transcript is kept beside the retry");
-        assert!(!second.budget_spent(1), "but it did not spend the visit's only attempt");
+        assert!(
+            second.budget_spent(AttemptBudget::Visit(1)).is_none(),
+            "but it did not spend the visit's only attempt"
+        );
 
         ended(&second, "interrupted", -1);
         let third = plan_for(dir.path());
-        assert!(!third.budget_spent(1), "and neither did the next interruption");
+        assert!(
+            third.budget_spent(AttemptBudget::Visit(1)).is_none(),
+            "and neither did the next interruption"
+        );
 
         ended(&third, "timed out", -1);
         let fourth = plan_for(dir.path());
-        assert!(fourth.budget_spent(1), "a timeout is the ticket's own attempt, and spends it");
+        assert_eq!(
+            fourth.budget_spent(AttemptBudget::Visit(1)),
+            Some(1),
+            "a timeout is the ticket's own attempt, and spends it"
+        );
         assert_eq!(
             fourth.previous.as_ref().map(SpawnRecord::ending_sentence).as_deref(),
             Some("timed out after 1s")

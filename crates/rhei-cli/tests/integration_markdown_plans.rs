@@ -8,6 +8,7 @@ include!("integration_markdown_plans/callbacks_execution.rs");
 include!("integration_markdown_plans/callbacks_redirect_context.rs");
 include!("integration_markdown_plans/run_basic.rs");
 include!("integration_markdown_plans/run_programs_callbacks.rs");
+include!("integration_markdown_plans/run_poll_respawn_budget.rs");
 include!("integration_markdown_plans/run_agent_regressions.rs");
 include!("integration_markdown_plans/release.rs");
 include!("integration_markdown_plans/reset.rs");

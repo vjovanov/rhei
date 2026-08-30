@@ -840,7 +840,12 @@ Under `orchestrator` authority, `rhei run`:
      previous attempt {ending} (previous log: {path})` — one line, naming the
      attempt being spent, the budget it comes out of, and the transcript it is
      retrying, so a re-spawn is not read as a state being started for the first
-     time. `{ending}` is read from that attempt's spawn record (§8.4) and says
+     time. On a poll state (§FS-rhei-states.2) the budget named is the state's
+     own `poll.max_attempts`, and the line says which mechanism it is:
+     `attempt {n} of {max_attempts} (poll.max_attempts)` — that is the bound
+     that actually applies, since §3.2.3 exempts a poll state from `attempts:`.
+     The engine never prints its internal "no budget applies" sentinel as a
+     count. `{ending}` is read from that attempt's spawn record (§8.4) and says
      what actually happened to it — `timed out after 30m`, `was interrupted by
      a run shutdown`, `exited 3`, or `exited 0 without meeting this state's
      completion condition`. The engine never reports one ending as another: a
@@ -937,7 +942,9 @@ that makes it a visit.
 A **poll state** (§FS-rhei-states.2) is exempt from the budget. Re-spawning
 without moving is what a poll state is for, and it already declares its own
 bound in `poll.max_attempts`; a second bound over the same spawns would end the
-loop earlier than the machine's author said it should.
+loop earlier than the machine's author said it should. The re-spawn note of
+§3.2.1 still names a budget on a poll state — `poll.max_attempts` itself, not
+this exemption's internal encoding of "no budget applies here".
 
 ## 4. Environment Variables
 
