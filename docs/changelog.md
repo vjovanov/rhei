@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **The release commit stages `xtask/Cargo.toml`.** `Auto bump` had failed on
+  its last three runs, always at `release.yml`'s version check and always before
+  the publish step, with `xtask/Cargo.toml internal dependency requirement is
+  stale: ... version = "=0.3.0"`. `set-release-version.py` bumps that pin
+  correctly — it goes out of its way to, and its docstring says why: "`xtask`
+  lives outside `crates/`, so a plain glob there silently leaves its pins at the
+  old version and the bump stops resolving." The release commit then staged
+  exactly that plain glob, so the bump lived in the runner's working tree, never
+  reached the candidate branch, and the verifier rejected it. The manifest is now
+  staged beside the others, with the reason recorded so the list is not trimmed
+  back later. (PR #113)
+
 - **The `rhei-plan-writer` skill says where a plan file belongs.** It specified
   the plan format, states, ids, and validation and never named a location, so an
   agent following it saved a plan at a host repository's root and `rhei init`
