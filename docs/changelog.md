@@ -8,7 +8,7 @@
   was encoded internally as `u64::MAX`, which `rhei run` then printed verbatim:
   `attempt 4 of 18446744073709551615`. The exemption was correct; only the
   rendering was wrong. The note now reads `attempt 4 of 96 (poll.max_attempts)`
-  for a poll state, and is unchanged for every other state. (PR #N)
+  for a poll state, and is unchanged for every other state. (PR #119)
 - **The root `CHANGELOG.md` no longer claims the release maintains it.** It
   opened by saying this file's `Unreleased` section is what "release automation
   promotes into a numbered section here at release time", citing
