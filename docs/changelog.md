@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The root `CHANGELOG.md` no longer claims the release maintains it.** It
+  opened by saying this file's `Unreleased` section is what "release automation
+  promotes into a numbered section here at release time", citing
+  §FS-rhei-distribution.5 — which describes a promotion *within*
+  `docs/changelog.md`, archiving the displaced release under `docs/changelog/`,
+  and says nothing about the root file. `prepare_changelog_release.py` never
+  opens it. Documenting a behaviour that never ran, it drifted the whole way: no
+  `0.2.0`, `0.3.0` or `0.3.1` section, and an `Unreleased` note still announcing
+  project-qualified ticket ids as a forthcoming breaking change eight days after
+  they shipped in 0.2.0 — a note that nearly sent 0.3.1 out as a minor bump. The
+  header now says where the changelog is and that this file is not maintained by
+  the release, and the stale note is gone. The `0.1.0` section stays:
+  `docs/changelog/0.1.0.md` is a four-line summary, so this is the only record of
+  the initial release's feature list and its crates.io naming limitation.
+  (PR #115)
+
 ## 2. [0.3.1] - 2026-08-30
 
 - **The release commit stages `xtask/Cargo.toml`.** `Auto bump` had failed on

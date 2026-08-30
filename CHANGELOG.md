@@ -1,19 +1,13 @@
 # Changelog
 
-Released versions of Rhei. Changes that have not shipped in a release yet live
-in the `Unreleased` section of [docs/changelog.md](docs/changelog.md), which
-release automation promotes into a numbered section here at release time
-(§FS-rhei-distribution.5). Read both to see everything on `main`.
+Rhei's changelog is [docs/changelog.md](docs/changelog.md). It carries the
+`Unreleased` section and the latest release inline; the release promotes one
+into the other and archives the release it displaces under `docs/changelog/`
+(§FS-rhei-distribution.5).
 
-## Unreleased
-
-See [docs/changelog.md](docs/changelog.md#unreleased). It currently carries a
-**breaking change**: ticket ids are project-qualified (`1` → `auth.1`), which
-changes command output, result artifact filenames, ledgers, logs, snapshot
-cache keys, and the `RHEI_TASK_ID` seen by callbacks, and requires a
-single-file rhei to be named `<id>.rhei.md`. The entry ends with an
-"Upgrading a pre-qualification workspace" checklist — read it before upgrading
-a workspace with in-flight runs.
+Nothing below is maintained by the release. The `0.1.0` notes are kept here
+because this is where they were written and the archive entry for that version
+is a summary; every release after it is in `docs/changelog.md`.
 
 ## 0.1.0 - 2026-05-19
 
