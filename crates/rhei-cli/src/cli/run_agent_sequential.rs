@@ -128,7 +128,7 @@ fn run_sequential_agent_invocation(
         resolved_agent_log_suffix(resolved, Some(visit_count)).as_deref(),
     );
     let budget = resolve_attempt_budget(machine.states.get(current_state), settings);
-    if plan.budget_spent(budget) {
+    if let Some(spent_budget) = plan.budget_spent(budget) {
         // The same stall step 5 gives any unmet completion condition: the ticket
         // keeps its state, no transition fires, and the pass moves on.
         // §FS-rhei-run.3 §FS-rhei-agents.3.2.3
@@ -146,7 +146,7 @@ fn run_sequential_agent_invocation(
             budget_spent_halt_line(
                 task_id_str,
                 current_state,
-                budget,
+                spent_budget,
                 &completion_debt_label(&owed)
             )
         );

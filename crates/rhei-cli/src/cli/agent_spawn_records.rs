@@ -155,18 +155,31 @@ struct SpawnPlan {
 }
 
 impl SpawnPlan {
-    /// Whether this visit's budget is already spent, so the spawn must not
-    /// happen at all. §FS-rhei-agents.3.2.3
-    fn budget_spent(&self, budget: u64) -> bool {
-        self.charged >= budget
+    /// The budget spent, if this visit's is already gone and the spawn must
+    /// not happen at all. A poll state's own bound never spends here — its
+    /// exhaustion is `poll.max_attempts`, checked elsewhere. §FS-rhei-agents.3.2.3
+    fn budget_spent(&self, budget: AttemptBudget) -> Option<u64> {
+        match budget {
+            AttemptBudget::Visit(budget) if self.charged >= budget => Some(budget),
+            AttemptBudget::Visit(_) | AttemptBudget::Poll { .. } => None,
+        }
     }
 
     /// The line the run prints beside `Log:` when it is retrying rather than
     /// starting, naming the attempt, the budget it comes out of, what ended the
     /// attempt before it, and where that attempt's transcript is.
     // §FS-rhei-agents.3.2.1
-    fn respawn_note(&self, task_id: &str, state_name: &str, budget: u64) -> Option<String> {
+    fn respawn_note(
+        &self,
+        task_id: &str,
+        state_name: &str,
+        budget: AttemptBudget,
+    ) -> Option<String> {
         let previous = self.previous.as_ref()?;
+        let budget = match budget {
+            AttemptBudget::Visit(budget) => budget.to_string(),
+            AttemptBudget::Poll { max_attempts } => format!("{max_attempts} (poll.max_attempts)"),
+        };
         Some(format!(
             "  Re-spawning Task {task_id} in state '{state_name}': attempt {} of {budget}; \
              the previous attempt {} (previous log: {}).",
@@ -181,9 +194,13 @@ impl SpawnPlan {
     /// Asked *before* the spawn and answered about the state of the visit after
     /// it, because the message that needs it is printed when that spawn has
     /// already finished. An interrupted spawn never reaches that message, so the
-    /// charge this predicts is the charge that happens.
+    /// charge this predicts is the charge that happens. A poll state's own
+    /// exhaustion rule is its only bound, so it always has attempts left here.
     // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
-    fn retry_outlook(&self, budget: u64) -> RetryOutlook {
+    fn retry_outlook(&self, budget: AttemptBudget) -> RetryOutlook {
+        let AttemptBudget::Visit(budget) = budget else {
+            return RetryOutlook::AttemptsLeft;
+        };
         if self.charged.saturating_add(1) < budget {
             RetryOutlook::AttemptsLeft
         } else {
@@ -362,6 +379,21 @@ fn newest_spawn_record_for_state(
     newest.map(|(_, record)| record)
 }
 
+/// Which rule bounds one visit's spawns, and by how much. `Poll` is carried
+/// only to be named in the respawn note, never as a second bound alongside
+/// the poll's own exhaustion rule.
+// §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
+#[derive(Clone, Copy)]
+enum AttemptBudget {
+    /// The state's own `attempts:`, `defaults.attempts`, or the built-in.
+    /// `SpawnPlan::budget_spent` and `SpawnPlan::retry_outlook` bound spawns
+    /// at this count.
+    Visit(u64),
+    /// A poll state's `poll.max_attempts`. Never bounds a spawn — the poll's
+    /// own exhaustion path (`ready_auto_advance.rs`) does that.
+    Poll { max_attempts: u64 },
+}
+
 /// How many spawns one visit to this state may have.
 ///
 /// The chain a timeout resolves through, one level shorter because a budget has
@@ -373,20 +405,22 @@ fn newest_spawn_record_for_state(
 /// does, and it already carries its own bound in `poll.max_attempts`; a second
 /// bound over the same spawns would stop the loop before its own cap and
 /// silently change what the machine's author declared.
-// §FS-rhei-agents.3.2.3 §FS-rhei-agents.7.1 §FS-rhei-states.2
+// §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3 §FS-rhei-agents.7.1 §FS-rhei-states.2
 fn resolve_attempt_budget(
     state_def: Option<&rhei_validator::StateDef>,
     settings: &RheiSettings,
-) -> u64 {
-    if state_def.is_some_and(|def| def.poll.is_some()) {
-        return u64::MAX;
+) -> AttemptBudget {
+    if let Some(max_attempts) = state_def.and_then(|def| def.poll.as_ref()) {
+        return AttemptBudget::Poll { max_attempts: u64::from(max_attempts.max_attempts) };
     }
-    state_def
-        .and_then(|def| def.attempts)
-        .or(settings.defaults.attempts)
-        .map(u64::from)
-        .unwrap_or(DEFAULT_ATTEMPT_BUDGET)
-        .max(1)
+    AttemptBudget::Visit(
+        state_def
+            .and_then(|def| def.attempts)
+            .or(settings.defaults.attempts)
+            .map(u64::from)
+            .unwrap_or(DEFAULT_ATTEMPT_BUDGET)
+            .max(1),
+    )
 }
 
 /// A plan for a unit test that only cares about the transcript a spawn writes:
