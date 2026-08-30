@@ -119,7 +119,11 @@ jobs:
           git switch -c "$branch"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add Cargo.toml crates/*/Cargo.toml Cargo.lock packages docs/changelog.md docs/changelog
+          # `xtask/Cargo.toml` pins its siblings by exact version and lives outside
+          # `crates/`, so the glob above does not reach it. Left unstaged, the bump
+          # `set-release-version.py` made to it is dropped and the release workflow's
+          # version check rejects the candidate. §FS-rhei-distribution.2
+          git add Cargo.toml crates/*/Cargo.toml xtask/Cargo.toml Cargo.lock packages docs/changelog.md docs/changelog
           git commit -m "Release v${next}"
           git push -u origin "$branch"
 
