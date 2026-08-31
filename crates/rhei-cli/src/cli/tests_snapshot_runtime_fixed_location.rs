@@ -2,6 +2,83 @@
 // without `assign_id_flag`) — split from tests_snapshot_runtime.rs to stay
 // under the file-size budget. §AR-source-file-size.3
 
+/// RAII guard that removes `HOME` for the duration of the test, sharing
+/// `TEST_HOME_LOCK` with `TempHome` so the two never race over the same
+/// process-global env var.
+struct NoHome {
+    previous: Option<std::ffi::OsString>,
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+impl NoHome {
+    fn new() -> Self {
+        let guard = TEST_HOME_LOCK.lock().unwrap_or_else(|err| err.into_inner());
+        let previous = std::env::var_os("HOME");
+        std::env::remove_var("HOME");
+        NoHome { previous, _guard: guard }
+    }
+}
+
+impl Drop for NoHome {
+    fn drop(&mut self) {
+        if let Some(prev) = self.previous.take() {
+            std::env::set_var("HOME", prev);
+        }
+    }
+}
+
+// vjovanov/rhei#125 R1-01: an unresolvable `dir_template` (no `HOME`) must
+// degrade to no fixed-location tracking rather than fail the spawn, even on
+// a state with no snapshot block, since preload runs for every spawn. §FS-rhei-snapshots.10.1
+#[test]
+fn snapshot_fixed_location_unresolvable_dir_template_runs_cold_instead_of_failing_spawn() {
+    let _no_home = NoHome::new();
+    let dir = snapshot_workspace();
+    write_fixed_location_no_snapshot_machine(dir.path());
+    let settings = fixed_location_settings("~/.fixed-agent/sessions", None);
+    let (loaded, machine, resolved) = snapshot_preload_parts(dir.path(), &settings);
+    let task = loaded.rhei.tasks.first().expect("task");
+
+    let preload = preload_snapshot_inherit_before_spawn(
+        dir.path(),
+        dir.path(),
+        &machine,
+        task,
+        "pending",
+        &resolved,
+        &settings,
+        1,
+        None,
+        &default_run_options(),
+    )
+    .expect("an unresolvable dir_template must never fail the spawn");
+    assert!(preload.fixed_session_dir.is_none());
+    assert!(preload.fixed_session_id.is_none());
+    assert!(preload.fixed_session_scan_floor.is_none());
+    assert!(preload.extra_args.is_empty());
+}
+
+fn write_fixed_location_no_snapshot_machine(dir: &Path) {
+    fs::write(
+        dir.join("states.yaml"),
+        r#"name: snapshot-test
+version: 1
+states:
+  pending:
+    description: pending
+    initial: true
+    target: fixed:openai:model
+  done:
+    description: done
+    final: true
+transitions:
+  - from: pending
+    to: done
+"#,
+    )
+    .expect("write states");
+}
+
 // vjovanov/rhei#125: a fixed-location session with `assign_id_flag` gets
 // the flag and a rhei-chosen id at spawn, and emit reads the exact
 // `<dir>/<id>.<ext>` path afterward. §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.2

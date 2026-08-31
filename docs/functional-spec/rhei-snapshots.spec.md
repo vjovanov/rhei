@@ -866,7 +866,12 @@ is set, generates a session id and appends the flag. Neither step touches the
 agent's real session storage beyond appending the declared flags — the
 `session_dir_flag` redirect is the only case that stages a transcript into a
 directory rhei manages, and it never writes into a `dir_template` fixed
-location. The numbered steps below are specific to `snapshot.inherit:`.
+location. If the `dir_template` cannot be resolved (a leading `~/` with no
+home directory available), the orchestrator logs "could not resolve snapshot
+dir_template ...; fixed-location snapshot tracking disabled for this spawn"
+and spawns without fixed-location tracking rather than failing the spawn:
+this invocation loses emit/preload for that agent, not the run. The numbered
+steps below are specific to `snapshot.inherit:`.
 
 For each spawn of a state declaring `snapshot.inherit:`:
 

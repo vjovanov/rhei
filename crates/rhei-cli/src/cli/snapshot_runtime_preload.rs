@@ -75,18 +75,28 @@ fn preload_snapshot_inherit_before_spawn(
             preload.extra_args.push(dir.display().to_string());
             preload.session_dir = Some(dir);
         } else if let Some(template) = snapshot_session_layout(session).and_then(snapshot_layout_dir_template) {
-            // §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1: Fixed-location
-            // emit. Never create or write into this directory — it is the
-            // agent's own session storage, only ever read from after exit.
-            let dir = resolve_snapshot_dir_template(&template)?;
-            preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
-            if let Some(flag) = snapshot_session_string(session, "assign_id_flag") {
-                let id = generate_snapshot_session_id();
-                preload.extra_args.push(flag);
-                preload.extra_args.push(id.clone());
-                preload.fixed_session_id = Some(id);
+            // §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1: Fixed-location emit.
+            // Never write into this directory, only read after exit; a resolution
+            // failure (e.g. no HOME) degrades to no tracking, never fails spawn.
+            match resolve_snapshot_dir_template(&template) {
+                Ok(dir) => {
+                    preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
+                    if let Some(flag) = snapshot_session_string(session, "assign_id_flag") {
+                        let id = generate_snapshot_session_id();
+                        preload.extra_args.push(flag);
+                        preload.extra_args.push(id.clone());
+                        preload.fixed_session_id = Some(id);
+                    }
+                    preload.fixed_session_dir = Some(dir);
+                }
+                Err(err) => {
+                    diag_warn!(
+                        "warning: could not resolve snapshot dir_template for agent '{}' ({}); fixed-location snapshot tracking disabled for this spawn",
+                        resolved.agent.id(),
+                        err
+                    );
+                }
             }
-            preload.fixed_session_dir = Some(dir);
         }
     }
 
