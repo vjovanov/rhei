@@ -14,7 +14,7 @@
   (`rhei-integration-tests`), each runnable alone via `cargo test -p
   <member>` — `grund.toml` renames every `prefix` to `kind` and adds
   `[citations.e2e]` / `[citations.integration]`, and CI's pinned `grund` moves
-  from 0.9.0 to 0.12.3. No product behaviour changes. (PR #N)
+  from 0.9.0 to 0.12.3. No product behaviour changes. (PR #126)
 - **A failed visit to an `execute_on` state no longer strands the run.** On a
   non-zero subprocess exit, `rhei run` selected the first transition with no
   `exit_code` field — for a supervising state, that is the release self-loop
