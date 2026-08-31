@@ -393,9 +393,14 @@ structure:
         plan_after_failure.contains("supervising: 2"),
         "the failed visit did not burn a visit's worth of stateVisits:\n{plan_after_failure}"
     );
+    // The whole entry, not two independent substrings, so a corrupted or
+    // wrong `task:`/`visit:` field elsewhere in the block would also fail
+    // this assertion. §FS-rhei-supervision.3.3
     assert!(
-        plan_after_failure.contains("from: review") && plan_after_failure.contains("to: completed"),
-        "the checkpoint delivered before the failure survives it:\n{plan_after_failure}"
+        plan_after_failure.contains(
+            "checkpoints:\n        - task: '1.1'\n          from: review\n          to: completed\n          visit: 1"
+        ),
+        "the checkpoint delivered before the failure survives it verbatim:\n{plan_after_failure}"
     );
 
     // The ticket's headline: a second `rhei run` re-spawns the same visit

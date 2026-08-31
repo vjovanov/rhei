@@ -162,6 +162,10 @@ When a program exits and has not already advanced the task (via `rhei transition
 6. If no transition matches and exit code is `0`, log a warning: `warning: program exited 0 but task {id} did not advance from '{state}'`.
 7. If no transition matches and exit code is non-zero, log an error and apply the `--continue-on-error` policy.
 
+On a `poll:` state whose attempt budget is spent, step 1 does not govern the
+exhaustion edge: the engine selects the first matching non-self-loop
+transition regardless of `exit_code` (§FS-rhei-run.5.1).
+
 ### 3.3. Mixing Exit-Code and Manual Transitions
 
 Programs may also call `rhei transition` or `rhei complete` directly via subprocess invocation, just like agents. When a program does so, the task state changes before the program exits, and exit-code evaluation is skipped entirely — the explicit transition takes precedence.
