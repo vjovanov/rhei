@@ -226,15 +226,75 @@ fn snapshot_layout_dir_template(layout: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
-// §FS-rhei-snapshots.9.1: A leading `~/` in `dir_template` expands against the user's home directory.
-fn resolve_snapshot_dir_template(template: &str) -> MietteResult<PathBuf> {
-    if let Some(rest) = template.strip_prefix("~/") {
-        return Ok(home_dir()?.join(rest));
-    }
+// §FS-rhei-snapshots.9.1: `~/` expands against the home directory,
+// `{cwd_dashed}` against this spawn's own working directory; an
+// unrecognized `{name}` placeholder is a resolution failure, not a literal.
+fn resolve_snapshot_dir_template(
+    template: &str,
+    spawn_working_dir: &Path,
+) -> MietteResult<PathBuf> {
     if template == "~" {
         return home_dir();
     }
-    Ok(PathBuf::from(template))
+    let (home, rest) = match template.strip_prefix("~/") {
+        Some(rest) => (Some(home_dir()?), rest),
+        None => (None, template),
+    };
+    let expanded = expand_snapshot_dir_template_placeholders(rest, spawn_working_dir)?;
+    Ok(match home {
+        Some(home) => home.join(expanded),
+        None => PathBuf::from(expanded),
+    })
+}
+
+// §FS-rhei-snapshots.9.1: Expands `{cwd_dashed}` in a `dir_template` tail;
+// any other `{name}` token fails so a typo'd placeholder is never read as a
+// literal directory name that quietly matches nothing.
+fn expand_snapshot_dir_template_placeholders(
+    template: &str,
+    spawn_working_dir: &Path,
+) -> MietteResult<String> {
+    let mut expanded = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let Some(close) = rest[open + 1..].find('}') else {
+            return Err(miette!(
+                help = snapshot_help(),
+                "dir_template '{}' has an unterminated placeholder",
+                template
+            ));
+        };
+        let close = open + 1 + close;
+        expanded.push_str(&rest[..open]);
+        match &rest[open + 1..close] {
+            "cwd_dashed" => expanded.push_str(&dashed_spawn_working_dir(spawn_working_dir)?),
+            other => {
+                return Err(miette!(
+                    help = snapshot_help(),
+                    "dir_template placeholder '{{{}}}' is not recognized",
+                    other
+                ));
+            }
+        }
+        rest = &rest[close + 1..];
+    }
+    expanded.push_str(rest);
+    Ok(expanded)
+}
+
+// §FS-rhei-snapshots.9.1: Claude Code's convention — every character outside
+// `[A-Za-z0-9-]` becomes `-` — applied to the canonicalized spawn working
+// directory, so it matches the cwd the child process itself observes.
+fn dashed_spawn_working_dir(spawn_working_dir: &Path) -> MietteResult<String> {
+    let canonical = rhei_core::platform::canonical_path(spawn_working_dir).map_err(|err| {
+        file_io_report(spawn_working_dir, "failed to canonicalize spawn working directory", err)
+    })?;
+    Ok(canonical
+        .display()
+        .to_string()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '-' { ch } else { '-' })
+        .collect())
 }
 
 fn generate_snapshot_session_id() -> String {

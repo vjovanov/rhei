@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`dir_template` can now name a per-working-directory session store.** A
+  `FlatById` layout's `dir_template` may contain the placeholder
+  `{cwd_dashed}`, which expands to this spawn's own canonicalized working
+  directory with every character outside `[A-Za-z0-9-]` replaced by `-` — the
+  convention Claude Code uses for its own per-project session directories —
+  so a template like `~/.claude/projects/{cwd_dashed}` names the directory a
+  supervised checkout actually writes into, instead of one literal path
+  shared across every checkout. Literal templates and `~/` expansion are
+  unaffected; an unrecognized `{name}` placeholder degrades to no
+  fixed-location tracking rather than failing the spawn. (PR #N)
 - **`snapshot.emit` no longer requires `session_dir_flag`.** The predicate
   gating both `rhei validate` and the runtime emit path demanded a
   session-directory redirect flag on top of a supported `SessionLayout`,

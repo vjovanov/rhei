@@ -222,6 +222,7 @@ fn run_sequential_agent_invocation(
     let snapshot_preload = preload_snapshot_inherit_before_spawn(
         input,
         &task_workspace_root,
+        &checkout_root.path,
         machine,
         task,
         current_state,
