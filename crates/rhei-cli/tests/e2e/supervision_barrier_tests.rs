@@ -321,3 +321,106 @@ fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
         "got:\n{waiting}"
     );
 }
+
+/// vjovanov/rhei#122: a visit's subprocess exiting non-zero must not release
+/// the subtree, burn the visit, or take a forward edge — in particular not
+/// `openDescendants < 1` -> `completed`, which this scenario makes available
+/// the moment the visit starts (its only child is already terminal). A
+/// second `rhei run` on the halted workspace re-spawns the same visit, and
+/// once that visit succeeds the retained checkpoint is consumed normally.
+// §FS-rhei-supervision.3.5 §FS-rhei-programs.3.2
+#[test]
+fn a_failed_visit_keeps_the_hold_and_a_rerun_respawns_it() {
+    let plan = r#"# Rhei: Failed Visit Rerun
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Harden the parser
+**State:** supervising
+
+#### Task 1.1: Review parser
+**State:** review
+"#;
+    // Visit 2 is the child-terminal wake for 1.1; its first spawn fails, its
+    // second (the rerun) succeeds — the marker file tells them apart, since a
+    // failed visit is not supposed to advance `RHEI_VISIT_COUNT`.
+    let fail_first_spawn_of_visit_two = r#"    if visit == '2':
+        marker = root / 'runtime' / 'visit-2-attempts'
+        attempts = (int(marker.read_text()) if marker.exists() else 0) + 1
+        marker.write_text(str(attempts))
+        if attempts == 1:
+            sys.exit(1)"#;
+    let (dir, plan_path, machine_path) = setup_supervision(
+        "supervision-failed-visit-rerun",
+        plan,
+        &supervision_machine("child-terminal", "completed"),
+        fail_first_spawn_of_visit_two,
+    );
+
+    let first = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert!(
+        !first.status.success(),
+        "no exit_code transition matches the failure, so the run halts; got:\nstdout:\n{}\nstderr:\n{}",
+        first.stdout,
+        first.stderr
+    );
+    assert_eq!(
+        spawn_log(&dir),
+        vec![
+            "plan.1 supervising 1".to_string(),
+            "plan.1.1 review 1".to_string(),
+            "plan.1 supervising 2".to_string(),
+        ],
+        "the failed visit is spawned once and nothing fires past it"
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "supervising-2");
+
+    let plan_after_failure = fs::read_to_string(&plan_path).expect("read plan");
+    assert!(
+        plan_after_failure.contains("phase: held"),
+        "a failed visit is not the release edge:\n{plan_after_failure}"
+    );
+    assert!(
+        !plan_after_failure.contains("phase: released"),
+        "the release edge must not have fired:\n{plan_after_failure}"
+    );
+    assert!(
+        plan_after_failure.contains("supervising: 2"),
+        "the failed visit did not burn a visit's worth of stateVisits:\n{plan_after_failure}"
+    );
+    assert!(
+        plan_after_failure.contains("from: review") && plan_after_failure.contains("to: completed"),
+        "the checkpoint delivered before the failure survives it:\n{plan_after_failure}"
+    );
+
+    // The ticket's headline: a second `rhei run` re-spawns the same visit
+    // rather than reporting nothing left to schedule.
+    let second = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert_success(&second);
+    assert_eq!(
+        spawn_log(&dir),
+        vec![
+            "plan.1 supervising 1".to_string(),
+            "plan.1.1 review 1".to_string(),
+            "plan.1 supervising 2".to_string(),
+            "plan.1 supervising 2".to_string(),
+        ],
+        "the rerun re-spawns visit 2, not a fresh visit 3"
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+
+    // The re-spawned visit's own prompt still carries the checkpoint that
+    // was retained across the failure. §FS-rhei-supervision.5.1
+    let retry_prompt = prompt_for(&dir, "plan.1", "supervising", 2);
+    assert!(
+        retry_prompt.contains(
+            "### Task plan.1.1: Review parser \u{2014} review \u{2192} completed (visit 1)"
+        ),
+        "got:\n{retry_prompt}"
+    );
+}

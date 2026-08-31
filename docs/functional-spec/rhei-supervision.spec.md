@@ -399,6 +399,20 @@ without special casing:
   one is a follow-up alongside the same reason in the TUI and the Flow
   dashboard (§FS-rhei-viz).
 
+### 3.5. Failed Visits
+
+A visit's subprocess exiting non-zero fires no transition unless the state
+declares a matching `exit_code` rule (§FS-rhei-programs.3.2), and a
+supervising state never does — `exit_code` requires `program:`
+(§FS-rhei-programs.3.1), and a supervisor is an agent state. So a failed
+visit is not progress: `--continue-on-error` governs it
+(§FS-rhei-agents.5.2.1 step 12) and the release self-loop does not fire.
+`supervision.phase` stays `held`, `supervision.checkpoints` keeps every entry
+delivered before the failure, and `stateVisits.<state>` is not incremented —
+the visit is not spent. The task is still ready under §3.2, so a later pass,
+or a rerun of `rhei run`, spawns the same visit again with the same pending
+checkpoints (§5.1).
+
 ## 4. Transition Support
 
 ### 4.1. The `openDescendants` Operand
