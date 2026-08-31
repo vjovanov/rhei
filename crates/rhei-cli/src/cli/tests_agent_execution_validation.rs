@@ -614,6 +614,61 @@ for line in sys.stdin:
         );
     }
 
+    // vjovanov/rhei#125: a fixed-location session (dir_template, no
+    // session_dir_flag) supports emit on its own — this is the ticket's exact
+    // repro shape. §FS-rhei-snapshots.9.1
+    #[test]
+    fn validates_fixed_location_dir_template_supports_emit_without_session_dir_flag() {
+        let mut settings = default_settings();
+        settings.agents.insert(
+            "fixed".to_string(),
+            CustomAgentProfile {
+                command: vec!["fixed".to_string()],
+                session: Some(serde_json::json!({
+                    "layout": {
+                        "kind": "FlatById",
+                        "dir_template": "~/.fixed-agent/sessions",
+                        "ext": "jsonl"
+                    }
+                })),
+                ..Default::default()
+            },
+        );
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+        );
+        let errs = validate_machine_settings_references(&machine, &settings);
+        assert!(
+            errs.is_empty(),
+            "a supported layout with dir_template and no session_dir_flag must validate: {errs:?}"
+        );
+    }
+
+    // A layout with neither `session_dir_flag` nor `dir_template` has nowhere
+    // for rhei to look, so it stays unsupported for emit. §FS-rhei-snapshots.9.1
+    #[test]
+    fn validates_layout_without_flag_or_dir_template_stays_unsupported_for_emit() {
+        let mut settings = default_settings();
+        settings.agents.insert(
+            "fixed".to_string(),
+            CustomAgentProfile {
+                command: vec!["fixed".to_string()],
+                session: Some(serde_json::json!({
+                    "layout": { "kind": "FlatById", "ext": "jsonl" }
+                })),
+                ..Default::default()
+            },
+        );
+        let machine = machine_with_states(
+            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+        );
+        let errs = validate_machine_settings_references(&machine, &settings);
+        assert!(
+            errs.iter().any(|e| e.contains("unsupported-snapshot-session")),
+            "a layout with neither flag nor dir_template must still fail: {errs:?}"
+        );
+    }
+
     #[test]
     fn validates_agent_mode_allowed_on_modeless_agent() {
         let mut settings = default_settings();

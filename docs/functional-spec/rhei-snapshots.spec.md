@@ -716,6 +716,22 @@ uses `session_dir_flag` when provided to redirect the agent's session output
 into the active `g<N>.tmp-*` staging directory so emit becomes a directory scan
 rather than a hunt across the user's home directory.
 
+A profile with no `session_dir_flag` — the agent writes sessions to a location
+it derives itself, with no redirect flag — still supports emit from a
+`FlatById` layout's `dir_template`, the fixed directory the agent writes into.
+A leading `~/` in `dir_template` expands against the user's home directory.
+When the profile also declares `assign_id_flag`, rhei generates a session id,
+passes it with that flag at spawn, and after exit reads exactly
+`<dir>/<id>.<ext>` — an exact-path read, no scan. Without `assign_id_flag`,
+rhei scans `dir_template` for the newest file with the layout's `ext` written
+at or after the spawn, ignoring anything older: a leftover transcript in a
+shared fixed directory predates this invocation and is not its session, and
+finding no matching file is the honest `unsupported-snapshot-session` outcome
+rather than a fallback to a stale one. `session_dir_flag` stays preferable
+where available — it turns emit into a scan of an empty, invocation-private
+directory instead of a shared one — but it is an optimization: §9.2's emit
+requirement is a `SessionLayout` alone.
+
 ### 9.2. Built-in Profiles
 
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
@@ -737,7 +753,8 @@ Rhei-readable transcript layout and safe continuation transport are proven.
 Emit and preload have independent profile requirements:
 
 - *Emit* requires only a `SessionLayout` (rhei needs to know where the agent
-  wrote its session file). An agent with `ResumeStrategy::None` but a valid
+  wrote its session file; see §9.1 for how it locates the transcript when
+  `session_dir_flag` is absent). An agent with `ResumeStrategy::None` but a valid
   `SessionLayout` can still emit snapshots; those snapshots become preload
   sources only if the profile also declares a `ForkStrategy`.
 - *Preload* requires both a `SessionLayout` and a usable source-loading
@@ -839,6 +856,18 @@ have a stable transcript capture layout or `session_dir_flag` equivalent.
 
 ### 10.1. Spawn-Time Preload
 
+Before every spawn of an agent whose profile has a supported `SessionLayout`,
+independent of whether the state declares `snapshot.inherit:`, the
+orchestrator resolves how it will later locate the transcript for emit
+(§9.1): if `session_dir_flag` is set, it creates a fresh invocation-private
+directory and appends the flag; otherwise, if the layout carries
+`dir_template`, it resolves that fixed directory and, when `assign_id_flag`
+is set, generates a session id and appends the flag. Neither step touches the
+agent's real session storage beyond appending the declared flags — the
+`session_dir_flag` redirect is the only case that stages a transcript into a
+directory rhei manages, and it never writes into a `dir_template` fixed
+location. The numbered steps below are specific to `snapshot.inherit:`.
+
 For each spawn of a state declaring `snapshot.inherit:`:
 
 1. Resolve the snapshot reference per the lineage rules. If no match exists
@@ -892,6 +921,17 @@ After every agent-state subprocess exits, the orchestrator:
    profile has no supported `SessionLayout`, fails the spawn with
    `unsupported-snapshot-session`; `snapshot.emit:` is an explicit author
    contract, not a best-effort hint.
+
+   Both writes locate the native transcript the way §10.1 and §9.1 set up at
+   spawn: the redirected `session_dir` when `session_dir_flag` was used;
+   otherwise the resolved `dir_template` directory, read at the exact
+   `<dir>/<assigned-id>.<ext>` path when `assign_id_flag` was used, or by
+   taking the newest matching file written no earlier than the spawn
+   otherwise. A transcript that cannot be located this way — including a
+   `dir_template` directory holding nothing but files that predate the
+   spawn — is the same "no transcript" case as an agent that wrote nothing:
+   silently skipped for auto-emit, `unsupported-snapshot-session` for named
+   emit.
 6. Both writes use the atomic-write procedure. When both fire for the same
    invocation they produce independent generation directories under their
    respective identities; the underlying transcript bytes are typically

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`snapshot.emit` no longer requires `session_dir_flag`.** The predicate
+  gating both `rhei validate` and the runtime emit path demanded a
+  session-directory redirect flag on top of a supported `SessionLayout`,
+  contradicting the spec's "*Emit* requires only a `SessionLayout`" and
+  making emit unavailable for any agent — including the built-in `claude-code`
+  profile — that writes sessions to a location it derives itself, with no
+  redirect flag. A `FlatById` layout's `dir_template` is now a valid
+  alternative: with `assign_id_flag` declared, rhei assigns the session id at
+  spawn and reads `<dir>/<id>.<ext>` after exit; otherwise it captures the
+  newest matching transcript written no earlier than the spawn, so a leftover
+  file from an earlier invocation is never mistaken for the current one. The
+  `session_dir_flag` redirect path, including the built-in `pi` profile, is
+  unchanged. (PR #N)
 - **The e2e and integration suites move into grund's two non-citable test
   homes.** `grund.toml` declared a citable `E2E` kind at `e2e/cases` with the
   deprecated `prefix` key, and that directory held nothing but a `.gitkeep` —

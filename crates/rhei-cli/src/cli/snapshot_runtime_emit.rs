@@ -128,7 +128,7 @@ fn emit_snapshots_after_agent_exit(
         ));
     };
     let Some((transcript_source, transcript_ext, session_id)) =
-        transcript_source_for_snapshot(preload.session_dir.as_deref(), layout)
+        transcript_source_for_snapshot(preload, layout)
     else {
         if should_emit_named {
             return Err(miette!(

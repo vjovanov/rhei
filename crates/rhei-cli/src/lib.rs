@@ -148,6 +148,7 @@ mod tests {
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_pointer.rs");
     include!("cli/tests_snapshot_runtime.rs");
+    include!("cli/tests_snapshot_runtime_fixed_location.rs");
     include!("cli/tests_supervised.rs");
     include!("cli/tests_subtree_supervision.rs");
     include!("cli/tests_subtree_supervision_scope.rs");

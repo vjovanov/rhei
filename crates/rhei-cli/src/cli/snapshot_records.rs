@@ -38,6 +38,18 @@ struct SnapshotPreload {
     parent_ref: Option<serde_json::Value>,
     extra_args: Vec<String>,
     session_dir: Option<PathBuf>,
+    // Resolved `dir_template` directory (§FS-rhei-snapshots.9.1) — the
+    // agent's own session storage, distinct from `session_dir`: rhei only
+    // ever reads from it, never stages or copies a transcript into it.
+    fixed_session_dir: Option<PathBuf>,
+    // Set when the profile declares `assign_id_flag`: the id rhei generated
+    // and passed to the agent, read back at `<fixed_session_dir>/<id>.<ext>`.
+    fixed_session_id: Option<String>,
+    // Spawn wall-clock floor for the no-`assign_id_flag` case: the newest
+    // matching file in `fixed_session_dir` is only a candidate if it was
+    // written at or after this instant, so a leftover transcript from an
+    // earlier invocation is never mistaken for this one's.
+    fixed_session_scan_floor: Option<std::time::SystemTime>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,9 +210,35 @@ fn snapshot_layout_manifest(session: &serde_json::Value) -> Option<serde_json::V
     Some(serde_json::Value::Object(object))
 }
 
+// §FS-rhei-snapshots.9.1: Emit support = supported layout AND (session_dir_flag OR dir_template).
 fn snapshot_emit_session_supported(session: &serde_json::Value) -> bool {
     snapshot_session_has_supported_layout(session)
-        && snapshot_session_string(session, "session_dir_flag").is_some()
+        && (snapshot_session_string(session, "session_dir_flag").is_some()
+            || snapshot_session_layout(session).and_then(snapshot_layout_dir_template).is_some())
+}
+
+fn snapshot_layout_dir_template(layout: &serde_json::Value) -> Option<String> {
+    layout
+        .get("dir_template")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|template| !template.is_empty())
+        .map(str::to_string)
+}
+
+// §FS-rhei-snapshots.9.1: A leading `~/` in `dir_template` expands against the user's home directory.
+fn resolve_snapshot_dir_template(template: &str) -> MietteResult<PathBuf> {
+    if let Some(rest) = template.strip_prefix("~/") {
+        return Ok(home_dir()?.join(rest));
+    }
+    if template == "~" {
+        return home_dir();
+    }
+    Ok(PathBuf::from(template))
+}
+
+fn generate_snapshot_session_id() -> String {
+    format!("rhei-{}", snapshot_nonce())
 }
 
 fn snapshot_session_has_supported_layout(session: &serde_json::Value) -> bool {
@@ -280,7 +318,11 @@ fn snapshot_nonce() -> String {
     format!("{}-{nanos}", std::process::id())
 }
 
-fn newest_snapshot_session_file(dir: &Path, ext: &str) -> Option<PathBuf> {
+fn newest_snapshot_session_file(
+    dir: &Path,
+    ext: &str,
+    not_before: Option<std::time::SystemTime>,
+) -> Option<PathBuf> {
     let entries = fs::read_dir(dir).ok()?;
     let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
     for entry in entries.flatten() {
@@ -289,6 +331,9 @@ fn newest_snapshot_session_file(dir: &Path, ext: &str) -> Option<PathBuf> {
             continue;
         }
         let modified = entry.metadata().and_then(|metadata| metadata.modified()).ok()?;
+        if not_before.is_some_and(|floor| modified < floor) {
+            continue;
+        }
         if newest.as_ref().is_none_or(|(existing, _)| modified > *existing) {
             newest = Some((modified, path));
         }
@@ -296,19 +341,30 @@ fn newest_snapshot_session_file(dir: &Path, ext: &str) -> Option<PathBuf> {
     newest.map(|(_, path)| path)
 }
 
+// §FS-rhei-snapshots.10.2: redirected `session_dir`, else the fixed
+// `dir_template` dir read at an exact assigned-id path or scanned for the
+// newest file no earlier than the spawn (mirrors the §10.1 preload).
 fn transcript_source_for_snapshot(
-    session_dir: Option<&Path>,
+    preload: &SnapshotPreload,
     layout: &serde_json::Value,
 ) -> Option<(PathBuf, String, String)> {
     let ext = snapshot_layout_ext(layout)?;
-    match snapshot_layout_kind(layout).as_deref() {
-        Some("FlatById") => {
-            let path = newest_snapshot_session_file(session_dir?, &ext)?;
-            let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
-            Some((path, ext, session_id))
-        }
-        _ => None,
+    if snapshot_layout_kind(layout).as_deref() != Some("FlatById") {
+        return None;
     }
+    if let Some(session_dir) = preload.session_dir.as_deref() {
+        let path = newest_snapshot_session_file(session_dir, &ext, None)?;
+        let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
+        return Some((path, ext, session_id));
+    }
+    let fixed_dir = preload.fixed_session_dir.as_deref()?;
+    if let Some(id) = preload.fixed_session_id.as_deref() {
+        let path = fixed_dir.join(format!("{id}.{ext}"));
+        return path.is_file().then_some((path, ext, id.to_string()));
+    }
+    let path = newest_snapshot_session_file(fixed_dir, &ext, preload.fixed_session_scan_floor)?;
+    let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
+    Some((path, ext, session_id))
 }
 
 fn snapshot_declared_provider(resolved: &ResolvedAgent) -> &str {
