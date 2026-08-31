@@ -94,17 +94,17 @@ The commands that coordinate through the state machine:
 
 | Command            | What it does                                                                    |
 |--------------------|---------------------------------------------------------------------------------|
-| `rhei init`        | Sets up a Panta project in a gitignored `panta/` folder (or in place with `--here`): manifest, ignore rules, agent-discovery note (§FS-rhei-init) |
+| `rhei init`        | Sets up a Panta project in a gitignored `panta/` folder (or in place with `--here`): manifest, ignore rules, agent-discovery note ([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)) |
 | `rhei run`         | Drives the full plan forward under orchestrator authority (`--rhei <id>` narrows a project-scoped run) |
 | `rhei next`        | Claims the next ready task for a manual worker (with `--peek` for read-only, `--rhei <id>` to narrow) |
-| `rhei transition`  | Atomically changes a task's state via compare-and-swap; `--result` carries the message a `final: true` target requires (§FS-rhei-states.3.3) |
+| `rhei transition`  | Atomically changes a task's state via compare-and-swap; `--result` carries the message a `final: true` target requires ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) |
 | `rhei complete`    | Terminal transition invoked by a manual worker: the inferred one-hop terminal target plus the shared transition carrying `--result` |
-| `rhei reset`       | Returns each task to the state it was authored in (§FS-rhei-reset.2.2), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
+| `rhei reset`       | Returns each task to the state it was authored in ([§FS-rhei-reset.2.2](rhei-reset.spec.md#22-authored-state)), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output ([§FS-rhei-reset.2.1](rhei-reset.spec.md#21-narrowed-reset---rhei)) |
 | `rhei snapshot`    | Lists, shows, prunes, or continues from session snapshots captured by `rhei run` |
 
 `rhei run` and the manual-worker flow (`next` / `transition` / `complete`) are mutually exclusive per execution — they never overlap on the same task because `rhei run` holds transition responsibility for the states it drives. The typical manual-worker loop is `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 
-Ticket ids in command output are project-qualified — `<rhei-id>.<task-id>`, e.g. `plan.1` for a single-file `plan.rhei.md` — and `rhei list` accepts the same `--rhei <id>` narrowing as `run`, `next`, and `reset` (§FS-rhei-panta.6).
+Ticket ids in command output are project-qualified — `<rhei-id>.<task-id>`, e.g. `plan.1` for a single-file `plan.rhei.md` — and `rhei list` accepts the same `--rhei <id>` narrowing as `run`, `next`, and `reset` ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 #### Naming a ticket
 
@@ -113,7 +113,7 @@ first positional argument (`rhei complete auth.1`, `rhei release auth.1`,
 `rhei transition auth.1 --from …`) or through `--task`. The positional slot on
 these commands is a *ticket or plan*: an argument that names an existing path
 is the plan, and an id-shaped argument that names no path is the ticket, with
-the plan resolved from the working directory as usual (§FS-rhei-complete.2.1).
+the plan resolved from the working directory as usual ([§FS-rhei-complete.2.1](rhei-complete.spec.md#21-ticket-targets)).
 `--task` always names the ticket, which leaves the positional free to name the
 plan for a caller that wants to be explicit about both.
 
@@ -129,7 +129,7 @@ ticket rather than being given one, so it has no ticket argument at all.
 Human-readable output, machine formats (`--json`, `--format json`), and the
 rendered documents all go to stdout; diagnostics and warnings go to stderr, so
 `rhei list 2>/dev/null` is a clean ticket listing even when a rhei fails to
-load (§FS-rhei-panta.6).
+load ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 A consumer may stop reading stdout before a command finishes writing it —
 `rhei list | head`, `rhei states | grep -q`, quitting a pager. That is normal
@@ -423,7 +423,7 @@ The central design principle: **the plan file is the single source of truth**. A
 - **Reconstitution.** Under `rhei run` every invocation starts cold, so the
   prompt rebuilds this memory from the plan and `runtime/` by a fixed
   algorithm — position, history, the task's own past, and a map of the rest
-  (§FS-rhei-memory).
+  ([§FS-rhei-memory](rhei-memory.spec.md#fs-rhei-memory-mid-term-memory)).
 - **Composability.** Different agents (writer, worker, reviewer) interact with the same file through well-defined, non-overlapping edits. The state machine prevents conflicts by making illegal transitions impossible.
 
 ## Related Specifications

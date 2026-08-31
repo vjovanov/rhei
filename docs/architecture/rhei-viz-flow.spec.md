@@ -1,16 +1,16 @@
 # AR-rhei-viz-flow: Flow Visualization Architecture
 
-This document expands §FS-rhei-viz (Flow Visualization) and §FS-rhei-viz-ux into
+This document expands [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) (Flow Visualization) and [§FS-rhei-viz-ux](../functional-spec/rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) into
 the component architecture they imply: which crates own the model, the
 derivation, and the renderer; how the live (`rhei run`) and static (offline /
 frozen) surfaces render from one model; and the boundaries that keep the surface
-read-only with respect to plan state. §FS-rhei-run-tui §FS-rhei-cost-accounting
-§FS-rhei-states
+read-only with respect to plan state. [§FS-rhei-run-tui](../functional-spec/rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal) [§FS-rhei-cost-accounting](../functional-spec/rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
+[§FS-rhei-states](../functional-spec/rhei-states.spec.md#fs-rhei-states-rhei-states-specification)
 
 ## 1. Context: two renderers, one design
 
 The Flow design exists today in two places that share an intent but no code, and
-the spec's parity requirement (§FS-rhei-viz §7, §8) is the instruction to
+the spec's parity requirement ([§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §7, §8) is the instruction to
 collapse them onto one model and one renderer.
 
 | | Static (the Flow prototype) | Dynamic (the legacy dashboard) |
@@ -70,7 +70,7 @@ The architecture rests on three "exactly once" invariants:
 - **One asset.** A single self-contained HTML/CSS/JS string is the *only* renderer.
   The static path inlines the model into it and writes a file; the live path
   serves the same string at `/` and lets its JS re-render from `/snapshot`.
-  A byte-identical *asset* (§FS-rhei-viz §7) is guaranteed by construction, not by
+  A byte-identical *asset* ([§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §7) is guaranteed by construction, not by
   keeping two templates in sync; rendered output then differs only by the runtime
   overlay (§4). The current `dashboard/html.rs` is retired.
 - **One model.** Both surfaces consume the §8 `VizModel`; the live payload is a
@@ -98,11 +98,11 @@ The browser dashboard and terminal TUI are two hosts over that same contract.
 Both receive the host-built `VizModel`; live-only state is an overlay from
 `RunEvent`s. Rendering may differ to fit the medium, but lookup, readiness, and
 mutation boundaries stay in the shared UI model rather than in individual view
-renderers. §FS-rhei-run-tui.1.5
+renderers. [§FS-rhei-run-tui.1.5](../functional-spec/rhei-run-tui.spec.md#15-tui-surface)
 
 ## 4. The data contract: static base + runtime overlay
 
-§FS-rhei-viz §8 states it: *the live `/snapshot` payload is a superset of the
+[§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §8 states it: *the live `/snapshot` payload is a superset of the
 embedded static bundle.*
 
 ```
@@ -127,7 +127,7 @@ the migration:
 modes. The JS keys behavior off whether a field is present, never off a mode flag:
 when the runtime overlay is absent (static), the running-now panel hides (§5), the
 intervene composer is shown disabled, the agent terminal shows a representative
-transcript, and cost overlays are empty. This is exactly §FS-rhei-viz §7.2.
+transcript, and cost overlays are empty. This is exactly [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §7.2.
 
 ## 5. Data flow
 
@@ -161,7 +161,7 @@ contracts; the dashboard includes the flattened machine in `/snapshot`.
 
 ### 5.3. Run-end freeze (correct by construction)
 
-When the run finishes and the loopback server exits (§FS-rhei-viz §7.1), the host
+When the run finishes and the loopback server exits ([§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §7.1), the host
 captures the final superset payload and calls the *same*
 `rhei-viz-model::render_static`, writing a frozen self-contained HTML under
 `runtime/`. Because the freeze reuses the static path, the frozen page is
@@ -195,7 +195,7 @@ the full ANSI scrollback comes from `/log`. In the static surface there is no
 ## 7. Intervene: the single mutation boundary
 
 The surface is read-only with respect to plan state, with **exactly one hole**:
-§FS-rhei-viz §5 lets the operator message a running agent. This is the only
+[§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §5 lets the operator message a running agent. This is the only
 inbound, state-changing-adjacent path, and it is the focal point of any security
 review.
 
@@ -238,7 +238,7 @@ releasing one invocation must not remove a still-running sibling.
 answers `reachable(task, slot)` from the same per-slot map `deliver` consults, and
 the dashboard carries that answer in the snapshot as `task_runtime[id].intervene`.
 The Flow composer renders only when it is true, so an operator learns an agent
-can't be messaged *before* typing rather than after a failed send (§FS-rhei-viz
+can't be messaged *before* typing rather than after a failed send ([§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization)
 §5). Because the gate and delivery share one registry, they cannot disagree: no
 built-in profile enables `intervene_stdin` by default, so the composer stays
 hidden until a profile opts in.
@@ -258,18 +258,18 @@ The rules that classify and derive state must produce identical results in both
 modes, so they live once in `rhei-viz` and are called by both the static builder
 and the live dashboard. They are the logic normatively defined in the spec:
 
-- **State→category classification** — §FS-rhei-viz §1.1, evaluated top-to-bottom,
+- **State→category classification** — [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §1.1, evaluated top-to-bottom,
   first match wins, with `active` as the persisted-state catch-all; `live` is
   reserved for the runtime slot overlay.
-- **Plan-state derivation** — §FS-rhei-viz §9, with active-like tied to the `idle`
+- **Plan-state derivation** — [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §9, with active-like tied to the `idle`
   category so a plan of `pending` tasks derives `pending`, not `active`, under any
   profile.
-- **Machine flattening** — §FS-rhei-viz §8: per-state explicit transitions plus
+- **Machine flattening** — [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §8: per-state explicit transitions plus
   applicable `from: "*"` wildcard edges (marked `wildcard`); `initial` is the
   **union over profiles** (true when a state is the entry of at least one
-  profile), since initiality is per-profile (§FS-rhei-states), not a single
+  profile), since initiality is per-profile ([§FS-rhei-states](../functional-spec/rhei-states.spec.md#fs-rhei-states-rhei-states-specification)), not a single
   machine-wide value.
-- **Template context derivation** — §FS-rhei-viz §8: counted task visits, authored
+- **Template context derivation** — [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization) §8: counted task visits, authored
   target/model selectors, and multi-target/model fanout variants are flattened
   into the model so the renderer can instantiate prompts and artifact links
   without hard-coded demo values.
@@ -314,14 +314,14 @@ behavior lands last.
 ## Related Specifications
 
 - [Flow Visualization](../functional-spec/rhei-viz.spec.md) — the views and the
-  data they show. §FS-rhei-viz
+  data they show. [§FS-rhei-viz](../functional-spec/rhei-viz.spec.md#fs-rhei-viz-flow-visualization)
 - [Console-First Visualization UX](../functional-spec/rhei-viz-ux.spec.md) — the
-  shared look-and-feel. §FS-rhei-viz-ux
+  shared look-and-feel. [§FS-rhei-viz-ux](../functional-spec/rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux)
 - [`rhei run` TUI and Transition Journal](../functional-spec/rhei-run-tui.spec.md)
-  — the loopback host, the `AgentOutput` stream, and the durable logs. §FS-rhei-run-tui
+  — the loopback host, the `AgentOutput` stream, and the durable logs. [§FS-rhei-run-tui](../functional-spec/rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)
 - [Cost Accounting](../functional-spec/rhei-cost-accounting.spec.md) — the
-  accounting overlay the running view presents. §FS-rhei-cost-accounting
+  accounting overlay the running view presents. [§FS-rhei-cost-accounting](../functional-spec/rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 - [States Specification](../functional-spec/rhei-states.spec.md) — profiles,
   transitions, and per-profile initial states the machine flattening resolves.
 - [Agent-Orchestrator Workflow](agent-orchestrator-workflow.spec.md) — the run
-  loop and slots the dynamic surface observes. §AR-agent-orchestrator-workflow
+  loop and slots the dynamic surface observes. [§AR-agent-orchestrator-workflow](agent-orchestrator-workflow.spec.md#ar-agent-orchestrator-workflow-agent-orchestrator-workflow-architecture)

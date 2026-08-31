@@ -11,7 +11,7 @@ rhei transition <RHEI_PLAN> --task <TASK_ID> --from <STATE> --to <STATE>
 ```
 
 The positional slot is a *ticket or plan*, on the shared rule every
-single-ticket command follows (§FS-rhei-usage.2): an argument naming an
+single-ticket command follows ([§FS-rhei-usage.2](rhei-usage.spec.md#2-coordination-through-the-state-machine)): an argument naming an
 existing path is the plan, an id-shaped argument naming no path is the ticket.
 The ticket must be named one way or the other.
 
@@ -43,11 +43,11 @@ rhei-local shorthand (`1`). A shorthand resolves
 only when exactly one rhei in the project contains that ticket; when more than
 one does, the error names the qualified candidates. Output, the result file,
 and the ledger entry always use the qualified id regardless of how the target
-was written (§FS-rhei-panta.6).
+was written ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 `rhei transition` takes no `--rhei` flag: the explicit ticket target already
 names the scope. The rewrite is routed to the file of the rhei that owns the
-ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
+ticket, under that rhei's own rhei-local heading ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)).
 
 ## 3. Behavior
 
@@ -84,7 +84,7 @@ ticket, under that rhei's own rhei-local heading (§FS-rhei-panta.6.1).
     file is the central, deterministic audit trail for all task state changes.
     Append `--result`, when given, to `runtime/results/<task-id>.md`; when the
     effective target is `final: true`, also perform the terminal finalization
-    of §FS-rhei-complete.3 — ensure the result file, drop `**Assignee:**`, and
+    of [§FS-rhei-complete.3](rhei-complete.spec.md#3-result-file) — ensure the result file, drop `**Assignee:**`, and
     link the result from the task body.
 14. Release the lock.
 
@@ -95,7 +95,7 @@ from the ones `rhei complete` and `rhei run` leave for the same edge.
 
 Outside a terminal entry, `rhei transition` does not add, remove, or modify
 the `**Assignee:**` line, with one exception: the self-loop of a supervising
-state (§FS-rhei-supervision.3.1). That edge ends a supervisor's visit, so it
+state ([§FS-rhei-supervision.3.1](rhei-supervision.spec.md#31-the-rule)). That edge ends a supervisor's visit, so it
 ends the claim on that visit too, and the line is dropped exactly as a
 terminal entry drops it. Assignment is otherwise owned by `rhei next`;
 unassignment is part of the shared terminal finalization above, which
@@ -104,11 +104,11 @@ unassignment is part of the shared terminal finalization above, which
 `rhei transition` deliberately does **not** check `**Prior:**` dependencies.
 It is the explicit human-initiated primitive, so it is the escape hatch for
 the moves the scheduling commands refuse: leaving a gating state
-(§FS-rhei-complete.4), and advancing a ticket ahead of an unsatisfied prior.
+([§FS-rhei-complete.4](rhei-complete.spec.md#4-behavior)), and advancing a ticket ahead of an unsatisfied prior.
 `rhei next`, `rhei run`, and `rhei complete` all enforce readiness; a caller
 that reaches for `transition` is stating the out-of-order move is intended.
 Because the resulting plan then contradicts its own declared dependencies,
-`rhei validate` reports it as a warning (§FS-rhei-validate.4) rather than
+`rhei validate` reports it as a warning ([§FS-rhei-validate.4](rhei-validate.spec.md#4-behavior)) rather than
 letting it pass unremarked.
 
 Counted-visit accounting: if the target state declares a `visits` budget and `--to` is a loop-back re-entry, the runtime increments `metadata.tasks.<id>.stateVisits.<target>` and renders the new visit number in `**State:**` using the `-<n>` suffix. See [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
@@ -118,21 +118,21 @@ Counted-visit accounting: if the target state declares a `visits` budget and `--
 A transition into a `final: true` state is rejected while the task has any
 non-terminal descendant — child, grandchild, or deeper. The error names the
 target state and every open descendant as `Task <id> (<state>)` — the same
-shape `rhei next` (§FS-rhei-next.3.4) and the run report (§FS-rhei-run-report.3.1)
+shape `rhei next` ([§FS-rhei-next.3.4](rhei-next.spec.md#34-claiming-a-non-leaf-ticket-with---task)) and the run report ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout))
 print, so a user moving between the three verbs reads one format. Its guidance
 names the commands that reveal and claim the open work rather than only
-restating the rule (§FS-rhei-errors.2).
+restating the rule ([§FS-rhei-errors.2](rhei-errors.spec.md#2-copy-paste-safety)).
 
 This guard lives on the **shared transition path**, beside compare-and-swap,
 `outputs:`/`inputs:` enforcement, and callbacks. It therefore applies
 identically to every verb that can move a task into a terminal state:
-`rhei transition`, `rhei complete` (§FS-rhei-complete.4), `rhei run`'s
-orchestrator-owned auto-advance (§FS-rhei-run.3), and a callback that redirects
-an edge with `nextState` (§FS-rhei-transitions.3.2) — a redirect is re-checked
+`rhei transition`, `rhei complete` ([§FS-rhei-complete.4](rhei-complete.spec.md#4-behavior)), `rhei run`'s
+orchestrator-owned auto-advance ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)), and a callback that redirects
+an edge with `nextState` ([§FS-rhei-transitions.3.2](rhei-transitions.spec.md#32-callback-trigger-triggeredby-callback)) — a redirect is re-checked
 against the effective target, so it cannot smuggle a terminal entry past the
 guard. No command holds a private copy of the rule, and no state machine can
 opt out of it: a transition `condition:` can *select* a parent's terminal edge
-on its subtree with `openDescendants` (§FS-rhei-supervision.4.1), but
+on its subtree with `openDescendants` ([§FS-rhei-supervision.4.1](rhei-supervision.spec.md#41-the-opendescendants-operand)), but
 selection is not permission — a machine author has no way to take a terminal
 edge past an open descendant. The engine must guard it.
 
@@ -140,21 +140,21 @@ The guard is deliberately **not** symmetric with `**Prior:**` readiness, which
 `rhei transition` skips as the human escape hatch (§3). The line between the
 two is the one `rhei validate` already draws: a terminal parent with an open
 descendant is an **error**, an out-of-order prior is a **warning**
-(§FS-rhei-validate.4). `rhei transition` may deliberately produce a warning; it
+([§FS-rhei-validate.4](rhei-validate.spec.md#4-behavior)). `rhei transition` may deliberately produce a warning; it
 must never be able to produce an error. A parent that genuinely must finish
 ahead of its subtree is finished by finishing or cancelling the subtree first —
 `cancelled` is terminal, so an abandoned child satisfies the guard.
 
 `rhei next` is unaffected by this guard because claiming does not advance state
-(§FS-rhei-next.3); it applies the eligibility rule instead
-(§FS-rhei-plan-language.3).
+([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)); it applies the eligibility rule instead
+([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)).
 
 ### 3.2. Terminal Result on Entry
 
 A transition into a `final: true` state is refused unless the ticket has a
 non-empty `runtime/results/<task-id>.md` or the caller carried a message on the
 move. The obligation belongs to the state, not to the command: it is specified
-once in §FS-rhei-states.3.3 and enforced here, on the same shared path as
+once in [§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result) and enforced here, on the same shared path as
 compare-and-swap, the descendants-first guard (§3.1), and `inputs:` /
 `outputs:` resolution.
 
@@ -165,7 +165,7 @@ against the effective target so a redirect cannot smuggle a terminal entry past
 it. No command holds a private copy of the rule.
 
 The refusal names the path that was checked and the flag that carries the
-message (§FS-rhei-errors.2):
+message ([§FS-rhei-errors.2](rhei-errors.spec.md#2-copy-paste-safety)):
 
 ```text
 Error: Task auth.1 cannot enter terminal state 'completed' without a result.
@@ -209,7 +209,7 @@ Task <ID> transitioned: '<from>' -> '<to>' (callbacks skipped)
 | `rhei next --peek` | Read-only: prints the next claimable task without claiming it                   |
 | `rhei transition`  | Atomically changes a task's state; `--result` appends to the result file, and carries the message a terminal entry requires (§3.2) |
 | `rhei complete`    | Infers the one-hop terminal target and runs the same transition with `--result` |
-| `rhei reset`       | Returns each task to the state it was authored in (§FS-rhei-reset.2.2), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output (§FS-rhei-reset.2.1) |
+| `rhei reset`       | Returns each task to the state it was authored in ([§FS-rhei-reset.2.2](rhei-reset.spec.md#22-authored-state)), removes `runtime/`; narrowed with `--rhei <id>` it removes only the in-scope tickets' keyed output ([§FS-rhei-reset.2.1](rhei-reset.spec.md#21-narrowed-reset---rhei)) |
 
 The typical agent loop is: `next` (claim) → work → `transition` (advance as needed) → `complete` (finish, record result, release).
 

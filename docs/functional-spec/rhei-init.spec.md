@@ -13,11 +13,11 @@ plus the low-cost conveniences that keep a project healthy from day one:
 ignore rules, and an agent-discovery note so coding agents working in the
 repository find the Rhei workflow on their own. Everything else about a
 project (rheis, tickets, state machines) is added with `rhei new`
-(§FS-rhei-new) or by creating files by hand, per §FS-rhei-panta.2.
+([§FS-rhei-new](rhei-new.spec.md#fs-rhei-new-rhei-new)) or by creating files by hand, per [§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis).
 
 Initialization is a convenience, not a gate: a project is defined by its
 files, and a hand-written `index.panta.md` is exactly as valid as a generated
-one (§AR-rhei-panta.1). This deliberately contrasts with database-backed
+one ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)). This deliberately contrasts with database-backed
 trackers, where `init` must provision storage before anything works.
 
 ## 1. Usage
@@ -57,7 +57,7 @@ and each word is capitalized (`my-project` → `My Project`).
    default mode even under `--force` — the refusal names `--force --here` —
    because force means re-initialize, never "nest a fresh `panta/` project
    inside this one": the child would lose every target resolution to the
-   host manifest (§FS-rhei-panta.6) and could never be reached by a bare
+   host manifest ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)) and could never be reached by a bare
    command.
 2. **Refuse to shadow existing plans** in default mode. When the host holds
    bare `*.rhei.md` files or workspace rheis, a `panta/` project would not
@@ -66,7 +66,7 @@ and each word is capitalized (`my-project` → `My Project`).
    this check. The mirror-image check guards `--here`: when the host is not
    itself a project but already holds a default-mode project at `panta/`,
    adopting the host would shadow that project — target resolution prefers
-   the host manifest (§FS-rhei-panta.6), so every ticket in `panta/` would
+   the host manifest ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), so every ticket in `panta/` would
    become unreachable by inference. The command refuses, names the child
    project, and offers the fixes (keep using `panta/`, or move its contents
    into the host and remove it first); `--force` does not skip this refusal,
@@ -75,9 +75,9 @@ and each word is capitalized (`my-project` → `My Project`).
 3. **Warn about an enclosing project.** When an ancestor directory contains
    `index.panta.md`, init proceeds but warns on stderr: nested projects are
    almost always a mistake, and the outer project will not discover the inner
-   one (§AR-rhei-panta.1 discovery does not recurse into rhei roots).
+   one ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout) discovery does not recurse into rhei roots).
 4. **Write the manifest**: `# Panta: <title>`, and nothing else. The state
-   machine is per-rhei, defaulted by the project (§FS-rhei-panta.6): a
+   machine is per-rhei, defaulted by the project ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)): a
    discovered rhei that declares its own machine runs under it, and one that
    declares nothing was authored against the built-in default and keeps it.
    There is nothing for init to adopt — writing a discovered machine into the
@@ -167,13 +167,13 @@ Stripping only ever removes the note's own material: an orphaned begin
 marker (its end marker lost) is removed alone, never together with the user
 content that follows it.
 Richer per-agent integration (skills for Claude Code, Cursor, …) stays with
-`rhei install-skills` (§FS-rhei-install-skills); init's final output points
+`rhei install-skills` ([§FS-rhei-install-skills](rhei-install-skills.spec.md#fs-rhei-install-skills-rhei-install-skills)); init's final output points
 at it rather than duplicating it.
 
 ## 5. Discovery report
 
 After writing, init loads the project through the ordinary discovery pass
-(§AR-rhei-panta.1) and reports where it lives and what it contains:
+([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)) and reports where it lives and what it contains:
 
 ```text
 Initialized Panta project "My Project" at panta/ with no rheis yet. Add one
@@ -205,19 +205,19 @@ neither, because the entries and the marked block are idempotent (§2).
 
 The omitted-plan-target resolution knows the convention: a `panta/` child
 containing `index.panta.md` resolves as the project for commands run in the
-host directory or anywhere under it (§FS-rhei-panta.6), so after init, bare
+host directory or anywhere under it ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), so after init, bare
 `rhei list` works from the whole repository.
 
 ## 6. What init does not do
 
 - It does not create rheis or tickets. `rhei new` is the verb for that
-  (§FS-rhei-new) and composes: `rhei init && rhei new "Auth"`.
+  ([§FS-rhei-new](rhei-new.spec.md#fs-rhei-new-rhei-new)) and composes: `rhei init && rhei new "Auth"`.
 - It does not move existing plan files into `panta/` — adopting in place is
   `--here`; moving content is left to the user (and note that moving a
   *tracked* plan into the gitignored `panta/` untracks it).
 - It does not scaffold from templates — that is `rhei instantiate`
-  (§FS-rhei-templates).
+  ([§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification)).
 - It does not touch git beyond `.gitignore`: no hooks, no commits.
 - It does not write a state machine or a `**States:**` line — the manifest
   stays bare (§2); each rhei keeps the machine it declares, and the built-in
-  `rhei` machine covers the rest (§FS-rhei-states).
+  `rhei` machine covers the rest ([§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)).

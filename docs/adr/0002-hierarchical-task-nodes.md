@@ -184,7 +184,7 @@ it lets the parser determine node kind directly from the heading line.
 > claimable by both `rhei next` and `rhei run` once every one of its
 > descendants is terminal — one eligibility rule, no parent/child ambiguity,
 > and no cascade that stamps a parent from its children. See
-> §FS-rhei-plan-language.3 and issue #71. The rest of this ADR stands.
+> [§FS-rhei-plan-language.3](../functional-spec/rhei-plan-language.spec.md#3-semantic-constraints) and issue #71. The rest of this ADR stands.
 
 In the first version of this change, only leaf nodes should be claimable by
 `rhei next` and `rhei run`.

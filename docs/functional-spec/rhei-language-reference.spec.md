@@ -3,7 +3,7 @@
 Rhei must have one canonical language-reference entry point so humans and
 agents can quickly answer "what files and syntax make up a valid Rhei
 workflow?" without reconstructing the model from scattered feature specs. This
-supports readable, reviewable plans and predictable execution. §GOAL-rhei-outcomes
+supports readable, reviewable plans and predictable execution. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 This page is the entry point for the Rhei language surface. It does not replace
 the narrower normative specs; it maps each language surface to the document
@@ -17,28 +17,28 @@ its role, and the spec that owns its grammar and behavior:
 
 | File kind | Role | Owner |
 |-----------|------|-------|
-| `index.panta.md` | Panta project manifest: title, optional default `**States:**`, content; no authored nodes | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
-| rhei entry (in the project dir) | One rhei per entry — a `*.rhei.md` or a Directory Workspace — discovered at project scope | §FS-rhei-panta.1, §FS-rhei-plan-language.1.5 |
-| `*.rhei.md` | Single-File Plan: a rhei with its `## Tasks` inline | §FS-rhei-plan-language.1.1 |
-| `index.rhei.md` + `tasks/**/*.md` | Directory Workspace rhei: manifest plus merged workspace task files | §FS-rhei-plan-language.1.2 |
-| `basin/` task files (optional) | Unfiled tickets loaded as the reserved synthetic `basin` rhei | §FS-rhei-panta.2, §FS-rhei-plan-language.1.5 |
+| `index.panta.md` | Panta project manifest: title, optional default `**States:**`, content; no authored nodes | [§FS-rhei-panta.1](rhei-panta.spec.md#1-what-panta-is), [§FS-rhei-plan-language.1.5](rhei-plan-language.spec.md#15-panta-project) |
+| rhei entry (in the project dir) | One rhei per entry — a `*.rhei.md` or a Directory Workspace — discovered at project scope | [§FS-rhei-panta.1](rhei-panta.spec.md#1-what-panta-is), [§FS-rhei-plan-language.1.5](rhei-plan-language.spec.md#15-panta-project) |
+| `*.rhei.md` | Single-File Plan: a rhei with its `## Tasks` inline | [§FS-rhei-plan-language.1.1](rhei-plan-language.spec.md#11-single-file-plan-1-agent-or-low-concurrency) |
+| `index.rhei.md` + `tasks/**/*.md` | Directory Workspace rhei: manifest plus merged workspace task files | [§FS-rhei-plan-language.1.2](rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency) |
+| `basin/` task files (optional) | Unfiled tickets loaded as the reserved synthetic `basin` rhei | [§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis), [§FS-rhei-plan-language.1.5](rhei-plan-language.spec.md#15-panta-project) |
 
 A bare rhei — a lone `*.rhei.md` or workspace with no enclosing
 `index.panta.md` — loads as a one-rhei project. Load order, id namespacing,
 execution roots, and state-machine binding for all of the above are specified in
-§AR-rhei-panta. The `**States:**` declaration in these files resolves to
+[§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture). The `**States:**` declaration in these files resolves to
 `states.yaml`, which belongs to the state-machine surface below — not to this
 map.
 
 The remaining three surfaces:
 
-- State machines: `states.yaml`. Owned by §FS-rhei-states and
-  §FS-rhei-transitions.
+- State machines: `states.yaml`. Owned by [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification) and
+  [§FS-rhei-transitions](rhei-transitions.spec.md#fs-rhei-transitions-rhei-transitions-specification).
 - Templates: template directories with `template.yaml` plus rendered plan and
-  state files. Owned by §FS-rhei-templates.
+  state files. Owned by [§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification).
 - Execution references: agent, model, MCP server, skill, snapshot, and program
-  references. Owned by §FS-rhei-agents, §FS-rhei-programs, and
-  §FS-rhei-snapshots.
+  references. Owned by [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification), [§FS-rhei-programs](rhei-programs.spec.md#fs-rhei-programs-rhei-program-states-specification), and
+  [§FS-rhei-snapshots](rhei-snapshots.spec.md#fs-rhei-snapshots-rhei-session-snapshots-specification).
 
 The plan and project markdown surface is the primary source of truth for project
 membership, task state, dependencies, hierarchy, assignees, and result links.
@@ -50,32 +50,32 @@ machines before runtime parsing.
 
 Use this order when learning or auditing the language:
 
-1. Read §FS-rhei-authoring for practical authoring patterns.
-2. Read §FS-rhei-plan-language for the formal markdown grammar and semantic
+1. Read [§FS-rhei-authoring](rhei-authoring.spec.md#fs-rhei-authoring-rhei-plan-language-usage-guide) for practical authoring patterns.
+2. Read [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) for the formal markdown grammar and semantic
    constraints, including Panta Project layout.
-3. Read §FS-rhei-panta for project-root behavior and command scope.
-4. Read §FS-rhei-states for the state-machine schema and default states.
-5. Read §FS-rhei-transitions when a workflow depends on explicit transition
+3. Read [§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis) for project-root behavior and command scope.
+4. Read [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification) for the state-machine schema and default states.
+5. Read [§FS-rhei-transitions](rhei-transitions.spec.md#fs-rhei-transitions-rhei-transitions-specification) when a workflow depends on explicit transition
    rules, callbacks, visits, polling, or artifact enforcement.
-6. Read §FS-rhei-templates when the authored source is a reusable template
+6. Read [§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification) when the authored source is a reusable template
    rather than a concrete plan workspace.
 
-Command specs such as §FS-rhei-validate, §FS-rhei-next, §FS-rhei-transition-cmd,
-§FS-rhei-complete, and §FS-rhei-run define command behavior over the language;
+Command specs such as [§FS-rhei-validate](rhei-validate.spec.md#fs-rhei-validate-rhei-validate), [§FS-rhei-next](rhei-next.spec.md#fs-rhei-next-rhei-next), [§FS-rhei-transition-cmd](rhei-transition-cmd.spec.md#fs-rhei-transition-cmd-rhei-transition),
+[§FS-rhei-complete](rhei-complete.spec.md#fs-rhei-complete-rhei-complete), and [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) define command behavior over the language;
 they are not the primary grammar reference.
 
 ## 3. Ownership Rules
 
 Language changes must preserve a single discoverable entry point:
 
-- New syntax in plan markdown belongs in §FS-rhei-plan-language and must be
+- New syntax in plan markdown belongs in [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) and must be
   linked from this page.
 - Adding, removing, or renaming a user-authored project or rhei file kind or
   directory must update the file-kind map in §1 in the same change as the
   owning spec edit.
-- New state-machine fields belong in §FS-rhei-states or §FS-rhei-transitions
+- New state-machine fields belong in [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification) or [§FS-rhei-transitions](rhei-transitions.spec.md#fs-rhei-transitions-rhei-transitions-specification)
   and must be linked from this page when users author them directly.
-- New template syntax or manifest fields belong in §FS-rhei-templates and must
+- New template syntax or manifest fields belong in [§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification) and must
   be linked from this page.
 - New execution references that appear in authored files must identify their
   owner spec from this page.

@@ -8,6 +8,9 @@
 
 ## Specification
 
+- Start from the [Language Reference](docs/functional-spec/rhei-language-reference.spec.md)
+— the one entry point for the whole user-authored language surface ([§AR-rhei-language-reference](docs/architecture/language-reference.spec.md#ar-rhei-language-reference-canonical-language-reference-architecture))
+— before the narrower specs below.
 - See the [Rhei Plan Language Specification](docs/functional-spec/rhei-plan-language.spec.md).
 All textual spec files must end with `.spec.<file-ending>`.
 - [ADR (Architecture Decision Record)](docs/adr/adr.md)
@@ -28,7 +31,7 @@ cargo test --workspace --all-targets --no-fail-fast
 <!-- BEGIN GRUND MANAGED BLOCK -->
 ## Grounding with grund (v7)
 
-This project uses [`grund`](https://github.com/vjovanov/grund): every spec, goal, decision, and end-to-end test has a stable ID `<KIND>-<slug>[.<section>]` (`KIND ∈ {GND, GOAL, REQ, FS, AR, DF, DA, ADR, E2E, RM}`), cited with the marker `§` — e.g. `<§>FS-user-login.3.1` (the `FS-user-login` here is a shape illustration, not a real ID in this repo, hence the `<§>` escape). Type `$$` in a grund-aware editor and it becomes `§`. Bare ID-shaped tokens are ignored — `[reference] strict = true` is set in `grund.toml`, so only `§`-prefixed citations are checked.
+This project uses [`grund`](https://github.com/vjovanov/grund): every spec, goal, decision, and end-to-end test has a stable ID `<KIND>-<slug>[.<section>]` (`KIND ∈ {GND, GOAL, REQ, FS, AR, DF, DA, ADR, RM}`), cited with the marker `§` — e.g. `<§>FS-user-login.3.1` (the `FS-user-login` here is a shape illustration, not a real ID in this repo, hence the `<§>` escape). Type `$$` in a grund-aware editor and it becomes `§`. Bare ID-shaped tokens are ignored — `[reference] strict = true` is set in `grund.toml`, so only `§`-prefixed citations are checked.
 
 ### Grounding from a citation
 
@@ -51,7 +54,8 @@ A `§<ID>` is a pointer to a fact, not a file path. Resolve it with `grund` and 
 - [DF](docs/decisions/functional): Product behavior decisions and tradeoffs
 - [DA](docs/decisions/architectural): Architecture decisions and tradeoffs
 - [ADR](docs/adr): Architecture decision records
-- [E2E](e2e/cases): Executable user scenarios
+- [tests/e2e/](tests/e2e): User scenarios: black-box proof of the spec
+- [tests/integration/](tests/integration): Integration tests: proof that the parts fit as designed
 - [RM](docs/functional-spec/roadmap.md): Planned milestones and sequencing
 
 ### Project namespaces
@@ -71,12 +75,14 @@ Declarations are heading lines `# FS-user-login: …` in markdown. In a code doc
 - **Spec first.** For behavior or design changes, write or update the most-specific spec point before code.
 - **Cite as you write.** Place `§<ID>` at the point a claim or behavior is made — on the doc-comment for a whole behavior, inline beside the clause it enforces.
 - **Marker = live citation.** A `§`-prefixed token resolves and is checked wherever it appears — including inside Markdown backticks. To mention an ID without citing it, write `<§><ID>`, omit the marker, or use a fenced code block.
-- **Inline citation style.** Inline notes: ≤ 1 line preferred, hard cap 3 lines; ≤ 120 columns.
+- **Inline citation style.** Inline notes: ≤ 1 line preferred, hard cap 3 lines; ≤ 120 columns. A note is one comment block: a blank line splits it, an empty comment line does not. Doc-comments (`///`, `//!`, `/** */`, a docstring, a comment right above a definition) are documentation, not notes: they are never measured, so cite in-sentence there.
 - **Always cite the most-specific point.**
 
 ### Citation directions
 
-Specs cite goals, architecture cites specs, code and executable tests cite the specs they realize.
+- **tests/e2e/** must cite FS; avoid citing AR.
+- **tests/integration/** should cite AR.
+Unlisted kinds and pairs are fine.
 
 ### Clickable citations
 

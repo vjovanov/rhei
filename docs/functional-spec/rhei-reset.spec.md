@@ -14,7 +14,7 @@ rhei reset <RHEI_PLAN_OR_WORKSPACE> [--rhei <RHEI_ID>] [--dry-run] [--yes]
 
 | Flag               | Default | Description                                                                    |
 |--------------------|---------|--------------------------------------------------------------------------------|
-| `--rhei <RHEI_ID>` | all     | Narrow the reset to the named rheis (repeatable). See §2.1. §FS-rhei-panta.6.4 |
+| `--rhei <RHEI_ID>` | all     | Narrow the reset to the named rheis (repeatable). See §2.1. [§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz) |
 | `--dry-run`        | false   | Report what would be reset and deleted, then exit without changing anything    |
 | `--yes`, `-y`      | false   | Confirm without prompting; required when stdin is not a terminal. See §1.2     |
 
@@ -24,7 +24,7 @@ ids.
 ### 1.2. Confirmation
 
 Reset deletes result artifacts and ledgers that have no other copy: `rhei init`
-gitignores `panta/` by default (§FS-rhei-init), so the destroyed material is
+gitignores `panta/` by default ([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)), so the destroyed material is
 typically absent from version control.
 
 Before acting, reset prints what it would reset and the runtime directories it
@@ -54,7 +54,7 @@ Deliberate automation states the intent once with `--yes`.
      cleared whether or not the state name changes.
    - Remove the `**Assignee:**` line if present.
    - Remove the `> **Result:**` link block from the task body if present.
-   - Clear any counted-visit suffix; `stateVisits` entries for the task in frontmatter `metadata.tasks.<id>.stateVisits` are deleted, together with the task's `supervision` block (§FS-rhei-supervision.3.3). A `metadata.tasks.<id>` entry left empty by those deletions is removed as well, and so are `metadata.tasks` and `metadata` when nothing else remains in them: an empty entry is a record of nothing, and the next reader would have to decide whether it meant something.
+   - Clear any counted-visit suffix; `stateVisits` entries for the task in frontmatter `metadata.tasks.<id>.stateVisits` are deleted, together with the task's `supervision` block ([§FS-rhei-supervision.3.3](rhei-supervision.spec.md#33-supervision-metadata)). A `metadata.tasks.<id>` entry left empty by those deletions is removed as well, and so are `metadata.tasks` and `metadata` when nothing else remains in them: an empty entry is a record of nothing, and the next reader would have to decide whether it meant something.
 4. After every plan file is rewritten — the ledger step 3 reads lives there — for a directory workspace, delete the `runtime/` directory at the workspace root if it exists. For a single-file plan, delete the `runtime/` directory next to the plan file if it exists. This removes result files, findings, logs, and journaled transition records.
 5. Write each modified task file atomically (temp file + rename). Release the lock.
 
@@ -67,7 +67,7 @@ Reset does **not**:
 Reset is project-wide by default. Because it destroys runtime state across
 every in-scope rhei, it reports its resolved scope and the affected rheis
 before acting; a one-rhei project has no fan-out to report and stays quiet
-(§FS-rhei-panta.6.4).
+([§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz)).
 
 ### 2.1. Narrowed Reset (`--rhei`)
 
@@ -106,7 +106,7 @@ so it must not describe work outside its own scope: an earlier summary of every
 machine's initial state announced `(pending, review)` under `--rhei billing`
 while `review` belonged to rheis the command was about to leave alone. Naming
 the moved tickets keeps that impossible — a ticket outside the scope has no
-line to print. With machines per rhei (§AR-rhei-panta.4), each in-scope ticket
+line to print. With machines per rhei ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)), each in-scope ticket
 resolves its authored state through its own rhei's ledger and machine.
 
 ### 2.2. Authored State
@@ -114,19 +114,19 @@ resolves its authored state through its own rhei's ledger and machine.
 A task's **authored state** is the state its plan gave it before anything ran.
 For most plans that is the resolved profile's `initial` state and the two are
 the same thing. They are not the same thing for a pre-authored chain — the
-shape §FS-rhei-supervision.7 documents and the `supervised-delivery` template
+shape [§FS-rhei-supervision.7](rhei-supervision.spec.md#7-example) documents and the `supervised-delivery` template
 ships — where one task sits in `supervising` and its children are authored in
 `implement`, `review`, `fix`, … Those children never were in `supervising`, so
 sending them there is not a reset.
 
 Nothing in a state machine can express that chain as profiles, either:
 `node_policy` resolves a profile from a node's **kind and level**
-(§FS-rhei-states.9.2), and these children share both. The authored state is
+([§FS-rhei-states.9.2](rhei-states.spec.md#92-resolution)), and these children share both. The authored state is
 per-task, so reset recovers it per-task.
 
 The record it recovers from is the central transition ledger,
 `runtime/state-transitions.log` — the one place every verb that moves a ticket
-appends to (§FS-rhei-viz.4). Each line is `<task-id> <from>@<to>`, in the order
+appends to ([§FS-rhei-viz.4](rhei-viz.spec.md#4-surroundings-inspector)). Each line is `<task-id> <from>@<to>`, in the order
 the moves happened, so the **first `from` recorded for a task is the state that
 task started in**. Reset reads the ledger before it deletes it, and for each
 in-scope task:

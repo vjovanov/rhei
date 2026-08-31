@@ -81,7 +81,7 @@ Discovery errors are handled per command:
 A template must contain exactly one plan entry point: either `plan.rhei.md` (single-file) or `index.rhei.md` (directory workspace). Containing both is an error. For single-file templates the entry-point filename also determines the ticket-id prefix of every instantiated workspace: the file stem is the rhei id, so `plan.rhei.md` yields tickets `plan.1`, `plan.2`, ..., regardless of the `--output` directory name.
 
 **A template's task ids must not repeat the template name.** Every ticket id is
-already qualified by its rhei (§FS-rhei-panta.5), and for an instantiated
+already qualified by its rhei ([§FS-rhei-panta.5](rhei-panta.spec.md#5-identity)), and for an instantiated
 template the rhei id is the output directory — the template's own name by
 default. A task authored as `### Task spec-review:` inside the `spec-review`
 template therefore reads as `spec-review.spec-review` in every listing, error,
@@ -139,7 +139,7 @@ inputs:
 - For `type: array` and `type: object`, positional values, `KEY=VALUE`, `--set KEY=...`, and `--set-file KEY=...` values are parsed as YAML/JSON snippets before validation.
 - `type: path` values are rendered exactly as supplied by the user or manifest `default`; instantiation does not rewrite them to absolute paths. Relative `path` values are interpreted relative to the instantiating process `cwd` only when the CLI itself must resolve that path for its own file operations. The exception is an omitted optional `path` input with no `default`, which resolves to the empty string.
 - `validate`, when present, is a Rust `regex`-crate pattern applied to the string representation of the resolved scalar value and anchored to the entire rendered value. It is enforced on every scalar it is declared on, including scalars nested inside `object` `properties` and `array` `items`; a failing match aborts instantiation with a path-qualified error (for example, `input 'agents[0].id' does not match validation pattern '…'`).
-- `format`, when present, names a built-in value check applied at instantiation time, before any file is rendered. The only format in v1 is `execution-target`, which parses the value as an execution target selector (§FS-rhei-agents) and reports a malformed value against the input the user supplied rather than against the rendered state machine (§FS-rhei-errors.3.1). Like `validate`, it is only valid on scalar input types and is enforced on nested `properties` and `items` scalars. `format` and `validate` may be combined; both must pass.
+- `format`, when present, names a built-in value check applied at instantiation time, before any file is rendered. The only format in v1 is `execution-target`, which parses the value as an execution target selector ([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)) and reports a malformed value against the input the user supplied rather than against the rendered state machine ([§FS-rhei-errors.3.1](rhei-errors.spec.md#31-execution-target-inputs)). Like `validate`, it is only valid on scalar input types and is enforced on nested `properties` and `items` scalars. `format` and `validate` may be combined; both must pass.
 
 ## 4. Template-Shipped Settings
 
@@ -462,14 +462,14 @@ their own recent definitions when they are among the last five tasks.
 
 A template is not a free-floating directory. Dropped next to `index.panta.md`
 it becomes a member rhei: it keeps the state machine it declares
-(§FS-rhei-panta.6), but the project — not the workspace — owns the one
-settings root (§FS-rhei-agents.1.1) that governs it. `rhei instantiate`
+([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), but the project — not the workspace — owns the one
+settings root ([§FS-rhei-agents.1.1](rhei-agents.spec.md#11-global-and-project-settings)) that governs it. `rhei instantiate`
 therefore resolves the enclosing project before writing, and reconciles with
 it.
 
 **Default output.** Run inside a project, a template's default output is
 `<project>/<template-name>/` — the project is the default home for a new rhei
-(§FS-rhei-panta.2), the same place the empty-project message points at.
+([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)), the same place the empty-project message points at.
 Defaulting to the working directory instead dropped the workspace where
 discovery never looks, so the command reported success and `rhei list` still
 said the project had no tickets. Outside a project the default stays
@@ -477,7 +477,7 @@ said the project had no tickets. Outside a project the default stays
 
 **A taken output directory is a naming problem, and the error says so.** The
 default output is the template's own name, and a rhei's id *is* its directory
-name (§AR-rhei-panta.1), so instantiating the same template a second time in
+name ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)), so instantiating the same template a second time in
 one project always collides. That second instantiation is not an edge case —
 it is reviewing a second spec, auditing a second subject, running a second
 release checklist, the most likely next thing anyone does with a template. The
@@ -499,8 +499,8 @@ and to guess whether a second copy was supported at all. An explicit
 the only news is that it exists.
 
 **State machines compose; nothing to reconcile.** The state machine is a
-property of the rhei, defaulted by the project (§AR-rhei-panta.4,
-§FS-rhei-panta.6): a template that declares its own machine lands as a member
+property of the rhei, defaulted by the project ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding),
+[§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)): a template that declares its own machine lands as a member
 running under it, its `states.yaml` staying in the workspace root where
 per-rhei resolution finds it, and the project manifest is never edited. A
 template that declares nothing inherits the project default. Ten templates
@@ -526,7 +526,7 @@ left in the workspace, where nothing would read it.
 `--output` outside any project produces — lands outside any project, so
 no init-managed ignore rule covers it: `git status` reports it as untracked
 even when the repository gitignores `panta/` on the position that planning
-state is working material (§FS-rhei-init.3). Instantiation does not edit
+state is working material ([§FS-rhei-init.3](rhei-init.spec.md#3-ignore-rules)). Instantiation does not edit
 `.gitignore` itself — a standalone workspace is deliberately also how
 committed, versioned workspaces (checked-in examples) are produced, so the
 versioning call belongs to the user. Instead, when the standalone output sits
@@ -542,7 +542,7 @@ the workspace in isolation is what let `rhei instantiate` print
 
 **Output that the project cannot see.** An `--output` path under the project
 but not directly next to `index.panta.md` is not a member: discovery never
-recurses (§AR-rhei-panta.1). That is allowed, but warned about, naming the
+recurses ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)). That is allowed, but warned about, naming the
 member path that would have worked.
 
 ### 6.3. `rhei templates`

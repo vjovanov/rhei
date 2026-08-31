@@ -1,15 +1,15 @@
 # FS-rhei-run-json: `rhei run --json`
 
 The machine-readable form of a run. `--json` selects a third `rhei run`
-frontend beside the TUI and plain stdout (§FS-rhei-run-tui.1.4): every engine
+frontend beside the TUI and plain stdout ([§FS-rhei-run-tui.1.4](rhei-run-tui.spec.md#14-frontend-selection)): every engine
 event is written to stdout as one JSON object per line, in the order the engine
 emitted it, and **nothing else is ever written to stdout**. A tool that reads
 `rhei run --json` needs no screen-scraping and no knowledge of the terminal
-surface. §GOAL-rhei-outcomes
+surface. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 The same records are what `rhei run` writes durably to `runtime/events.jsonl`
 (§3) and what `rhei attach --json` replays from a detached run
-(§FS-rhei-run-headless.5.3), so one contract covers live output, the durable log,
+([§FS-rhei-run-headless.5.3](rhei-run-headless.spec.md#53---json)), so one contract covers live output, the durable log,
 and attachment.
 
 ## 1. Selecting the Format
@@ -26,7 +26,7 @@ diagnostics an operator does.
 
 **Errors do not enter the stream.** A run that fails before or during
 execution writes the `{ "error": { "message", "help" } }` envelope of
-§FS-rhei-errors.5 to **stderr** and exits non-zero. Stdout stays a pure
+[§FS-rhei-errors.5](rhei-errors.spec.md#5-machine-readable-errors) to **stderr** and exits non-zero. Stdout stays a pure
 sequence of event records to its last byte, so a consumer may parse it
 line-by-line without a mode switch.
 
@@ -80,7 +80,7 @@ or repurposing a field named here is a breaking change and moves `schema`
 | `run_finished` | Once, when the run loop ends (§2.4) | `summary` |
 
 `outcome` is one of `completed`, `failed`, `cancelled`, `timeout`,
-`interrupted`, matching the journal vocabulary of §FS-rhei-run-tui.1.7. Paths
+`interrupted`, matching the journal vocabulary of [§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format). Paths
 are workspace-relative when inside the workspace and absolute otherwise, as in
 the journal.
 
@@ -88,7 +88,7 @@ A stream that ends without `run_finished` says the run did not reach its own
 end: it was interrupted, it failed, or the process died. That is information,
 not corruption — the exit code and the stderr envelope say which. Which is why a
 *reader* that stops early says so the same way: `rhei attach --json` giving up on
-a run whose liveness it cannot check (§FS-rhei-run-headless.3) exits non-zero
+a run whose liveness it cannot check ([§FS-rhei-run-headless.3](rhei-run-headless.spec.md#3-run-identity-and-liveness)) exits non-zero
 with the envelope on stderr, rather than ending a partial stream at `0` and
 letting it read as a run that was interrupted.
 
@@ -104,14 +104,14 @@ say so and stop rather than guess.
 
 `agent_output` is a firehose and is **excluded by default** from both the
 stdout stream and `runtime/events.jsonl`. `slot_assigned.log_path` names the
-per-task log, which is the complete durable transcript (§FS-rhei-run-tui.1.2);
+per-task log, which is the complete durable transcript ([§FS-rhei-run-tui.1.2](rhei-run-tui.spec.md#12-live-agent-traffic));
 a consumer that wants the traffic reads that file. `--json-agent-output` opts
 into inline delivery for callers that would rather have one stream than one
 stream plus N files.
 
 This keeps the event log bounded: a long run's structural history stays small
 enough to replay in full, which is what makes attachment cheap
-(§FS-rhei-run-headless.5).
+([§FS-rhei-run-headless.5](rhei-run-headless.spec.md#5-rhei-attach)).
 
 ### 2.4. Where `run_finished` Sits
 
@@ -131,8 +131,8 @@ is truncated at run start, appended one line at a time, and flushed after each
 line so another process can follow it while the run is live.
 
 It is the durable, replayable form of the run's event stream and is what
-`rhei attach` reads (§FS-rhei-run-headless.5). Like the journal
-(§FS-rhei-run-tui.1.3), a write failure is a warning on stderr, never an
+`rhei attach` reads ([§FS-rhei-run-headless.5](rhei-run-headless.spec.md#5-rhei-attach)). Like the journal
+([§FS-rhei-run-tui.1.3](rhei-run-tui.spec.md#13-sink-implementations)), a write failure is a warning on stderr, never an
 aborted run.
 
 `runtime/transitions.log` is unchanged and remains the fixed-column,
@@ -142,8 +142,8 @@ with `tail -f`, the other for a program with a JSON parser.
 ## 4. Dry Runs
 
 `--json --dry-run` emits `message` records carrying the `would transition:`,
-`manual-only:`, and no-work classification lines of §FS-rhei-run.4, bracketed
-by `run_started` and `run_finished`, and exits with the status §FS-rhei-run.4
+`manual-only:`, and no-work classification lines of [§FS-rhei-run.4](rhei-run.spec.md#4-dry-run), bracketed
+by `run_started` and `run_finished`, and exits with the status [§FS-rhei-run.4](rhei-run.spec.md#4-dry-run)
 defines. A dry run writes no `runtime/events.jsonl` and publishes no run
 descriptor, because it is side-effect-free — but the frontend the caller asked
 for is still the frontend it gets, so §1's "nothing else is ever written to
@@ -153,7 +153,7 @@ stdout" holds for a preview exactly as it does for a run.
 
 `--json` does not change them. `rhei run --json` exits exactly as
 `rhei run` does: `0` on a plan whose tasks are all terminal, non-zero when
-progress halts, `128 + signal` when a signal ended it (§FS-rhei-run.3.2). The
+progress halts, `128 + signal` when a signal ended it ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)). The
 stream and the exit code are two answers to different questions and a consumer
 should read both.
 

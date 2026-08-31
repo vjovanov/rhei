@@ -17,7 +17,7 @@ content (running slots, accounting, the real agent transcript).
 
 The visual language — monospace typography, calm desaturated color, near-zero
 motion, the console-first feel shared with the terminal — is governed by
-§FS-rhei-viz-ux. This spec defines *which* views exist and *what* data they show.
+[§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux). This spec defines *which* views exist and *what* data they show.
 For the plan grammar see the [Plan Language Specification](rhei-plan-language.spec.md);
 for the state machine see the [States Specification](rhei-states.spec.md).
 
@@ -36,7 +36,7 @@ fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
    entered to see its surroundings: what it depends on, what it unblocks, where it
    sits in its state machine and where it can go next, the prompt it runs, and its
    artifacts. Walking from a node to a neighbor and back costs one keystroke
-   §GOAL-rhei-outcomes.
+   [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
 3. **Show the machine, not just the plan.** The resolved state machine is drawn as
    a graph — one per disjoint workflow — so the shape of the process is legible
    alongside the shape of the work.
@@ -50,7 +50,7 @@ fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
    real agent transcript (§8).
 6. **Self-contained and calm.** The page carries its CSS and JavaScript inline,
    with no external scripts, stylesheets, fonts, or network assets, and it obeys
-   the console-first language of §FS-rhei-viz-ux.
+   the console-first language of [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux).
 
 ## Non-Goals
 
@@ -61,7 +61,7 @@ fixtures `examples/inflight-dashboard` and `examples/disjoint-tracks`.
   advances the plan.
 - No remote deployment. The live surface is loopback-only; the static surface is
   a local file.
-- No redefinition of the look-and-feel; that is §FS-rhei-viz-ux.
+- No redefinition of the look-and-feel; that is [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux).
 - The dense chart overviews (Gantt, Cube, Sankey) are supplementary scanning aids
   (§12), not the primary surface.
 
@@ -82,7 +82,7 @@ The page is a single screen with five regions, top to bottom:
 - **Machines** — the resolved state machine drawn as one graph per disjoint
   workflow, with a clickable legend and a state-detail panel (§6).
 
-The surface is keyboard-first and mouse-optional, per §FS-rhei-viz-ux §7:
+The surface is keyboard-first and mouse-optional, per [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §7:
 `j`/`k` or arrows move the selection through the plan in source order, `g` and
 `l` switch to Graph and List mode, and the selection drives both the surroundings
 inspector and the machine-detail panel together. All content is selectable and
@@ -119,8 +119,8 @@ fill of graph nodes, so the eye reads status at a glance. During a dynamic run,
 `live` is a runtime overlay category for tasks assigned to a running slot; it is
 the single place motion is allowed: a spinner on list rows and marching-ants on
 graph nodes, both stilled to a static dot under `prefers-reduced-motion`, per
-§FS-rhei-viz-ux §4. State pills always carry the exact state text and its shared
-calm color from §FS-rhei-viz-ux §3.2; color is never the only signal.
+[§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §4. State pills always carry the exact state text and its shared
+calm color from [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §3.2; color is never the only signal.
 
 During a dynamic run, `task_runtime[id].in_slot` is an overlay on top of the
 state-derived category: any task assigned to a live slot is shown as `live`, even
@@ -220,7 +220,7 @@ transition chip highlights the target state across the machine graphs (§6) whil
 keeping the task in context; a dependency chip selects that neighbor. Clicking
 across the inspector is how an operator walks the plan and the machine without
 losing their place. Content swaps obey the single ≤150ms opacity fade of
-§FS-rhei-viz-ux §4.
+[§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §4.
 
 ## 5. Running Execution View
 
@@ -234,9 +234,9 @@ state-derived `active` node. Selecting a chip selects its node.
 When the selected node is currently assigned to a runtime slot, the surroundings
 inspector adds an **intervene** block: the agent's live output rendered as a real
 terminal — dark in any theme, scrollback, ANSI color — that appends new lines in
-place from the run's `AgentOutput` stream §FS-rhei-run-tui.1.2. The block also
+place from the run's `AgentOutput` stream [§FS-rhei-run-tui.1.2](rhei-run-tui.spec.md#12-live-agent-traffic). The block also
 surfaces the slot's latest invocation cost, input/output and cached token counts,
-accounting coverage, and elapsed time §FS-rhei-cost-accounting. In a static
+accounting coverage, and elapsed time [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting). In a static
 offline render, a state-derived `active` node may show a representative
 transcript, but it is not counted as running.
 
@@ -248,15 +248,15 @@ one-shot or EOF-driven transport — the block states plainly that the agent can
 be messaged live and names the remedy (set `intervene_stdin` on the agent's
 profile and rerun), rather than dead-ending the operator or inviting input that
 would fail after they type. Intervene messages a running agent; it never
-transitions or edits the plan §AR-rhei-viz-flow.7.
+transitions or edits the plan [§AR-rhei-viz-flow.7](../architecture/rhei-viz-flow.spec.md#7-intervene-the-single-mutation-boundary).
 
 The same channel is reachable from the terminal, for operators who run without a
 browser open: `rhei intervene --task <id> [--slot <N>] -m "<message>"` discovers
 the live run's loopback address and delivers the message through the identical
 `/intervene` boundary and capability gate as the composer. It is the headless
-sibling of the composer, not a second code path §AR-rhei-viz-flow.7. A surface
+sibling of the composer, not a second code path [§AR-rhei-viz-flow.7](../architecture/rhei-viz-flow.spec.md#7-intervene-the-single-mutation-boundary). A surface
 attached with `rhei attach` is the third client of that same boundary
-§FS-rhei-run-headless.5: the loopback server is the run's **control server**,
+[§FS-rhei-run-headless.5](rhei-run-headless.spec.md#5-rhei-attach): the loopback server is the run's **control server**,
 and the browser page is one thing it serves rather than the reason it runs.
 
 In the static surface (§7.2) the terminal shows a representative transcript so the
@@ -275,7 +275,7 @@ transition, honor callbacks and callback redirects, write the plan through the
 normal atomic transition path, and report the effective target state.
 
 Because it applies the same semantics, it also inherits the terminal-result
-obligation (§FS-rhei-transition-cmd.3.2). A human finishing a ticket by hand is
+obligation ([§FS-rhei-transition-cmd.3.2](rhei-transition-cmd.spec.md#32-terminal-result-on-entry)). A human finishing a ticket by hand is
 the case where the reason matters most, so the block carries a single-line
 **Result** field beside the choices and submits it as the transition's result
 message, exactly as `rhei transition --result` does. The field is always
@@ -335,9 +335,9 @@ One renderer and one model (§8) drive two modes.
 ### 7.1. Dynamic (live during `rhei run`)
 
 The live surface is served on the dashboard's loopback server alongside `rhei run`
-§FS-rhei-run-tui.1.6 and refreshes through the same polling loop as the rest of
+[§FS-rhei-run-tui.1.6](rhei-run-tui.spec.md#16-browser-dashboard) and refreshes through the same polling loop as the rest of
 the dashboard. Liveness is shown by content changing in place, never by movement,
-per §FS-rhei-viz-ux §4: a poll updates row text, pills, running-now chips, and the
+per [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §4: a poll updates row text, pills, running-now chips, and the
 agent terminal where they sit, with no layout shift, stable ordering, and the
 operator's scroll position and text selection preserved. The surface tolerates a
 temporary plan-reload failure by rendering the last-good snapshot already cached.
@@ -367,20 +367,20 @@ a view never drops an HTML file beside a checked-in plan. `--output <FILE>`
 overrides the location.
 
 Tickets carry the same project-qualified ids the rest of the CLI uses
-(`auth.1`), including for a bare rhei rendered directly (§AR-rhei-panta.2).
+(`auth.1`), including for a bare rhei rendered directly ([§AR-rhei-panta.2](../architecture/rhei-panta.spec.md#2-load-model)).
 
 ### 7.3. Panta projects render as one graph
 
 Pointed at a project directory, `rhei viz` loads the merged project
-(§AR-rhei-panta.2) and renders **one** graph: every rhei's tickets in the
+([§AR-rhei-panta.2](../architecture/rhei-panta.spec.md#2-load-model)) and renders **one** graph: every rhei's tickets in the
 single project-qualified id space, cross-rhei `**Prior:**` edges drawn like any
 other edge, and Directory Workspace rheis included alongside single-file ones.
 Per-task state history is read under each ticket's owning rhei execution root,
 not the project root, because that is where a project keeps its ledgers
-(§AR-rhei-panta.5).
+([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)).
 
 Pointed at a **member rhei** of a project, `rhei viz` renders that project
-narrowed to the named rhei (§FS-rhei-panta.6). Narrowing keeps the one-hop
+narrowed to the named rhei ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). Narrowing keeps the one-hop
 neighbours a kept ticket's `**Prior:**` points at, and the ancestors a kept
 ticket hangs from. Dropping the far end of a cross-rhei edge would erase the
 dependency rather than scope it, leaving a page that reads as if the ticket had
@@ -455,13 +455,13 @@ Rules:
   passes it to the surface; the static renderer resolves it from the plan's
   `**States:**` declaration (an override, then a matching sibling `states.yaml`,
   then the built-in default for `rhei`). The surface never parses plans or state
-  YAML itself. §FS-rhei-states
+  YAML itself. [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)
 - **Transitions are flattened per state.** Each non-terminal state carries its
   explicit outgoing edges plus any `from: "*"` wildcard edges that apply to it,
   each marked `wildcard`, so the inspector shows the real set of legal exits.
 - **Initiality is per-profile.** A machine has no single initial state; each
   profile declares its own entry state, and a state may be the entry of one
-  profile but not another §FS-rhei-states. The flattened `initial` flag is the
+  profile but not another [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification). The flattened `initial` flag is the
   union — true when a state is the entry of at least one profile — which is all
   the surface needs to mark track-entry states across disjoint graphs.
 - **Templates resolve per node.** `{task_id}`, `{task_title}`, `{visit_count}`,
@@ -475,7 +475,7 @@ Rules:
   prompt previews do not point at guessed values.
 - **Compact rollups in `/snapshot`, detail elsewhere.** Each task row may carry
   compact direct and subtree accounting rollups; invocation-level detail is served
-  from a separate loopback endpoint so polling stays light. §FS-rhei-cost-accounting
+  from a separate loopback endpoint so polling stays light. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 - **Intervene capability is per slot.** For a task assigned to a live slot,
   `task_runtime[id].intervene` is `true` only when that slot's agent keeps a
   writable stdin held open so a `/intervene` message can be delivered now (the
@@ -520,7 +520,7 @@ archived
 Custom non-terminal states not in the built-in color map get a stable
 name-derived color, desaturated to the same level as the calm palette so a
 project-specific state never out-shouts a built-in attention state and is still
-distinguishable from terminal work, per §FS-rhei-viz-ux §3.2.
+distinguishable from terminal work, per [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §3.2.
 
 ## 11. Open-in-Editor Route
 
@@ -551,22 +551,22 @@ surface:
   vocabularies differ (§10).
 - **Cube** — a dense top-level-task by descendant-slot heatmap, with the derived
   plan state as a full-width strip; can switch from state coloring to a
-  subtree-cost heatmap. §FS-rhei-cost-accounting
+  subtree-cost heatmap. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 - **Sankey** — ribbons from each top-level task to its descendants' states, ribbon
-  thickness equal to the descendant count, or to cost. §FS-rhei-cost-accounting
+  thickness equal to the descendant count, or to cost. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 
 Plans without descendants render a useful monochrome empty state rather than a
-blank chart, per §FS-rhei-viz-ux §7.
+blank chart, per [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) §7.
 
 ## Related Specifications
 
 - [Console-First Visualization UX](rhei-viz-ux.spec.md) — the shared look-and-feel
-  every surface follows. §FS-rhei-viz-ux
+  every surface follows. [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux)
 - [`rhei run` TUI and Transition Journal](rhei-run-tui.spec.md) — the terminal
   sibling, the loopback dashboard host, and the `AgentOutput` stream the live
-  terminal renders. §FS-rhei-run-tui
+  terminal renders. [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)
 - [Cost Accounting](rhei-cost-accounting.spec.md) — the accounting data the
-  running view and cost overlays present. §FS-rhei-cost-accounting
+  running view and cost overlays present. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 - [States Specification](rhei-states.spec.md) — the state machine, profiles,
   artifact contracts, and counted loops the machine graphs and inspector render.
 

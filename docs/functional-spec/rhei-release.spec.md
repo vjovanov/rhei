@@ -2,7 +2,7 @@
 
 Drop a ticket's `**Assignee:**` so work that was claimed but never finished can
 be picked up again. Release changes nothing else: not the ticket's state, not
-its result artifacts, not the transition ledger. §GOAL-rhei-outcomes
+its result artifacts, not the transition ledger. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## Motivation
 
@@ -29,10 +29,10 @@ rhei release [RHEI_PLAN] --all --rhei billing --dry-run
 ```
 
 The positional slot is a *ticket or plan*, on the shared rule every
-single-ticket command follows (§FS-rhei-usage.2): an argument naming an
+single-ticket command follows ([§FS-rhei-usage.2](rhei-usage.spec.md#2-coordination-through-the-state-machine)): an argument naming an
 existing path is the plan, an id-shaped argument naming no path is the ticket.
 Omitted, the plan resolves to the nearest enclosing project, workspace, or lone
-plan (§FS-rhei-panta.6).
+plan ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 `rhei release auth.1` and `rhei complete auth.1` are the same gesture aimed at
 different outcomes — hand the ticket back, or finish it — so they take their
@@ -73,7 +73,7 @@ Release never transitions a ticket, never writes a result, never appends to
 ### 3.1. Releasing from a non-initial state
 
 `rhei next` claims tickets from the state machine's initial state
-(§FS-rhei-next). Under a machine whose claim also advances the state, a released
+([§FS-rhei-next](rhei-next.spec.md#fs-rhei-next-rhei-next)). Under a machine whose claim also advances the state, a released
 ticket is unclaimed but not yet re-claimable — it sits in the state its
 abandoned run left it in.
 
@@ -86,7 +86,7 @@ only remaining evidence of it.
 
 The note is **not** printed for two tickets it would be wrong about:
 
-- a ticket in a **supervising** state (§FS-rhei-supervision.3.4), which
+- a ticket in a **supervising** state ([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)), which
   `rhei next` claims exactly where it stands — moving it back to the profile's
   initial state is the one thing that would make it unclaimable;
 - a ticket whose machine declares no state by the suggested name, where the

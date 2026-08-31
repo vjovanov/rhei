@@ -12,6 +12,10 @@
 //!
 //! To fix a failure here, regenerate the example (see its README's "Regenerate"
 //! section) and commit the result.
+//!
+//! §FS-rhei-templates.6.2: a standalone `rhei instantiate` output is how a
+//! committed, checked-in example is produced; this gate proves the checked-in
+//! copy stays what that command actually produces.
 
 use std::fs;
 use std::path::{Path, PathBuf};

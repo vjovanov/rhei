@@ -12,7 +12,7 @@ The Rhei Plan language is a **context-sensitive subset of Markdown** designed fo
 
 ## Quick Start
 
-### 1. Write a plan
+### Write a plan
 
 Create a `.rhei.md` file. At minimum, a plan needs a title, a `## Tasks` section, and at least one task with a `**State:**` field:
 
@@ -70,7 +70,7 @@ structure:
 **State:** pending
 ```
 
-### 2. Validate the plan
+### Validate the plan
 
 ```bash
 rhei validate plan.rhei.md
@@ -81,7 +81,7 @@ When the active state machine declares artifact contracts, runtime commands also
 enforce required state inputs and outputs as described in the states and
 transitions specifications.
 
-### 3. Have an agent execute it
+### Have an agent execute it
 
 Tell an agent with the `rhei-plan-worker` skill to work the plan:
 
@@ -109,10 +109,10 @@ For programmatic execution with `rhei run`, see [Pattern 6: Programmatic State T
 
 A rhei can be authored as either a **Single-File Plan** or a **Directory
 Workspace**. Both are *rhei-level* formats: each describes one flow. A project
-groups its rheis under the virtual **Panta** root (§FS-rhei-panta); the project
+groups its rheis under the virtual **Panta** root ([§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)); the project
 container format is defined in [Panta Project](#15-panta-project). A bare rhei
 loaded on its own is treated as the single rhei of an implicit Panta
-(§AR-rhei-panta).
+([§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture)).
 
 ### 1.1. Single-File Plan (1 Agent, or low concurrency)
 
@@ -133,7 +133,7 @@ Workspace rule below (§1.2) rather than contradicting it: the two formats
 describe the same rhei, and a rhei that is empty in one of them cannot be
 illegal in the other. It is the state a rhei passes through between being
 created and receiving its first ticket, which is exactly what `rhei new`
-creates (§FS-rhei-new.2). As in a workspace, `rhei validate` reports the
+creates ([§FS-rhei-new.2](rhei-new.spec.md#2-creating-a-rhei)). As in a workspace, `rhei validate` reports the
 emptiness as a **warning** naming the rhei, so a rhei whose tickets were
 accidentally deleted is not silently green.
 
@@ -182,10 +182,10 @@ receiving its first ticket, and the same state a living workspace starts from
 before its coordinator appends work. Failing the load instead would let one
 freshly created directory break `rhei list` and `rhei validate` for every
 sibling rhei in the project, so an empty rhei is treated exactly as an empty
-project is (§FS-rhei-panta.6): read commands report zero tickets and succeed.
+project is ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)): read commands report zero tickets and succeed.
 Because a mistyped `tasks/` directory is otherwise indistinguishable from a
 deliberately empty one, `rhei validate` reports the emptiness as a **warning**
-naming the rhei and where its task files must live (§FS-rhei-validate.4).
+naming the rhei and where its task files must live ([§FS-rhei-validate.4](rhei-validate.spec.md#4-behavior)).
 
 In a Directory Workspace, all tasks are parsed and merged into a single global
 task graph at runtime. Dependency validation (`**Prior:**`) resolves globally
@@ -211,7 +211,7 @@ State-machine resolution is normative for all commands:
 2. For a rhei inside a Panta Project, the effective `**States:**` declaration is
    resolved per rhei. A declaration in the rhei itself wins — the rhei runs
    under the machine it names, which may differ from its siblings'
-   (§AR-rhei-panta.4). Its definition file resolves from the rhei's own
+   ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)). Its definition file resolves from the rhei's own
    execution root (`<rhei>/states.yaml`) when that file's `name` matches, then
    by the project-level name-match rules. If the rhei omits `**States:**`, it
    inherits the declaration from `index.panta.md` when that manifest declares
@@ -230,7 +230,7 @@ State-machine resolution is normative for all commands:
    from the declaring rhei's execution root for a member rhei's own
    declaration, or from `<project>/states.yaml` when the declaration was
    inherited from `index.panta.md` — falling back, in every project case, to a
-   unique `name`-match among the project's candidate roots (§AR-rhei-panta.4).
+   unique `name`-match among the project's candidate roots ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)).
    A resolved file's `name` must match `<name>`.
 6. A declared non-`rhei` state machine without a matching auto-discovered file
    is a validation error; it never falls back to the built-in machine.
@@ -277,7 +277,7 @@ workspace-local metadata format is specified.
 ### 1.5. Panta Project
 
 A **Panta Project** is the directory that groups a project's rheis under the
-single virtual Panta root (§FS-rhei-panta). It mirrors the Directory Workspace
+single virtual Panta root ([§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)). It mirrors the Directory Workspace
 shape one level up: where a workspace is a directory of task files, a Panta is a
 directory of rheis. The directory is conventionally named `panta/`, but any name
 works — a directory is a Panta Project when it contains `index.panta.md`.
@@ -293,7 +293,7 @@ A Panta Project consists of:
    project directory's immediate children — it does not descend into grouping
    folders — and is deterministic, using the same non-hidden, `/`-normalized,
    case-sensitive ordering rules as workspace task-file discovery
-   (§FS-rhei-plan-language.1.2). The `runtime/` artifact tree is never a rhei
+   ([§FS-rhei-plan-language.1.2](rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency)). The `runtime/` artifact tree is never a rhei
    entry.
 3. **`basin/` directory** (optional): loose tickets captured without a domain
    rhei. This directory is loaded as a synthetic Directory Workspace rhei with id
@@ -311,7 +311,7 @@ validation error whether or not the `basin/` directory exists.
 At load time all rheis, including the synthetic `basin` rhei when present, merge
 into one graph rooted at Panta. Ticket ids are namespaced by their rhei id and
 `**Prior:**` resolves across the whole project; see
-[Identifier Uniqueness](#35-identifier-uniqueness) and §AR-rhei-panta.
+[Identifier Uniqueness](#35-identifier-uniqueness) and [§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture).
 
 ## 2. Grammar (EBNF)
 
@@ -593,7 +593,7 @@ Throughout this specification, a *leaf task node* means a task node with no
 child task nodes. A **non-leaf task node is a task in its own right**: it
 carries its own `**State:**`, its own journey through the machine, and its own
 result. Nothing derives a parent's state from its children — no command stamps
-a parent terminal because its descendants are (§FS-rhei-panta.6.3) — because
+a parent terminal because its descendants are ([§FS-rhei-panta.6.3](rhei-panta.spec.md#63-completion-and-rollup)) — because
 once the children are finished the parent may still owe the verification,
 review, or integration its machine declares.
 
@@ -601,24 +601,24 @@ Exactly one invariant ties a parent to its children, and it is a property of
 the graph rather than of any one command: **a task node may enter a terminal
 state only after every one of its descendants is terminal.** Because it is
 structural, it is enforced on the shared transition path, identically for every
-verb that can move a task (§FS-rhei-transition-cmd.3.1); a resting violation is
-a `rhei validate` **error** (§FS-rhei-validate.4).
+verb that can move a task ([§FS-rhei-transition-cmd.3.1](rhei-transition-cmd.spec.md#31-descendants-first-on-terminal-entry)); a resting violation is
+a `rhei validate` **error** ([§FS-rhei-validate.4](rhei-validate.spec.md#4-behavior)).
 
 Work eligibility follows from that invariant: **a non-leaf task node is
 workable only once all of its descendants are terminal.** The same rule governs
-manual claim selection (§FS-rhei-next.3) and autonomous scheduling
-(§FS-rhei-run.3), so a parent and one of its own descendants are never worked
+manual claim selection ([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)) and autonomous scheduling
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)), so a parent and one of its own descendants are never worked
 at the same time, and a parent is never scheduled ahead of the subtree it
 integrates. A leaf task node satisfies the rule trivially.
 
 One declared exception refines the eligibility rule without touching the
 invariant: a task whose current state is a *supervising* state
-(§FS-rhei-supervision) is worked *between* its descendants rather than only
+([§FS-rhei-supervision](rhei-supervision.spec.md#fs-rhei-supervision-subtree-supervision-specification)) is worked *between* its descendants rather than only
 after them. The engine wakes it at checkpoints of its subtree and holds the
 subtree while it is owed a visit or running, so a supervisor and one of its
 descendants are still never worked at the same time, and the supervisor may
 still enter a terminal state only after every descendant is terminal. The
-hold/release rule is specified in §FS-rhei-supervision.3.
+hold/release rule is specified in [§FS-rhei-supervision.3](rhei-supervision.spec.md#3-hold-and-release).
 
 Dependency readiness requires successful terminal dependencies: a task is ready
 with respect to `**Prior:**` only when every referenced dependency is in a
@@ -654,13 +654,13 @@ kind.
 
 ### Plan Root Model
 
-The level-0 root node is **Panta**, the project root (§FS-rhei-panta). Panta is
+The level-0 root node is **Panta**, the project root ([§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)). Panta is
 virtual: it is not authored in markdown, has no `**State:**`, `**Prior:**`,
 `**Assignee:**`, or `> **Result:**` line, and is not persisted as a node in any
 plan file or workspace task file. Runtime commands must not claim, transition,
 complete, cancel, or reset Panta. Its rheis are the level-1 nodes beneath it; a
 ticket (a `task`-kind node) is level 2 or deeper. The exact id-extension and
-load rules for this hierarchy are specified in §AR-rhei-panta.
+load rules for this hierarchy are specified in [§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture).
 
 `node_policy.root` validates and names the state-machine profile for tools that
 model the Panta root internally, but it does not create a persisted or executable
@@ -717,7 +717,7 @@ no task, the error additionally suggests that the author may have pasted a task
 *title* — `**Prior:** Design schema` parses as kind `Design`, id `schema` — and
 points at referencing the task by id instead. Both checks run in the validator
 rather than the parser: a reference may point across rheis in a Panta project
-(§FS-rhei-panta.6), so the set of declared kinds and the referenced node's kind
+([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), so the set of declared kinds and the referenced node's kind
 are only known once the whole project is loaded.
 
 Invalid child dependency example:
@@ -875,7 +875,7 @@ Because the rhei
 id prefixes every ticket beneath it, authors only need rhei-local uniqueness
 within each rhei plus unique rhei ids. Authored rhei-local ids and heading depth
 are validated per rhei exactly as in a standalone plan
-(§FS-rhei-plan-language.3.4); the Panta prefix is applied at merge and is not
+([§FS-rhei-plan-language.3.4](rhei-plan-language.spec.md#34-hierarchical-task-consistency)); the Panta prefix is applied at merge and is not
 authored into task headings.
 
 ### 3.6. Link Integrity
@@ -964,14 +964,14 @@ the same ticket, in the same form.
 - The link text must equal the enclosing task's `task_id`, and the target path
   must be `runtime/results/<task-id>.md` using that same id.
 - Because every ticket gained a rhei prefix when bare rheis became implicit
-  Pantas (§FS-rhei-panta.6.3), the id may be written in either form: the
+  Pantas ([§FS-rhei-panta.6.3](rhei-panta.spec.md#63-completion-and-rollup)), the id may be written in either form: the
   project-qualified id (`[auth.1](runtime/results/auth.1.md)`) that commands
   write from here on, or the **legacy rhei-local** id
   (`[1](runtime/results/1.md)`) left in plans completed before that change.
   Both validate; there is no migration pass, and no command rewrites the
   result link of a ticket it is not completing. `rhei complete` refreshes the
   completed ticket's link to the qualified artifact it writes
-  (§FS-rhei-panta.6.3).
+  ([§FS-rhei-panta.6.3](rhei-panta.spec.md#63-completion-and-rollup)).
 - A link that **mixes** the two forms (`[auth.1](runtime/results/1.md)`), or
   names any other id, is an error — it would point at an artifact that does not
   hold this ticket's result.
@@ -1052,7 +1052,7 @@ mode.
 This execution root is the Rhei artifact root, not necessarily the subprocess
 checkout root. Agent subprocess cwd resolution is defined by the agents spec so
 repository-root instruction files and task worktrees can be used without moving
-Rhei runtime artifacts (§FS-rhei-agents.4).
+Rhei runtime artifacts ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)).
 
 Because artifact existence depends on runtime workspace state, this constraint
 is enforced by execution commands such as `rhei transition`, `rhei complete`,
@@ -1066,14 +1066,14 @@ This section is canonical for artifact enforcement order across commands:
 | Command | Enforced artifacts | Ordering |
 |---------|--------------------|----------|
 | `rhei next` | Current-state `inputs` only | Before a task is claimable, resolve the current state's inputs. Required inputs must exist; optional inputs are resolved and exposed but missing optional inputs do not block. Claim mode re-checks under the file lock immediately before writing `**Assignee:**`. `next --peek` does not check outputs, run callbacks, write state, or write result files; claim mode may auto-advance non-runnable initial states as defined in the next-command spec. |
-| `rhei transition` | Source-state `outputs`; target-state `inputs`; the target's terminal result | After the compare-and-swap guard and edge validation, execute `on_leave` unless skipped. Then check required source outputs — skipped when the effective target is `cancelled`, which abandons the work rather than finishing it — resolve target inputs for the final target state, and reject before the state write if any required artifact is missing. Optional target inputs are skipped for blocking but still resolved. When the final target is `final: true`, its implicit terminal result is checked at the same point (§FS-rhei-states.3.3): a non-empty `runtime/results/<task-id>.md` or a `--result` message, or the transition is rejected before the state write. Write the target state, execute `on_enter` unless skipped, atomically persist the task file, then append the transition audit entry to `runtime/state-transitions.log` and, for a terminal target, the terminal finalization. |
+| `rhei transition` | Source-state `outputs`; target-state `inputs`; the target's terminal result | After the compare-and-swap guard and edge validation, execute `on_leave` unless skipped. Then check required source outputs — skipped when the effective target is `cancelled`, which abandons the work rather than finishing it — resolve target inputs for the final target state, and reject before the state write if any required artifact is missing. Optional target inputs are skipped for blocking but still resolved. When the final target is `final: true`, its implicit terminal result is checked at the same point ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)): a non-empty `runtime/results/<task-id>.md` or a `--result` message, or the transition is rejected before the state write. Write the target state, execute `on_enter` unless skipped, atomically persist the task file, then append the transition audit entry to `runtime/state-transitions.log` and, for a terminal target, the terminal finalization. |
 | `rhei complete` | Source-state `outputs`; completion-target `inputs`; the completion target's terminal result | Select the non-cancelled terminal completion target first, then use the same transition artifact order as `rhei transition`, carrying `--result` as the terminal result. `rhei complete` adds no artifact rule of its own; its target is never `cancelled`, so the cancellation waiver never applies to it. |
-| `rhei run` | Current-state `inputs`; source-state `outputs` for successful work; target-state `inputs`; the selected target's terminal result | Before spawning work, the ready-set scan checks current-state required inputs and skips missing optional inputs for blocking. After a subprocess exits `0`, required source outputs are part of the completion condition; if any are missing, no transition fires, the task stays in its current state, it is not spawned again within the pass, and the run continues with the other claimable tickets in both execution modes (§FS-rhei-run.3 step 5). When the transition the run would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` — or, per invocation of a fanned-out state, its own fragment under `runtime/results/<task-id>/<state>/<visit_count>/` — is part of that same completion condition and a missing one is reported exactly like a missing required output (§FS-rhei-run.3, §FS-rhei-agents.3.2, §FS-rhei-states.3.3). Non-zero, timeout, and tooling-failure routes select error transitions as specified by `rhei run`, do not require normal source outputs, and carry an engine-written result message when they land on a terminal state. For any selected target transition, required target inputs are checked before the state write and optional target inputs do not block. A successful-work transition also re-checks source outputs after `on_leave` and before the state write. Result-file writes, if any, happen only after the transition succeeds. |
+| `rhei run` | Current-state `inputs`; source-state `outputs` for successful work; target-state `inputs`; the selected target's terminal result | Before spawning work, the ready-set scan checks current-state required inputs and skips missing optional inputs for blocking. After a subprocess exits `0`, required source outputs are part of the completion condition; if any are missing, no transition fires, the task stays in its current state, it is not spawned again within the pass, and the run continues with the other claimable tickets in both execution modes ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5). When the transition the run would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` — or, per invocation of a fanned-out state, its own fragment under `runtime/results/<task-id>/<state>/<visit_count>/` — is part of that same completion condition and a missing one is reported exactly like a missing required output ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop), [§FS-rhei-agents.3.2](rhei-agents.spec.md#32-completion-condition), [§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). Non-zero, timeout, and tooling-failure routes select error transitions as specified by `rhei run`, do not require normal source outputs, and carry an engine-written result message when they land on a terminal state. For any selected target transition, required target inputs are checked before the state write and optional target inputs do not block. A successful-work transition also re-checks source outputs after `on_leave` and before the state write. Result-file writes, if any, happen only after the transition succeeds. |
 
 One artifact in the table is never declared: the terminal result. Every `final:
 true` state requires a non-empty `runtime/results/<task-id>.md` on the edge into
 it, checked where that state's `inputs:` are checked, on every path. It is
-specified in §FS-rhei-states.3.3 and enforced in §FS-rhei-transition-cmd.3.2.
+specified in [§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result) and enforced in [§FS-rhei-transition-cmd.3.2](rhei-transition-cmd.spec.md#32-terminal-result-on-entry).
 
 For every declared input, required or optional, implementations resolve the path
 and expose the path and existence flag to templates, agents, and programs.
@@ -1103,7 +1103,7 @@ Resolves to: /repo/release/runtime/reviews/release.md
 
 A task may pin the execution identity used when an agent works that task,
 independent of the per-state `target` declared by the active state machine
-(§FS-rhei-states.1.2). Two optional, mutually exclusive metadata fields express
+([§FS-rhei-states.1.2](rhei-states.spec.md#12-per-state-fields)). Two optional, mutually exclusive metadata fields express
 this at two altitudes:
 
 - `**Model:**` overrides only the *model* dimension. Each state the task enters
@@ -1112,7 +1112,7 @@ this at two altitudes:
   while agent identity is a property of the phase.
 - `**Target:**` overrides the *full* execution identity using an inline target
   selector — one of the four `<agent>[<mode>]:<provider>:<model>` forms defined
-  in §FS-rhei-states. It replaces the agent, mode, provider, and model the state
+  in [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification). It replaces the agent, mode, provider, and model the state
   would otherwise resolve.
 
 Both fields, when present, apply in **every** state in which the task is run by
@@ -1127,23 +1127,23 @@ selector already carries a model and the combined intent would be ambiguous.
 **Validation.**
 
 - `**Target:**` must be a non-empty string matching one of the selector forms
-  in §FS-rhei-states.1.3, and its `<agent>`, `<mode>`, `<provider>`, and
+  in [§FS-rhei-states.1.3](rhei-states.spec.md#13-validation-rules), and its `<agent>`, `<mode>`, `<provider>`, and
   `<model>` segments must resolve under the same rules a state `target` is held
   to.
 - `**Model:**` must name a model profile available to the active state machine —
   the same membership check applied to a state's `model` field
-  (§FS-rhei-states.1.3).
+  ([§FS-rhei-states.1.3](rhei-states.spec.md#13-validation-rules)).
 - A task override on a *fanout* state — one declaring `all_targets` or
   `all_models` — is a validation error. Fanout means "run once per declared
   target," which a single per-task identity contradicts. A future revision may
   relax this.
 - A task override targeting a state that declares `target_locked: true`
-  (§FS-rhei-states.1.2) is rejected: such states pin an execution identity that
+  ([§FS-rhei-states.1.2](rhei-states.spec.md#12-per-state-fields)) is rejected: such states pin an execution identity that
   is essential to the phase and must not be reassigned per task.
 
 **Resolution precedence.** A task override sits between the command-line
 override and the state in the agent/model resolution chain
-(§FS-rhei-agents.1.4):
+([§FS-rhei-agents.1.4](rhei-agents.spec.md#14-resolution-order)):
 
 ```
 CLI override  >  task **Target:** / **Model:**  >  state target /
@@ -1198,10 +1198,10 @@ The path is a convention, not a template: it is keyed by the *task*, never by
 the state that happened to write it. A consumer resolves it from the plan graph
 alone, so producer and consumer need not share a state machine, a workflow
 phase, or even a rhei — the export of a cross-rhei prior resolves under that
-prior's own root (§FS-rhei-panta.6.1).
+prior's own root ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)).
 
 This is a plan-level handoff, deliberately outside the state machine. State
-handoffs (§FS-rhei-states.3.2) carry notes between the states of *one* task and
+handoffs ([§FS-rhei-states.3.2](rhei-states.spec.md#32-state-handoffs)) carry notes between the states of *one* task and
 are declared in `states.yaml`; exports carry work product between *different*
 tasks and are declared in the plan, because the dependency graph — not the
 workflow — is what orders them.
@@ -1217,7 +1217,7 @@ say which export it meant, the second is a leftover from an edit.
 
 **Runtime semantics.** Rhei injects each consumed export that exists into the
 consuming agent's prompt, and tells a producing agent where to write each
-export it declares (§FS-rhei-agents.3). A consumed export that was never
+export it declares ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)). A consumed export that was never
 written, or that is empty, is skipped: the section is simply absent from the
 prompt.
 
@@ -1326,7 +1326,7 @@ The language cannot be fully described by a context-free grammar alone; semantic
 ## 7. File Extension
 
 A single-file Rhei Plan document must use the `.rhei.md` extension: the file
-stem is the rhei id that prefixes every ticket (§AR-rhei-panta.3), so a plan
+stem is the rhei id that prefixes every ticket ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)), so a plan
 without the suffix has no id and the loader rejects it. The bare `.md`
 extension remains only for task files under a Directory Workspace's `tasks/`
 directory (and basin task files), whose owning rhei supplies the id.
@@ -1344,7 +1344,7 @@ The `rhei` CLI help currently organizes its subcommands into five groups:
 | **Info** | `version`, `help` | Meta commands about the tool itself |
 
 `rhei viz` is the read-only **Inspection** command that renders the visualization
-behavior surface (§FS-rhei-viz) as a self-contained HTML page from a plan or
+behavior surface ([§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization)) as a self-contained HTML page from a plan or
 workspace; it appears in the generated help under that group.
 
 ## Related Specifications

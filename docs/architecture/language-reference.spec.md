@@ -3,7 +3,7 @@
 Rhei's language is intentionally split across markdown plans, YAML state
 machines, templates, and execution-time references. The architecture must keep
 one canonical language-reference entry point that names those surfaces and
-routes readers to the owning specs. §FS-rhei-language-reference
+routes readers to the owning specs. [§FS-rhei-language-reference](../functional-spec/rhei-language-reference.spec.md#fs-rhei-language-reference-rhei-language-reference)
 
 ## 1. Architectural Requirement
 

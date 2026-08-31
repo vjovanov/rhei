@@ -4,7 +4,7 @@ This document defines the *session snapshot* model: how `rhei run` captures
 an agent's transcript at supported agent-bearing state exits — for same-agent
 state inheritance, ancestor-chain sub-task branching, operator analysis
 sessions that attach to past states, and (when the provider permits it) for
-prompt-cache benefits. §GOAL-rhei-outcomes
+prompt-cache benefits. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 Snapshots come in two flavors that share the same storage and manifest
 schema:
@@ -28,13 +28,13 @@ no authored lineage grammar change, not "no on-disk transcript effect."
 
 This spec depends on:
 
-- §FS-rhei-states for state-machine schema and `target` selectors
-- §FS-rhei-run for the orchestrator lifecycle and Completion Condition
-- §FS-rhei-agents for agent transport profiles and the agents registry
-- §FS-rhei-plan-language for task identifiers and the plan hierarchy
+- [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification) for state-machine schema and `target` selectors
+- [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) for the orchestrator lifecycle and Completion Condition
+- [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification) for agent transport profiles and the agents registry
+- [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) for task identifiers and the plan hierarchy
 
 The CLI, run override, settings, redaction, rollout sequencing, and snapshot
-cache maintenance commands are specified in §FS-rhei-snapshot-operations.
+cache maintenance commands are specified in [§FS-rhei-snapshot-operations](rhei-snapshot-operations.spec.md#fs-rhei-snapshot-operations-rhei-snapshot-operations-specification).
 
 ## 1. Goals
 
@@ -114,7 +114,7 @@ and may have different `on:` outcomes (an `on: success` named-emit on a
 failed state does not fire while the auto-emit still does).
 Until transcript-level deduplication exists, firing both writes a second
 cached copy of the same transcript bytes under the named snapshot identity.
-Cache-size impact and the GC controls that bound it are specified in §FS-rhei-snapshot-operations.
+Cache-size impact and the GC controls that bound it are specified in [§FS-rhei-snapshot-operations](rhei-snapshot-operations.spec.md#fs-rhei-snapshot-operations-rhei-snapshot-operations-specification).
 
 Auto-emit is best-effort by design: if the resolved agent profile has no
 supported `SessionLayout`, auto-emit is silently skipped for that state —
@@ -144,7 +144,7 @@ states:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Stable snapshot name. Must match `^[a-z][a-z0-9-]*$`, max 64 chars. |
-| `on` | enum | No | Emit policy relative to the orchestrator's Completion Condition (§FS-rhei-run step 4). `success` emits only when exit code is 0 *and* required `outputs:` artifacts exist. `failure` emits whenever the Completion Condition fails, *including* the timeout case (a timed-out subprocess never satisfied the Completion Condition). `always` emits on any subprocess exit. Default: `success`. |
+| `on` | enum | No | Emit policy relative to the orchestrator's Completion Condition ([§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) step 4). `success` emits only when exit code is 0 *and* required `outputs:` artifacts exist. `failure` emits whenever the Completion Condition fails, *including* the timeout case (a timed-out subprocess never satisfied the Completion Condition). `always` emits on any subprocess exit. Default: `success`. |
 
 A state that does not declare `snapshot.emit:` produces no named snapshot
 regardless of agent behavior; its auto-emitted `_state` snapshot still follows
@@ -196,7 +196,7 @@ with neither `target`, `all_targets`, nor a legacy model/agent selection that
 resolves to an effective target tuple. The comparison is slug-exact, including
 mode when mode appears in the slug. It is intentionally stricter than
 `native_compatible`, which ignores mode for file-format compatibility;
-cross-mode reuse requires an explicit source target slug. §FS-rhei-states
+cross-mode reuse requires an explicit source target slug. [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)
 
 `select.target: all` is not accepted in v1 because it would require
 aggregating multiple fanout snapshots into one preload. Any other unsupported
@@ -271,7 +271,7 @@ Snapshot inheritance happens immediately before the state invocation that
 declares `snapshot.inherit:`:
 
 1. `rhei run` selects a ready task whose `Prior:` dependencies are terminal
-   and whose required `inputs:` already exist. §FS-rhei-run
+   and whose required `inputs:` already exist. [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run)
 2. The orchestrator resolves the task's current state and execution target.
 3. If that state declares `snapshot.inherit:`, the orchestrator resolves and
    preloads the source snapshot before spawning the agent.
@@ -295,7 +295,7 @@ content produced by another task, the producer should declare `outputs:` and
 the consumer should declare `inputs:` plus an ordinary `Prior:` dependency.
 That artifact path is the supported way to communicate across siblings,
 cousins, unrelated tasks, and different agents. The snapshot grammar
-therefore has no `from: task` or `from: prior` form in v1. §FS-rhei-states §FS-rhei-plan-language
+therefore has no `from: task` or `from: prior` form in v1. [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification) [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification)
 
 ### 4.6. Fallback Behavior
 
@@ -438,8 +438,8 @@ All snapshots live under the plan workspace cache:
                                       # a relative symlink, or a one-line file
 ```
 
-`<task-id>` follows the encoding in §FS-rhei-plan-language (single segment or
-dotted form) and is the project-qualified ticket id (§FS-rhei-panta.6), so its
+`<task-id>` follows the encoding in [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) (single segment or
+dotted form) and is the project-qualified ticket id ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), so its
 leading segment is always the owning rhei's id (`plan.1.2` for a single-file
 `plan.rhei.md`). Caches produced before qualification are keyed by the bare
 rhei-local id, no longer resolve, and surface as orphaned; `rhei snapshot gc`
@@ -635,7 +635,7 @@ operator-driven concurrency without ever reusing a generation number.
 
 ### 9.1. `CustomAgentProfile.session`
 
-A new optional nested field on `CustomAgentProfile` (§FS-rhei-agents):
+A new optional nested field on `CustomAgentProfile` ([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)):
 
 ```rust
 pub struct CustomAgentProfile {
@@ -786,7 +786,7 @@ base `pi` command without the headless `-p` prompt flag. Rhei appends the model
 flag, `--session-dir <runtime snapshot session dir>`, and `--fork <source
 transcript>` so the operator enters a TTY session seeded from the selected
 snapshot. Captured continuations read the newest JSONL written to that session
-directory and store it as an operator generation. §FS-rhei-snapshot-operations.1.5
+directory and store it as an operator generation. [§FS-rhei-snapshot-operations.1.5](rhei-snapshot-operations.spec.md#15-rhei-snapshot-continue-ref)
 
 #### 9.3.2. Gemini
 
@@ -816,7 +816,7 @@ fails with the same diagnostic.
 
 #### 9.3.4. Codex
 
-The current rhei transport for codex is `codex exec` (§FS-rhei-agents). The
+The current rhei transport for codex is `codex exec` ([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)). The
 adapter spike must determine whether `codex exec` supports session resume,
 or whether snapshot integration requires a separate transport variant
 (`codex resume`, or a future explicit subcommand).
@@ -869,8 +869,8 @@ For each spawn of a state declaring `snapshot.inherit:`:
 
 After every agent-state subprocess exits, the orchestrator:
 
-1. Evaluates the orchestrator's Completion Condition (§FS-rhei-run step 4).
-2. Selects the outgoing transition according to §FS-rhei-run step 5, including
+1. Evaluates the orchestrator's Completion Condition ([§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) step 4).
+2. Selects the outgoing transition according to [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) step 5, including
    normal success transitions, error or timeout routing, and poll self-loop or
    exhaustion behavior. The transition is not applied until after snapshot
    emit decisions are complete. This ordering is what lets a poll self-loop
@@ -906,7 +906,7 @@ terminal exit transition, matching the rule in
 [Counted Loops, Fanout, and Polling](#103-counted-loops-fanout-and-polling).
 
 The orchestrator owns this step; agents do not invoke snapshot emit
-directly. This matches §FS-rhei-run's invariant that the subprocess never
+directly. This matches [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run)'s invariant that the subprocess never
 calls `rhei transition`.
 
 ### 10.3. Counted Loops, Fanout, and Polling
@@ -939,7 +939,7 @@ a broader lifecycle contract than this spec defines.
 
 ## 11. Validation Rules
 
-The validator (§FS-rhei-states) extends the per-state checks with the
+The validator ([§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)) extends the per-state checks with the
 following rules. Violations are errors unless marked otherwise.
 
 - `snapshot.emit.name` and `snapshot.inherit.name` must match

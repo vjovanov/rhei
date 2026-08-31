@@ -49,6 +49,8 @@ fn run_transition_with_flags(
     }
 }
 
+/// The runtime behavior every language example in §FS-rhei-callbacks.1 relies
+/// on: an `on_leave`/`on_enter` pair fires as the transition it guards.
 #[test]
 fn callback_on_leave_and_on_enter_invoked_on_transition() {
     let dir = unique_temp_dir("callback-invoked");

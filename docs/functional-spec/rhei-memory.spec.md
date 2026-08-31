@@ -4,25 +4,25 @@ A Rhei project is the **mid-term memory** of the work it governs: longer-lived
 than any agent session, shorter-lived than the repository's specs and code. It
 holds what was decided, what was produced, what failed, and what is still open
 — in plan files, result files, exports, briefs, logs, and the transition
-ledger. §GND-rhei-purpose §FS-rhei-usage.4
+ledger. [§GND-rhei-purpose](../grund.md#gnd-rhei-purpose-governed-agent-work) [§FS-rhei-usage.4](rhei-usage.spec.md#4-the-plan-as-shared-memory)
 
 This document specifies how an invocation of a task **reads** that memory. Under
 `rhei run` every invocation is cold: the agent knows nothing but its prompt. So
 the prompt must *reconstitute* the memory — tell the agent where it stands,
 what happened before it, what happened to it, and how to find anything the
 prompt left out — and it must do so by a fixed algorithm, at a bounded cost in
-tokens. §GOAL-rhei-outcomes
+tokens. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
-This spec extends the prompt of §FS-rhei-agents.3 with four sections. The
+This spec extends the prompt of [§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition) with four sections. The
 sections are graph- and runtime-level context, not configured in `states.yaml`,
 and `rhei next` renders them for a manual worker exactly as `rhei run` does
 (§5). It depends on:
 
-- §FS-rhei-plan-language for the task hierarchy, plan formats, and content sections
-- §FS-rhei-panta and §AR-rhei-panta.5 for rheis, execution roots, and qualified ids
-- §FS-rhei-complete.3 for result files and the transition ledger
-- §FS-rhei-agents.3 for the prompt this spec extends, and §FS-rhei-agents.8.1 for log paths
-- §FS-rhei-supervision.5 for the sections a supervisor already gets
+- [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) for the task hierarchy, plan formats, and content sections
+- [§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis) and [§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime) for rheis, execution roots, and qualified ids
+- [§FS-rhei-complete.3](rhei-complete.spec.md#3-result-file) for result files and the transition ledger
+- [§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition) for the prompt this spec extends, and [§FS-rhei-agents.8.1](rhei-agents.spec.md#81-log-file-naming) for log paths
+- [§FS-rhei-supervision.5](rhei-supervision.spec.md#5-prompt-composition) for the sections a supervisor already gets
 
 ## 1. Requirements
 
@@ -35,7 +35,7 @@ id, its title, its final state, and its result. Tasks in the invocation's own
 rhei and every transitive prior are listed in the prompt itself (§3.2); every
 other rhei is reachable through the map in §3.4, which names each rhei's
 execution root, so no terminal task in the project is unreachable from any
-other. The ledger of each execution root (§FS-rhei-complete.3.1) gives the
+other. The ledger of each execution root ([§FS-rhei-complete.3.1](rhei-complete.spec.md#31-state-transition-ledger)) gives the
 order in which they finished.
 
 ### 1.2. Composition Is Algorithmic
@@ -49,7 +49,7 @@ ranking, or selection beyond the rules written in §4: a summary is a fixed
 slice of a file, an order is a stated order, a cap is a stated number, and a
 truncation leaves a stated overflow line. The same inputs produce the same
 bytes. Nothing that varies per run — a run id, a timestamp, a pid — appears in
-the prompt; those travel in the environment (§FS-rhei-agents.4).
+the prompt; those travel in the environment ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)).
 
 The in-flight set is the one input not derivable from disk: it is what the
 scheduler happens to have spawned and not yet reaped. Under `--parallel 1` it
@@ -74,15 +74,15 @@ The memory is whatever the project already writes; this spec adds no store.
 |---|---|---|
 | Intent, decomposition, progress notes | plan files: task bodies, `**Prior:**`, `**Consumes:**`/`**Provides:**` | plan writer, workers, supervisors |
 | Plan-level context | content sections of the rhei (`index.rhei.md`, or the H2 sections before `## Tasks`) and of `index.panta.md` | plan writer |
-| Outcome of a task | `runtime/results/<task-id>.md` (§FS-rhei-complete.3.2) | `rhei complete`, `rhei transition --result`, workers, the engine's failure routes |
-| Order of events | `runtime/state-transitions.log` (§FS-rhei-complete.3.1) | every transition |
-| Published outputs | `runtime/exports/<task-id>/<name>.md` (§FS-rhei-plan-language.3.12) | the producing task |
-| Direction from above | `runtime/supervise/<task-id>[/<state>].md` (§FS-rhei-supervision.5.2) | supervisors |
-| Same-task state handoffs | declared `outputs:` of an earlier state (§FS-rhei-states.3.2) | the earlier state |
-| Raw transcripts | `runtime/logs/task-…log` under the root `rhei run` was started from (§FS-rhei-agents.8) | `rhei run` |
+| Outcome of a task | `runtime/results/<task-id>.md` ([§FS-rhei-complete.3.2](rhei-complete.spec.md#32-result-file-format)) | `rhei complete`, `rhei transition --result`, workers, the engine's failure routes |
+| Order of events | `runtime/state-transitions.log` ([§FS-rhei-complete.3.1](rhei-complete.spec.md#31-state-transition-ledger)) | every transition |
+| Published outputs | `runtime/exports/<task-id>/<name>.md` ([§FS-rhei-plan-language.3.12](rhei-plan-language.spec.md#312-task-exports)) | the producing task |
+| Direction from above | `runtime/supervise/<task-id>[/<state>].md` ([§FS-rhei-supervision.5.2](rhei-supervision.spec.md#52-the-brief)) | supervisors |
+| Same-task state handoffs | declared `outputs:` of an earlier state ([§FS-rhei-states.3.2](rhei-states.spec.md#32-state-handoffs)) | the earlier state |
+| Raw transcripts | `runtime/logs/task-…log` under the root `rhei run` was started from ([§FS-rhei-agents.8](rhei-agents.spec.md#8-log-capture)) | `rhei run` |
 
 Each path is relative to the **execution root** of the rhei that owns the
-task (§AR-rhei-panta.5): the workspace directory of a Directory Workspace rhei,
+task ([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)): the workspace directory of a Directory Workspace rhei,
 the project directory for single-file rheis. Transcripts are the exception:
 one `rhei run` writes one log tree, under the root it was started from, so in a
 Panta the transcripts of every member rhei sit together at the project root and
@@ -91,7 +91,7 @@ rather than describing it as a path under something else.
 
 ## 3. The Sections
 
-The four sections below join the prompt of §FS-rhei-agents.3 in this order:
+The four sections below join the prompt of [§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition) in this order:
 `## Position` directly after `## State:` and the personality, before
 `## Instructions`; `## Plan History` and `## Previous Visits` after
 `## Supervisor Brief`; and two sub-sections inside `## Rhei Commands`.
@@ -136,10 +136,10 @@ Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › {Kind} {ancestor-id}
 - The chain line names every ancestor, root first, each with its state. A
   root task's chain is the Panta and the rhei alone.
 - `{Kind}` is the node's own kind, title-cased — `Task`, `Bug`, whatever the
-  plan's `structure.nodeKinds` declares (§FS-rhei-plan-language.3.7) — the form
+  plan's `structure.nodeKinds` declares ([§FS-rhei-plan-language.3.7](rhei-plan-language.spec.md#37-node-kind-validity)) — the form
   `## Child Tasks` and `rhei list` already print. `{state}` is the machine's
   name for the state, with the `-<visit>` suffix a counted loop writes into
-  `**State:**` dropped (§FS-rhei-plan-language.3.2), so every state name in the
+  `**State:**` dropped ([§FS-rhei-plan-language.3.2](rhei-plan-language.spec.md#32-state-validity)), so every state name in the
   prompt has one form.
 - `### Siblings` renders only when the task has a parent: the parent's other
   children, in plan order. A sibling that lists this task in `**Prior:**` or
@@ -229,14 +229,14 @@ this task. Its transcript is `{previous attempt log}`.
 - The result file is pasted because it is where every earlier verdict on this
   task landed: a worker's `--result` message, and the engine's own entries when
   an earlier visit timed out or exited without its required outputs
-  (§FS-rhei-agents.3.2.1). An agent retrying a state that stalled must know
+  ([§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics)). An agent retrying a state that stalled must know
   why it stalled.
 - `Previous log:` names the log file of the previous visit of this same state
-  by the naming rule of §FS-rhei-agents.8.1, only if that file exists. The
+  by the naming rule of [§FS-rhei-agents.8.1](rhei-agents.spec.md#81-log-file-naming), only if that file exists. The
   log is not pasted; it is a transcript, and the path is enough.
 - The retry paragraph is rendered only when *this visit* has already been
   spawned — when a spawn record for this invocation belongs to this visit
-  (§FS-rhei-agents.8.4). It exists because a re-spawn that is handed the same
+  ([§FS-rhei-agents.8.4](rhei-agents.spec.md#84-spawn-records)). It exists because a re-spawn that is handed the same
   prompt as the attempt it is recovering from will do the same thing again: the
   invocation has to be told that it is a retry, what ended the last attempt, and
   which file that attempt was obliged to write and did not. The result path is
@@ -271,17 +271,17 @@ What you write is what the next agent and the human see.
 `Reading the rhei` is the map that makes §1.1 true across rheis: it names
 every execution root in the project, so the results of a rhei the prompt does
 not list are one path away. A rhei whose execution root holds no plan document
-— the synthetic `basin`, whose manifest is never authored (§FS-rhei-panta.4) —
+— the synthetic `basin`, whose manifest is never authored ([§FS-rhei-panta.4](rhei-panta.spec.md#4-invisibility)) —
 omits the `— plan …` clause and names this task's file alone. `Agent transcripts`
 names the resolved `runtime/logs/` directory of this run — the one `Previous
 log:` resolves against (§3.3) — because that tree belongs to the run and not to
 a rhei (§2). Paths are rendered relative to `RHEI_ROOT`, or
 absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
-`{output.<name>.path}` follows (§FS-rhei-states.4). `rhei next`, which exports
+`{output.<name>.path}` follows ([§FS-rhei-states.4](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)). `rhei next`, which exports
 no `RHEI_ROOT`, renders every such path absolute. `Leaving a trail`
 describes artifacts and permitted edits; it says nothing about when to stop or
 how completion is detected, which stay with the completion condition
-(§FS-rhei-agents.3.1).
+([§FS-rhei-agents.3.1](rhei-agents.spec.md#31-completion-authority)).
 
 ## 4. Composition Algorithm
 
@@ -289,13 +289,13 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 
 ### 4.1. Inputs
 
-1. `G` — the merged project graph in plan order (§FS-rhei-plan-language.1.2);
-   for a bare rhei, its implicit Panta (§FS-rhei-panta).
+1. `G` — the merged project graph in plan order ([§FS-rhei-plan-language.1.2](rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency));
+   for a bare rhei, its implicit Panta ([§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)).
 2. For every rhei `R` in `G`: its execution root `root(R)` and, under it, the
    ledger `L(R)` and the `runtime/` tree.
 3. The owning rhei `R₀ = rhei(task)`.
 4. The `runtime/` directory of the invoking run — the one it writes `logs/`
-   under (§FS-rhei-agents.8), which is the root the run was started from and
+   under ([§FS-rhei-agents.8](rhei-agents.spec.md#8-log-capture)), which is the root the run was started from and
    need not be `root(R₀)`.
 
 ### 4.2. Position
@@ -329,14 +329,14 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    line, cut to the first 120 characters followed by `…` — characters, not
    display columns; `(no result)` when the file is missing or empty. An entry
    opens with a plain `## Result` heading or with the `## Result — <identity>`
-   a fanned-out fold writes (§FS-rhei-states.3.3); the last of either kind is
+   a fanned-out fold writes ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)); the last of either kind is
    the standing verdict. A heading inside a fenced code block is **not** an
    entry: a file that quotes a verdict is showing one, not casting it
-   (§FS-rhei-plan-language.3.6). If `T`'s result is pasted in full elsewhere
+   ([§FS-rhei-plan-language.3.6](rhei-plan-language.spec.md#36-link-integrity)). If `T`'s result is pasted in full elsewhere
    in this prompt, `see above` replaces the summary. When that file does not
    exist and `T`'s body carries a `> **Result:**` block, the file **that block
    links**, resolved against `root(rhei(T))`, is read instead
-   (§FS-rhei-plan-language.3.8) — a plan finished before ids were qualified
+   ([§FS-rhei-plan-language.3.8](rhei-plan-language.spec.md#38-result-block-consistency)) — a plan finished before ids were qualified
    keeps its account under the rhei-local name, and `(no result)` printed
    under a body that shows the link is a false statement. Nothing else is
    consulted.
@@ -374,7 +374,7 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    **last** 100 with the overflow line `… earlier entries omitted; read <path>`
    first. The legacy fallback of §4.3.3 applies here too, and `<path>` names
    whichever file was read.
-3. `prev_log` = the log named by the spawn record (§FS-rhei-agents.8.4) of
+3. `prev_log` = the log named by the spawn record ([§FS-rhei-agents.8.4](rhei-agents.spec.md#84-spawn-records)) of
    `(task, state, identity, visit_count − 1)` — the last thing that actually
    ran there, whichever attempt of that visit it was — falling back to that
    visit's unsuffixed log file where no record answers, which is what a runtime
@@ -394,9 +394,9 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 
 1. Every pasted body is fenced with a backtick run one longer than the longest
    run it contains, so a pasted `## Result` never becomes a prompt heading
-   (§FS-rhei-supervision.5.1). `## Prior Task Results`, `## Consumed Exports`,
+   ([§FS-rhei-supervision.5.1](rhei-supervision.spec.md#51-the-supervisors-prompt)). `## Prior Task Results`, `## Consumed Exports`,
    and the handoff sections adopt the same fence.
-2. Ids are **qualified** everywhere (§FS-rhei-panta.6.3) — the form
+2. Ids are **qualified** everywhere ([§FS-rhei-panta.6.3](rhei-panta.spec.md#63-completion-and-rollup)) — the form
    `rhei list` prints and `rhei transition` accepts.
 3. Truncation is by whole lines, never mid-line, and the overflow line is a
    literal of this spec so tests can match it.
@@ -409,7 +409,7 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 - `rhei run` composes the sections for every spawned agent, in every mode.
 - `rhei next` text output renders the same sections in the same order after
   the instructions, as it does for the supervision sections today
-  (§FS-rhei-supervision.3.4); JSON output carries each as a string field named
+  ([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)); JSON output carries each as a string field named
   after the section: `position`, `plan_history`, `previous_visits`,
   `navigation`. Two differences follow from what that surface prints:
   - `rhei next` renders no `## Rhei Commands`, so the two sub-sections of §3.4
@@ -419,9 +419,9 @@ Given an invocation `I = (task, state, visit_count, identity)`:
     Results`, so `see above` would point at nothing: a task whose result is
     pasted only under those sections shows its real summary here instead.
     `## Checkpoints` is rendered on both surfaces and counts on both.
-- `rhei run --dry-run` keeps its `<prompt...>` placeholder (§FS-rhei-agents.9).
+- `rhei run --dry-run` keeps its `<prompt...>` placeholder ([§FS-rhei-agents.9](rhei-agents.spec.md#9-dry-run-output)).
   There is no command yet that prints the full composed prompt without
-  claiming a ticket; claim-mode `rhei next` output (§FS-rhei-next.3.2) is the
+  claiming a ticket; claim-mode `rhei next` output ([§FS-rhei-next.3.2](rhei-next.spec.md#32-output-claim-mode)) is the
   way to see it today, and a dry-run form is tracked on the roadmap.
 
 ## 6. Example

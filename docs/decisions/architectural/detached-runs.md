@@ -11,9 +11,9 @@ every subprocess and every transition, and the **surface** that renders what it
 is doing. The fusion showed up as three unrelated-looking limitations.
 
 A run could not outlive its terminal. Closing the shell delivered `SIGHUP`,
-which §FS-rhei-run.3.2 correctly treats as an interruption — so a long run had
+which [§FS-rhei-run.3.2](../../functional-spec/rhei-run.spec.md#32-interruption-and-process-ownership) correctly treats as an interruption — so a long run had
 to be babysat, or wrapped in `nohup`/`tmux` by hand, which put it outside the
-process-group ownership `rhei run` promises (§DA-supervised-process-groups).
+process-group ownership `rhei run` promises ([§DA-supervised-process-groups](supervised-process-groups.md#da-supervised-process-groups-subprocesses-are-supervised-process-groups-with-one-termination-path)).
 
 A run could be watched only by the shell that started it. The browser dashboard
 was the one exception, and only because it happens to be a loopback server. An
@@ -45,7 +45,7 @@ surviving thread will ever release. Re-exec is the only safe shape.
 **The handshake is the descriptor, not a pipe.** The child publishes
 `runtime/run.json` naming its own pid with status `running`; the launcher polls
 that file while watching for the child to exit. This costs a few file reads and
-buys a synchronous startup contract (§FS-rhei-run-headless.1.1): a held run lock
+buys a synchronous startup contract ([§FS-rhei-run-headless.1.1](../../functional-spec/rhei-run-headless.spec.md#11-startup-is-synchronous)): a held run lock
 or an invalid plan fails the launcher with the child's own diagnostic, so the
 operator never receives an id for a run that is already dead. An inherited pipe
 would be marginally faster and would need `pre_exec` fd juggling and a second
@@ -70,7 +70,7 @@ nothing about the run — a `chmod`, a full disk, an exhausted descriptor table.
 Folding those into "ended" would be harmless if the verdict were only rendered,
 but it is also what prunes the registry: an error had to be able to unregister
 nothing at all. Only a workspace that no longer names the run prunes its entry
-(§FS-rhei-run-headless.2). Completion goes further and prunes nothing, because a
+([§FS-rhei-run-headless.2](../../functional-spec/rhei-run-headless.spec.md#2-the-run-descriptor)). Completion goes further and prunes nothing, because a
 tab keypress is a read.
 
 **The third answer is carried by the type, not by a helper.** There is no
@@ -79,30 +79,30 @@ consumer cannot silently inherit "unknown means dead" — the shape that made
 `attach` report a working run as finished, `attach --json` truncate its stream
 and exit `0`, and `stop --wait` return while the run was still tearing down. The
 consumers that wait share one bounded grace, so "keep waiting" cannot become
-"wait forever" on an outage that never clears (§FS-rhei-run-headless.3).
+"wait forever" on an outage that never clears ([§FS-rhei-run-headless.3](../../functional-spec/rhei-run-headless.spec.md#3-run-identity-and-liveness)).
 
 **`rhei attach` reads files and posts to the two boundaries that already
 exist.** Structural events come from `runtime/events.jsonl`; live agent output
 comes from the per-task logs, which already hold the complete transcript
-(§FS-rhei-run-tui.1.2); intervene and gate release post to the control server's
+([§FS-rhei-run-tui.1.2](../../functional-spec/rhei-run-tui.spec.md#12-live-agent-traffic)); intervene and gate release post to the control server's
 existing `/intervene` and `/transition-gate`. No new streaming endpoint, no
 ring buffer to size, no protocol between run and surface beyond a file format
 that had to exist anyway for `--json`.
 
 **Stopping is a signal, not a route.** `rhei stop` sends `SIGINT` to the run's
 pid. The loopback server keeps the single inbound mutation boundary
-§AR-rhei-viz-flow.7 gives it, and stopping inherits §FS-rhei-run.3.2 in full
+[§AR-rhei-viz-flow.7](../../architecture/rhei-viz-flow.spec.md#7-intervene-the-single-mutation-boundary) gives it, and stopping inherits [§FS-rhei-run.3.2](../../functional-spec/rhei-run.spec.md#32-interruption-and-process-ownership) in full
 rather than growing a second, subtly different teardown.
 
 **In an attached surface, `Ctrl+C` detaches.** The driving TUI re-raises
-`SIGINT` on the run (§FS-rhei-run-tui.1.8); the attached one must not, because
+`SIGINT` on the run ([§FS-rhei-run-tui.1.8](../../functional-spec/rhei-run-tui.spec.md#18-failure-modes)); the attached one must not, because
 the reflex that ends a foreground command would otherwise end a run that
 another terminal — or another person — is also watching.
 
 ## Consequences
 
 The detached child must **not** arm the parent-death signal that
-§DA-supervised-process-groups arms for agents and programs. That backstop
+[§DA-supervised-process-groups](supervised-process-groups.md#da-supervised-process-groups-subprocesses-are-supervised-process-groups-with-one-termination-path) arms for agents and programs. That backstop
 exists so a `SIGKILL`ed supervisor still takes its workers down; applied to the
 headless child it would kill every detached run the instant its launcher
 returned, which is the one thing detachment is for. The rule is now: supervised
@@ -113,16 +113,16 @@ is one run. Cross-run history stays where it already lives — the transitions
 journal and the timestamped run reports.
 
 A registry entry outlives its run, capped at the hundred most recent
-(§FS-rhei-run-headless.2). Deleting it on exit made the id stop resolving at
+([§FS-rhei-run-headless.2](../../functional-spec/rhei-run-headless.spec.md#2-the-run-descriptor)). Deleting it on exit made the id stop resolving at
 exactly the moment the run's result became available, which broke the one CI
 shape the launcher deliberately does not provide on its own: launch detached,
 then `rhei attach --wait` for the answer.
 
 Attachment works only on the machine that runs the run: it reads that
 workspace's files and dials a loopback address. Remote observation stays out of
-scope, and stays consistent with §FS-rhei-run-tui's own non-goal.
+scope, and stays consistent with [§FS-rhei-run-tui](../../functional-spec/rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)'s own non-goal.
 
-Detachment is Unix-only for now (§FS-rhei-run-headless.1.3). Windows has the
+Detachment is Unix-only for now ([§FS-rhei-run-headless.1.3](../../functional-spec/rhei-run-headless.spec.md#13-platform)). Windows has the
 primitives — `DETACHED_PROCESS`, `CREATE_NEW_PROCESS_GROUP` — but no equivalent
 of the signal contract `rhei stop` inherits, so shipping it there means
 designing that teardown rather than translating this one.
@@ -137,7 +137,7 @@ run rather than on the flag.
 **A `rheid` daemon owning many runs.** One process to attach to, cross-run
 scheduling, a natural home for a registry. Rejected: it introduces a second
 lifetime to manage, a socket protocol, an upgrade story, and a supervisor whose
-death orphans work — the exact failure §DA-supervised-process-groups was
+death orphans work — the exact failure [§DA-supervised-process-groups](supervised-process-groups.md#da-supervised-process-groups-subprocesses-are-supervised-process-groups-with-one-termination-path) was
 written to remove. Nothing about attaching to a run requires a process that
 outlives it.
 

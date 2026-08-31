@@ -1,6 +1,6 @@
 # GOAL-rhei-outcomes: Goals
 
-These goals follow from §GND-rhei-purpose.
+These goals follow from [§GND-rhei-purpose](../grund.md#gnd-rhei-purpose-governed-agent-work).
 
 - Provide an embeddable agent runtime that can also be driven directly from the
   CLI.

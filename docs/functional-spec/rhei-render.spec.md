@@ -3,7 +3,7 @@
 Render a Rhei plan or Directory Workspace into a selected read-only output
 format. Rendering is for inspection, export, and scripting; it does not validate
 state-machine reachability beyond the parse/load step and does not modify
-runtime state. §GOAL-rhei-outcomes
+runtime state. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. Usage
 
@@ -16,7 +16,7 @@ rhei render <RHEI_PLAN_OR_WORKSPACE> --format progress --no-color
 
 `<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file, a Directory
 Workspace root, or a Panta project directory; omitted, the target is resolved by
-walking up from the current directory (§FS-rhei-panta.6). A member rhei renders
+walking up from the current directory ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). A member rhei renders
 its project narrowed to that rhei.
 
 ## 2. Options
@@ -38,7 +38,7 @@ its project narrowed to that rhei.
 
 The top-level `states` field is the machine of the document as authored — for a
 project, the manifest default. A merged project runs **one machine per rhei**
-(§DA-per-rhei-state-machines), so that single field cannot tell a consumer what
+([§DA-per-rhei-state-machines](../decisions/architectural/per-rhei-state-machines.md#da-per-rhei-state-machines-the-state-machine-is-a-per-rhei-property-defaulted-by-the-manifest)), so that single field cannot tell a consumer what
 a task's state name means: a project holding two instantiated templates emits
 tasks whose states come from three different machines under one `"states"`.
 Rendering a project therefore adds a `rheis` array, in presentation order, that
@@ -83,7 +83,7 @@ Color is enabled only when stdout is a terminal and `NO_COLOR` is unset;
 ### 3.4. Rendering a merged project
 
 A Panta project merges every rhei's tickets into one flat, project-qualified
-task list (§AR-rhei-panta.3). The text formats — `github` and `progress` — must
+task list ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)). The text formats — `github` and `progress` — must
 put each ticket back under the rhei that owns it: a run of rhei headings
 followed by every rhei's tickets in one undifferentiated list is not a document
 a reader can use, and a rhei with no content section of its own leaves a heading
@@ -112,8 +112,8 @@ attribution array (§3.1).
 ## 4. Behavior
 
 1. Load the plan from the file, workspace, or project.
-2. Parse it into the Rhei AST defined by the plan language. §FS-rhei-plan-language
-3. Narrow to the rhei the target named, when it named one (§FS-rhei-panta.6).
+2. Parse it into the Rhei AST defined by the plan language. [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification)
+3. Narrow to the rhei the target named, when it named one ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 4. Render the parsed plan in the selected format.
 5. Print the rendered document to stdout.
 
