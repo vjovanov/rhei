@@ -11,7 +11,7 @@
   supervised checkout actually writes into, instead of one literal path
   shared across every checkout. Literal templates and `~/` expansion are
   unaffected; an unrecognized `{name}` placeholder degrades to no
-  fixed-location tracking rather than failing the spawn. (PR #N)
+  fixed-location tracking rather than failing the spawn. (PR #129)
 - **`snapshot.emit` no longer requires `session_dir_flag`.** The predicate
   gating both `rhei validate` and the runtime emit path demanded a
   session-directory redirect flag on top of a supported `SessionLayout`,
