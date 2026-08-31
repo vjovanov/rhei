@@ -28,9 +28,12 @@ exclude = [
   "**/*.gif",
   "**/*.webp",
   "**/*.pdf",
-  # Exempt by §AR-source-file-size.1: spec files are addressed through grund
-  # declarations and subsection reads, not loaded as one undifferentiated file.
-  "**/*.spec.md",
+  # An append-only release record has no split to ask for. `docs/changelog.md`
+  # carries `Unreleased` plus the current release, and `docs/changelog/` only
+  # grows as the release archives what it displaces (§FS-rhei-distribution.5),
+  # so a line budget here would report a finding no edit can answer.
+  "docs/changelog.md",
+  "docs/changelog/**",
   # Generated, vendored, and snapshot payloads are not hand-edited surfaces.
   "**/target/**",
   "**/*.snap",
@@ -114,6 +117,38 @@ If it is hand-written content that has to stay this size, that is a human's call
 fissile exception add <path> --severity hard --rule {rule} --kind <kind>
 """
 
+[[messages]]
+id = "split-spec-soft"
+text = """
+Should split, next time you are in this document: at this length it is usually covering two subjects. Split at a section boundary that already exists — lift a top-level section into a document of its own with its own grund declaration, and leave a citation where it was. Never split at the line count: a citation that stops resolving costs every later reader more than the extra lines ever did, so move whole sections and fix the `§` markers that pointed into them.
+If this really is one subject and every section is part of it, record why instead of forcing a split — not what the document contains, which is what this finding already said. Name the constraint that makes splitting illegal (--kind structural), or the boundary that is missing and what must exist first (--kind deferred, --until naming what retires it):
+fissile exception add <path> --severity soft --rule {rule} --kind <kind>
+"""
+
+[[messages]]
+id = "split-spec-hard"
+text = """
+Must split before more text lands here: this has stopped being a document. Move the secondary detail into a child declaration — its own file under the same kind, cited from the section it left — and keep every citation resolvable: `grund <ID>.<section>` must still reach the text it named, and `grund check` is what proves it. Do not compress prose or drop the examples to get under the limit; a shorter document that answers less is not the goal.
+If you cannot see a split that leaves the declarations coherent, stop and ask a human. The only other way past this gate is a human-reviewed exception, whose reason names the constraint that makes splitting illegal (--kind structural) or the boundary that is missing and what must exist first (--kind deferred):
+fissile exception add <path> --severity hard --rule {rule} --kind <kind>
+"""
+
+[[messages]]
+id = "trim-entrypoint-soft"
+text = """
+Should shorten, next time you are in this file: an entrypoint is loaded whole into every session that starts here, so every line is charged to every read. Move a section into a document that can be reached by citation instead — a spec under `docs/` with a grund declaration — and leave the orientation and the link behind.
+If everything here has to be in the session from the first token, record why instead of trimming to fit: name the constraint that makes it indivisible (--kind structural), or the document it should move into that does not exist yet (--kind deferred, --until naming what retires it):
+fissile exception add <path> --severity soft --rule {rule} --kind <kind>
+"""
+
+[[messages]]
+id = "trim-entrypoint-hard"
+text = """
+Must shorten before more text lands here: this file is read in full by every session that starts from it. Move whole sections into documents reached by citation and leave the links behind. Do not squeeze the prose or delete the examples to get under the limit — an entrypoint that no longer orients anyone is worse than a long one.
+If it cannot be shortened without losing what a session needs before it can do anything, that is a human's call, and the exception names what makes the content indivisible (--kind structural) or what must exist before it can move (--kind deferred):
+fissile exception add <path> --severity hard --rule {rule} --kind <kind>
+"""
+
 [[rules]]
 id = "large-file-default"
 include = ["**/*"]
@@ -152,3 +187,52 @@ count_blank_lines = false
 count_comment_lines = true
 soft_message = "split-source-soft"
 hard_message = "split-source-hard"
+
+
+# Budget follows how a document is read. A citable spec — a grund-declared
+# document reached by `§ID.section` — is fetched a section at a time with
+# `grund <ID>.<section>` and is never read whole, so its length is not charged
+# to every read the way a source file's is. That argues for a bigger budget, not
+# for no budget, which is what this repository had: `**/*.spec.md` sat in
+# [scan].exclude and the spec tree was never measured once (#130).
+#
+# 750 soft is grund's own soft value, and about three times the p95 of the
+# fissile, grund, and ephor spec trees — it fires on a document that has taken
+# on a second subject, not on a thorough one. 2000 hard is the ceiling
+# §AR-source-file-size.1 already declares for any hand-authored file; here it is
+# the backstop for a document that has stopped being a document.
+[[rules]]
+id = "citable-spec"
+include = ["docs/**/*.md", "**/*.spec.md"]
+unit = "lines"
+soft = 750
+hard = 2000
+count_blank_lines = false
+count_comment_lines = true
+soft_message = "split-spec-soft"
+hard_message = "split-spec-hard"
+
+# The other half of the same reasoning. An entrypoint is not fetched by section:
+# README.md, AGENTS.md, CLAUDE.md, and the skills are loaded whole into every
+# session that starts from them, so the read cost is the whole file, every time.
+# 250/500 is the tight budget that follows.
+#
+# `priority` is what decides this rule over `citable-spec` for the index READMEs
+# under `docs/`: neither glob is more specific than the other, and without a
+# priority that overlap is an ambiguity error rather than a choice
+# (fissile spec FS-001-config.3.2).
+[[rules]]
+id = "entrypoint-doc"
+include = [
+  "README.md", "AGENTS.md", "CLAUDE.md",
+  "**/README.md", "**/AGENTS.md", "**/CLAUDE.md",
+  "**/skills/**/*.md",
+]
+unit = "lines"
+soft = 250
+hard = 500
+count_blank_lines = false
+count_comment_lines = true
+priority = 10
+soft_message = "trim-entrypoint-soft"
+hard_message = "trim-entrypoint-hard"
