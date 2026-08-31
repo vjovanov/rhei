@@ -18,7 +18,7 @@
   whole into every session that starts from them. `docs/changelog.md` and
   `docs/changelog/` are excluded instead: an append-only release record has no
   split to ask for. Six documents now report a soft finding and nothing blocks;
-  no exception was written to silence them. (PR #N)
+  no exception was written to silence them. (PR #131)
 
 ## 2. [0.3.3] - 2026-08-31
 
