@@ -864,14 +864,14 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "rhei-agent-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rhei-plan",
 ]
 
 [[package]]
 name = "rhei-api"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "napi",
  "napi-build",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "rhei-cli"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "rhei-e2e-tests"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "nix",
  "rhei-cli",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "rhei-integration-tests"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "rhei-cli",
  "rhei-plan",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "rhei-plan"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "indexmap",
  "regex",

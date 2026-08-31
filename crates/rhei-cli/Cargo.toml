@@ -16,7 +16,7 @@ readme = "../../README.md"
 include = ["src/**/*", "templates/**/*", "skills/**/*", "assets/**/*"]
 
 [dependencies]
-rhei-core = { package = "rhei-plan", path = "../rhei-core", version = "=0.3.2" }
+rhei-core = { package = "rhei-plan", path = "../rhei-core", version = "=0.3.3" }
 # Absorbed from the former rhei-cli-tui crate.
 crossbeam-channel = "0.5"
 crossterm = "0.27"
