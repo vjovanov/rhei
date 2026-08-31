@@ -741,10 +741,9 @@ transitions:
     );
 }
 
-/// §FS-rhei-programs.3.2/3.3: an exit_code-less transition is a forward edge,
-/// available only to `rhei transition` or the program itself — exit-code
-/// evaluation never selects it, even on a non-zero exit where it is the only
-/// declared transition from the state.
+/// §FS-rhei-programs.3.2/3.3: an exit_code-less transition is a forward edge
+/// available only via `rhei transition` or the program itself, never picked
+/// by exit-code evaluation, even on a non-zero exit with no other rule.
 #[test]
 fn run_program_exit_nonzero_does_not_select_an_exit_code_less_transition() {
     let plan = r#"# Rhei: Program No Exit Code Rule
