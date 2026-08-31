@@ -14,7 +14,7 @@
   newest matching transcript written no earlier than the spawn, so a leftover
   file from an earlier invocation is never mistaken for the current one. The
   `session_dir_flag` redirect path, including the built-in `pi` profile, is
-  unchanged. (PR #N)
+  unchanged. (PR #127)
 - **The e2e and integration suites move into grund's two non-citable test
   homes.** `grund.toml` declared a citable `E2E` kind at `e2e/cases` with the
   deprecated `prefix` key, and that directory held nothing but a `.gitkeep` —
