@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Spec documents are measured under a size budget instead of being exempt
+  from measurement.** `.agents/fissile.toml` kept `**/*.spec.md` in
+  `[scan].exclude`, and §AR-source-file-size.1 put `.spec.md` outside the
+  exception register outright, both on the reasoning that a spec is reached
+  through grund declarations and read a section at a time rather than loaded as
+  one undifferentiated file. The reasoning is right; the conclusion was not.
+  Being read by citation argues for a larger budget, not for none — and with no
+  budget the spec tree was never measured once. A `citable-spec` rule now covers
+  `docs/**/*.md` and `**/*.spec.md` at 750 lines soft and 2000 hard: 750 is
+  grund's own soft value and about three times the p95 of the foundation spec
+  trees, and 2000 is the ceiling §AR-source-file-size.1 already declares for any
+  hand-authored file. An `entrypoint-doc` rule covers `README.md`, `AGENTS.md`,
+  `CLAUDE.md`, and `skills/**/*.md` at 250 and 500, because those are loaded
+  whole into every session that starts from them. `docs/changelog.md` and
+  `docs/changelog/` are excluded instead: an append-only release record has no
+  split to ask for. Six documents now report a soft finding and nothing blocks;
+  no exception was written to silence them. (PR #N)
+
 ## 2. [0.3.3] - 2026-08-31
 
 - **`dir_template` can now name a per-working-directory session store.** A

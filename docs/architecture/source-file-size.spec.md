@@ -24,19 +24,40 @@ may be excluded only when they are clearly marked as generated or third-party
 and are not edited by hand. If a generated file becomes a regular hand-edited
 maintenance surface, this policy applies to it.
 
-Textual specification files with the `.spec.md` suffix are exempt from the
-500-line exception register because they are addressed through grund
-declarations and citations instead of being loaded as one undifferentiated file.
-They may grow past 500 lines when the declaration remains coherent and
-navigable through `grund <ID>`, `grund <ID> --toc`, and subsection reads.
+Documents are budgeted too, by how they are read rather than by the numbers
+source takes.
+
+A citable specification — a grund-declared document, `.spec.md` or otherwise,
+that a citation reaches by section — is fetched one section at a time through
+`grund <ID>.<section>` and is never loaded as one undifferentiated file, so its
+length is not charged to every read the way a source file's is. That earns it a
+larger budget, not an exemption from measurement: 750 lines soft, 2000 hard.
+750 is the value grund itself uses and about three times the p95 of the
+foundation spec trees, so the warning arrives when a document has taken on a
+second subject rather than when it is merely thorough. 2000 is the same ceiling
+this section sets for any hand-authored file; for a document it is the backstop
+for one that has stopped being a document. A split lifts whole sections into a
+child declaration and leaves every citation resolvable — a citation that stops
+resolving costs later readers more than the lines it saved.
+
+An entrypoint is the opposite case. `README.md`, `AGENTS.md`, `CLAUDE.md`, and
+the files under a `skills/` directory are loaded whole into every session that
+starts from them, so every line is charged to every read. They are budgeted at
+250 soft and 500 hard, and the way under that limit is to move a section into a
+document a citation can reach, leaving the orientation and the link behind.
+
+A changelog is an append-only record of releases that have already happened. It
+is not line-measured at all: there is no split to ask for, and a finding against
+it would name no edit anyone could make.
 
 ## 2. Large-File Register
 
 The register is `fissile`'s exception registries, not a table maintained by
 hand: `docs/file-size-agent-exceptions.toml` for entries that leave a soft
 finding standing and `docs/file-size-human-exceptions.toml` for entries that
-clear the hard gate. `.agents/fissile.toml` encodes §1 — 500 soft, 2000 hard —
-so the rule is now checked at commit time rather than stated and hoped for.
+clear the hard gate. `.agents/fissile.toml` encodes §1 — 500 soft and 2000 hard
+for source, 750 and 2000 for a citable spec, 250 and 500 for an entrypoint — so
+the rule is now checked at commit time rather than stated and hoped for.
 The gate itself is one `fissile check --staged` hook in
 `.pre-commit-config.yaml`, next to `grund check`: it reads the staged set, so it
 answers for the files a commit actually touches and stays silent about the
