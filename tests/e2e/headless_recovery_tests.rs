@@ -380,7 +380,7 @@ fn inlined_agent_output_leaves_the_structural_sequence_alone() {
     let (_dir, workspace, machine) = chatty_agent_workspace("headless-agent-output");
     let home = workspace.join(".home");
     fs::create_dir_all(home.join("state")).expect("isolated home");
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_rhei"))
+    let out = std::process::Command::new(super::rhei_binary())
         .current_dir(&workspace)
         .env("HOME", &home)
         .env("XDG_STATE_HOME", home.join("state"))

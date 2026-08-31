@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{unique_temp_dir, CliRun};
+use super::{rhei_binary, unique_temp_dir, CliRun};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
@@ -73,7 +73,7 @@ fn run_install_skills_with(home: &Path, bin: &Path, cwd: &Path, extra_args: &[&s
 /// is what the embedded skills exist for. §FS-rhei-install-skills.4.3
 fn binary_outside_checkout(dir: &Path) -> PathBuf {
     let dest = dir.join("rhei");
-    fs::copy(env!("CARGO_BIN_EXE_rhei"), &dest).expect("copy the rhei binary");
+    fs::copy(rhei_binary(), &dest).expect("copy the rhei binary");
     dest
 }
 
@@ -380,7 +380,7 @@ fn link_mode_creates_symlinks() {
 #[cfg(unix)]
 #[test]
 fn a_refused_install_prints_its_help_and_not_only_its_message() {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = Command::new(rhei_binary());
     cmd.env_remove("HOME");
     cmd.args(["install-skills", "--agent", "kilocode", "--link"]);
     let output = cmd.output().expect("rhei command should run");

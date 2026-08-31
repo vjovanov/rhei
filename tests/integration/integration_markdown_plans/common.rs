@@ -13,12 +13,19 @@ use serde_yaml::Value as YamlValue;
 
 // The same guard and fixture helpers the e2e harness uses; `include!` rather
 // than `mod`, because this harness is one flat module assembled by `include!`.
-include!("../support/test_dir.rs");
-include!("../support/python_fixture.rs");
+include!("../../support/test_dir.rs");
+include!("../../support/python_fixture.rs");
 
 #[allow(dead_code)]
-#[path = "../../../rhei-core/tests/fixtures.rs"]
+#[path = "../../../crates/rhei-core/tests/fixtures.rs"]
 mod fixtures;
+
+// `binaries.rs` opens with its own `#![allow(dead_code)]`, valid only at the
+// top of a module — `mod`, not `include!`, so that attribute lands on a module
+// of its own rather than splicing into this file's.
+#[path = "../../support/binaries.rs"]
+mod binaries;
+use binaries::rhei_binary;
 
 /// Every `rhei` this harness spawns, with **both** state locations pinned into
 /// a directory of its own.
@@ -45,7 +52,7 @@ fn rhei_command() -> Command {
         fs::create_dir_all(home.join("state")).expect("isolated state directory");
         home
     });
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+    let mut cmd = Command::new(rhei_binary());
     cmd.env("HOME", home);
     cmd.env("XDG_STATE_HOME", home.join("state"));
     cmd

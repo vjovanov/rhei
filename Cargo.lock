@@ -909,6 +909,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rhei-e2e-tests"
+version = "0.3.2"
+dependencies = [
+ "nix",
+ "rhei-cli",
+ "rhei-plan",
+ "serde_json",
+]
+
+[[package]]
+name = "rhei-integration-tests"
+version = "0.3.2"
+dependencies = [
+ "rhei-cli",
+ "rhei-plan",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "rhei-plan"
 version = "0.3.2"
 dependencies = [

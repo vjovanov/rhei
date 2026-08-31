@@ -11,7 +11,7 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use super::{fixture_command, unique_temp_dir, write_python_agent, TestDir};
+use super::{fixture_command, rhei_binary, unique_temp_dir, write_python_agent, TestDir};
 
 /// A state machine whose only work is a program, so a run does real work with
 /// no agent binary in sight. The command is absolute because a test workspace
@@ -112,7 +112,7 @@ print("done " + task, flush=True)
     /// A `rhei` command against this workspace's isolated `HOME`, not yet run —
     /// for the cases that need to signal it or watch it while it works.
     pub fn rhei_command(&self, args: &[&str]) -> Command {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_rhei"));
+        let mut cmd = Command::new(rhei_binary());
         cmd.current_dir(&self.root);
         cmd.env("HOME", &self.home);
         // The registry lives under the state directory, so pinning HOME is not

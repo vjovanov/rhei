@@ -309,7 +309,7 @@ fn missing_subcommand_under_a_group_is_a_usage_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     // The usage line names the process as it was invoked, which on Windows is
     // `rhei.exe`. Ask for the platform's own spelling rather than Unix's.
-    let invoked = Path::new(env!("CARGO_BIN_EXE_rhei"))
+    let invoked = rhei_binary()
         .file_name()
         .expect("binary file name")
         .to_string_lossy()

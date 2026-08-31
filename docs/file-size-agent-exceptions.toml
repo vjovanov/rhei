@@ -68,7 +68,7 @@ reason = """
 Example mirrors the spec-implementation template state machine.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/e2e/completions_tests.rs"
+path = "tests/e2e/completions_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -78,7 +78,7 @@ reason = """
 E2E completion scenarios share setup and assertions.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/e2e/templates_tests.rs"
+path = "tests/e2e/templates_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -88,7 +88,7 @@ reason = """
 Template E2E scenarios share fixtures and setup.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/e2e/next_tests.rs"
+path = "tests/e2e/next_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -108,7 +108,7 @@ reason = """
 Template state machine must be copied as one instantiable workflow artifact.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/e2e/run_tests.rs"
+path = "tests/e2e/run_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -168,7 +168,7 @@ reason = """
 Settings load/merge/validate tests share workspace and home-dir fixtures.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/integration_markdown_plans/run_programs_callbacks.rs"
+path = "tests/integration/integration_markdown_plans/run_programs_callbacks.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -178,7 +178,7 @@ reason = """
 Program-and-callback integration cases share workspace setup and process assertions.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/integration_markdown_plans/run_agent_regressions.rs"
+path = "tests/integration/integration_markdown_plans/run_agent_regressions.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -248,7 +248,7 @@ reason = """
 `rhei agent` subcommand dispatch holds list/show/resolve/spawn next to each other for one help surface.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/e2e/run_signals_tests.rs"
+path = "tests/e2e/run_signals_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
@@ -258,7 +258,7 @@ reason = """
 Signal, timeout, and lost-output cases share one process-supervision harness: spawning a real run, tracking its pid and grandchildren, and asserting on what survives each shutdown path.
 """
 [[exceptions]]
-path = "crates/rhei-cli/tests/integration_markdown_plans/workspace_validation_panta.rs"
+path = "tests/integration/integration_markdown_plans/workspace_validation_panta.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"

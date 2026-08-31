@@ -1,0 +1,34 @@
+# The repository's `e2e` home (grund.toml, FS-config.3.4.4) is also a
+# workspace member, so the Rust tests in it are built and run by
+# `cargo test --workspace` without a `[[test]] path` reaching out of a
+# published crate — `cargo package` verifies a crate against its own tree, and
+# a target outside it would not be there.
+[package]
+name = "rhei-e2e-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+description = "User scenarios: black-box proof of the rhei spec."
+
+# The tests are the files of this directory: it is the home, not a crate with
+# a `tests/` subtree of its own.
+autotests = false
+
+[[test]]
+name = "e2e"
+path = "mod.rs"
+
+[dev-dependencies]
+rhei-core = { package = "rhei-plan", path = "../../crates/rhei-core" }
+rhei-cli = { path = "../../crates/rhei-cli" }
+serde_json = "1"
+
+# Only the pty-based interruption e2e needs this, and only on Unix — Windows is
+# in the CI matrix and `nix` does not build there. §FS-rhei-run-tui.1.5.7
+[target.'cfg(unix)'.dev-dependencies]
+# `fs` is what gates `nix::fcntl`, which the hung-up-terminal e2e needs to keep
+# the pty out of the child it spawns. §FS-rhei-run.3.2
+nix = { version = "0.29", features = ["term", "fs"] }
