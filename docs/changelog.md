@@ -9,9 +9,12 @@
   to `completed`) — applying success semantics to a failure: the supervision
   block was released, its checkpoints dropped, and `stateVisits` bumped, so a
   rerun found nothing left to schedule. Exit-code routing now only ever
-  selects a transition that declares `exit_code`; an unmatched non-zero exit
-  fires no transition, so a failed visit leaves `phase: held`, its
-  checkpoints, and `stateVisits` untouched, and a rerun re-spawns it. (PR #N)
+  selects a transition that declares `exit_code` — except a poll state's
+  exhaustion edge, still selected once its attempt budget is spent even when
+  it declares no `exit_code`, per its existing `pollAttempts >=
+  pollMaxAttempts` routing. An unmatched non-zero exit otherwise fires no
+  transition, so a failed visit leaves `phase: held`, its checkpoints, and
+  `stateVisits` untouched, and a rerun re-spawns it. (PR #N)
 
 ## 2. [0.3.2] - 2026-08-30
 

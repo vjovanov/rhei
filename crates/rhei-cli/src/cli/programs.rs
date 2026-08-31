@@ -364,6 +364,26 @@ fn program_transition_is_applicable(
     .unwrap_or(false)
 }
 
+// Keyed strictly to `poll:` states, mutually exclusive with `visits`, so an
+// exhausted supervising `visits` budget never widens into this carve-out
+// (vjovanov/rhei#122). §FS-rhei-run.5.1
+fn poll_attempts_exhausted(
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task: &rhei_core::ast::Task,
+    current_state: &str,
+) -> bool {
+    machine.states.get(current_state).and_then(|def| def.poll.as_ref()).is_some()
+        && !loop_reentry_allowed(
+            machine,
+            metadata,
+            &task.id,
+            current_state,
+            task.state.as_str(),
+            current_state,
+        )
+}
+
 fn find_program_exit_transition(
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
@@ -382,9 +402,12 @@ fn find_program_exit_transition(
                 program_transition_is_applicable(rule, machine, metadata, task, current_state)
             });
 
-    // A non-zero exit selects only a rule that declares `exit_code`: an
-    // exit_code-less rule (e.g. a supervisor's release self-loop) is a
-    // forward edge, not error routing. §FS-rhei-programs.3.2 §FS-rhei-programs.3.3
+    let poll_exhaustion_active =
+        exit_code != 0 && poll_attempts_exhausted(machine, metadata, task, current_state);
+
+    // A non-zero exit selects only an exit_code-declaring rule — except a
+    // poll state's exhaustion edge, the spec'd non-self-loop match once
+    // attempts are spent. §FS-rhei-programs.3.2 §FS-rhei-programs.3.3 §FS-rhei-run.5.1
     let ordered_match = machine
         .transitions()
         .iter()
@@ -392,6 +415,8 @@ fn find_program_exit_transition(
         .filter(|rule| {
             if exit_code == 0 {
                 rule.exit_code.is_none() || transition_matches_exit_code(rule, exit_code)
+            } else if rule.exit_code.is_none() {
+                poll_exhaustion_active && rule.to.0 != current_state
             } else {
                 transition_matches_exit_code(rule, exit_code)
             }

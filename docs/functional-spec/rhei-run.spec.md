@@ -191,8 +191,9 @@ from silently completing fresh tasks without executing them.
      state's error or timeout transition per
      [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
      The error route selects only a transition the state declares with
-     `exit_code` (§FS-rhei-programs.3.2) — one with no `exit_code` field is
-     never selected on a non-zero exit, whatever else about it would match.
+     `exit_code` (§FS-rhei-programs.3.2), except a poll state's exhaustion
+     edge: once its attempt budget is spent, the first matching non-self-loop
+     transition is selected regardless of `exit_code` (§5.1).
      When no such transition is declared and `--continue-on-error` is unset,
      `rhei run` aborts with a non-zero exit code.
    - **The subprocess exited `0` and the completion condition fails** — a
