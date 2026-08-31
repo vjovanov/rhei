@@ -239,6 +239,7 @@ fn spawn_parallel_agent_work_item(
     let snapshot_preload = preload_snapshot_inherit_before_spawn(
         input,
         workspace_root,
+        &working_dir,
         machine,
         task,
         &item.current_state,

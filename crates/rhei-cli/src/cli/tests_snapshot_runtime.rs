@@ -24,6 +24,7 @@
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
             dir.path(),
+            dir.path(),
             &machine,
             task,
             "pending",
@@ -119,6 +120,7 @@ transitions:
         let (loaded, machine, resolved) = snapshot_preload_parts(inherit_dir.path(), &settings);
         let task = loaded.rhei.tasks.first().expect("task");
         let err = preload_snapshot_inherit_before_spawn(
+            inherit_dir.path(),
             inherit_dir.path(),
             inherit_dir.path(),
             &machine,
@@ -493,6 +495,7 @@ transitions:
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
             dir.path(),
+            dir.path(),
             &machine,
             task,
             "pending",
@@ -604,6 +607,7 @@ transitions:
             match preload_snapshot_inherit_before_spawn(
                 dir.path(),
                 dir.path(),
+                dir.path(),
                 &machine,
                 task,
                 "pending",
@@ -663,6 +667,7 @@ transitions:
         let err = preload_snapshot_inherit_before_spawn(
             dir.path(),
             dir.path(),
+            dir.path(),
             &machine,
             task,
             "pending",
@@ -713,6 +718,7 @@ transitions:
             snapshot_override_options("plan.1:impl:review@1:claude-code-anthropic-model/g1", true);
 
         let preload = preload_snapshot_inherit_before_spawn(
+            dir.path(),
             dir.path(),
             dir.path(),
             &machine,
@@ -915,6 +921,7 @@ transitions:
         let preload_a = preload_snapshot_inherit_before_spawn(
             dir.path(),
             dir.path(),
+            dir.path(),
             &machine,
             task,
             "pending",
@@ -935,6 +942,7 @@ transitions:
         );
 
         let preload_b = preload_snapshot_inherit_before_spawn(
+            dir.path(),
             dir.path(),
             dir.path(),
             &machine,
@@ -1054,6 +1062,7 @@ transitions:
         assert_eq!(selection.target_slug, selected_run_slug);
 
         let preload = preload_snapshot_inherit_before_spawn(
+            dir.path(),
             dir.path(),
             dir.path(),
             &machine,

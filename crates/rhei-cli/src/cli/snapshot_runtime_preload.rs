@@ -22,6 +22,7 @@
 fn preload_snapshot_inherit_before_spawn(
     input: &Path,
     workspace_root: &Path,
+    spawn_working_dir: &Path,
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
     current_state: &str,
@@ -78,7 +79,7 @@ fn preload_snapshot_inherit_before_spawn(
             // §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1: Fixed-location emit.
             // Never write into this directory, only read after exit; a resolution
             // failure (e.g. no HOME) degrades to no tracking, never fails spawn.
-            match resolve_snapshot_dir_template(&template) {
+            match resolve_snapshot_dir_template(&template, spawn_working_dir) {
                 Ok(dir) => {
                     preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
                     if let Some(flag) = snapshot_session_string(session, "assign_id_flag") {

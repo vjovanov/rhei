@@ -720,6 +720,23 @@ A profile with no `session_dir_flag` — the agent writes sessions to a location
 it derives itself, with no redirect flag — still supports emit from a
 `FlatById` layout's `dir_template`, the fixed directory the agent writes into.
 A leading `~/` in `dir_template` expands against the user's home directory.
+`dir_template` may also contain the placeholder `{cwd_dashed}`, which expands
+to this agent invocation's spawn working directory — canonicalized, so it
+matches the cwd the child process itself observes via `getcwd` — with every
+character outside `[A-Za-z0-9-]` replaced by `-`: the convention Claude Code
+itself uses for its own per-project session directories, so a template like
+`~/.claude/projects/{cwd_dashed}` names the same directory Claude Code writes
+to. The two expansions compose in that order — home first, placeholder
+second. `/home/u/proj` dashes to `-home-u-proj`; a `.` dashes the same as a
+`/`, so `/home/u/.claude-worktrees/x` dashes to `-home-u--claude-worktrees-x`
+(the double dash is the `/` and the `.` each becoming their own `-`, not a
+typo). A template with no placeholder keeps today's exact literal-path
+behavior. An unrecognized `{name}` token is a resolution failure — it takes
+the same degrade path as an unresolvable `~/` below (fixed-location tracking
+disabled for this spawn, the spawn itself proceeds) rather than being read as
+a literal directory name, because a literal `{typo}` directory never matches
+anything and reading it literally would hide the typo silently.
+
 When the profile also declares `assign_id_flag`, rhei generates a session id,
 passes it with that flag at spawn, and after exit reads exactly
 `<dir>/<id>.<ext>` — an exact-path read, no scan. Without `assign_id_flag`,
@@ -861,17 +878,20 @@ independent of whether the state declares `snapshot.inherit:`, the
 orchestrator resolves how it will later locate the transcript for emit
 (§9.1): if `session_dir_flag` is set, it creates a fresh invocation-private
 directory and appends the flag; otherwise, if the layout carries
-`dir_template`, it resolves that fixed directory and, when `assign_id_flag`
-is set, generates a session id and appends the flag. Neither step touches the
+`dir_template`, it resolves that fixed directory — expanding a leading `~/`
+against the home directory and a `{cwd_dashed}` placeholder against this
+spawn's own working directory, in that order — and, when `assign_id_flag` is
+set, generates a session id and appends the flag. Neither step touches the
 agent's real session storage beyond appending the declared flags — the
 `session_dir_flag` redirect is the only case that stages a transcript into a
 directory rhei manages, and it never writes into a `dir_template` fixed
 location. If the `dir_template` cannot be resolved (a leading `~/` with no
-home directory available), the orchestrator logs "could not resolve snapshot
-dir_template ...; fixed-location snapshot tracking disabled for this spawn"
-and spawns without fixed-location tracking rather than failing the spawn:
-this invocation loses emit/preload for that agent, not the run. The numbered
-steps below are specific to `snapshot.inherit:`.
+home directory available, or an unrecognized `{name}` placeholder), the
+orchestrator logs "could not resolve snapshot dir_template ...;
+fixed-location snapshot tracking disabled for this spawn" and spawns without
+fixed-location tracking rather than failing the spawn: this invocation loses
+emit/preload for that agent, not the run. The numbered steps below are
+specific to `snapshot.inherit:`.
 
 For each spawn of a state declaring `snapshot.inherit:`:
 
