@@ -741,6 +741,55 @@ transitions:
     );
 }
 
+/// §FS-rhei-programs.3.2/3.3: an exit_code-less transition is a forward edge,
+/// available only to `rhei transition` or the program itself — exit-code
+/// evaluation never selects it, even on a non-zero exit where it is the only
+/// declared transition from the state.
+#[test]
+fn run_program_exit_nonzero_does_not_select_an_exit_code_less_transition() {
+    let plan = r#"# Rhei: Program No Exit Code Rule
+
+## Tasks
+
+### Task 1: Build artifact
+**State:** build
+"#;
+    let dir = unique_temp_dir("run-program-no-exit-code-rule");
+    let program = write_python_agent(&dir, "build.py", "sys.exit(1)\n");
+    let machine = format!(
+        r#"name: program-no-exit-code-rule
+version: 1
+states:
+  build:
+    description: Build the artifact
+    program:
+      command: {command}
+    attempts: 1
+  next:
+    description: Reachable only by a declared exit_code match
+    final: true
+transitions:
+  - from: build
+    to: next
+    description: No exit_code field — never selected on a non-zero exit
+"#,
+        command = fixture_command(&program)
+    );
+
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert!(
+        !result.status.success(),
+        "no transition matches the non-zero exit, so the run halts; got:\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "build");
+    assert_stderr_contains(&result, "error: program exited with code 1");
+}
+
 #[test]
 fn run_counted_self_loop_terminates_at_visit_budget() {
     // Regression: under `rhei run`, a counted state that loops to ITSELF

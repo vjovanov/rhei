@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A failed visit to an `execute_on` state no longer strands the run.** On a
+  non-zero subprocess exit, `rhei run` selected the first transition with no
+  `exit_code` field — for a supervising state, that is the release self-loop
+  (or, when the subtree already looked closed, the `openDescendants < 1` edge
+  to `completed`) — applying success semantics to a failure: the supervision
+  block was released, its checkpoints dropped, and `stateVisits` bumped, so a
+  rerun found nothing left to schedule. Exit-code routing now only ever
+  selects a transition that declares `exit_code`; an unmatched non-zero exit
+  fires no transition, so a failed visit leaves `phase: held`, its
+  checkpoints, and `stateVisits` untouched, and a rerun re-spawns it. (PR #N)
+
 ## 2. [0.3.2] - 2026-08-30
 
 - **The re-spawn note on a poll state names its own `poll.max_attempts`

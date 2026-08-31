@@ -382,13 +382,19 @@ fn find_program_exit_transition(
                 program_transition_is_applicable(rule, machine, metadata, task, current_state)
             });
 
+    // A non-zero exit selects only a rule that declares `exit_code`: an
+    // exit_code-less rule (e.g. a supervisor's release self-loop) is a
+    // forward edge, not error routing. §FS-rhei-programs.3.2 §FS-rhei-programs.3.3
     let ordered_match = machine
         .transitions()
         .iter()
         .filter(|rule| rule.from.0 == current_state)
         .filter(|rule| {
-            rule.exit_code.is_none()
-                || transition_matches_exit_code(rule, exit_code)
+            if exit_code == 0 {
+                rule.exit_code.is_none() || transition_matches_exit_code(rule, exit_code)
+            } else {
+                transition_matches_exit_code(rule, exit_code)
+            }
         });
 
     for rule in ordered_match {
