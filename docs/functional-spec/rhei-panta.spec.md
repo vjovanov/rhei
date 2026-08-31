@@ -4,12 +4,12 @@ Panta is the single, invisible root of a Rhei project. It sits above every rhei
 and every ticket, gives new rheis a default home, and is the one anchor from
 which an operator can see the whole project as a single graph. Making the whole
 project visible from one root, and keeping "add a rhei" a zero-friction action,
-serve Rhei's monitoring and predictability goals. §GOAL-rhei-outcomes
+serve Rhei's monitoring and predictability goals. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 The name follows *panta rhei* ("everything flows"): Panta is the still point that
 contains all the flows. The decision and its rationale are recorded in
-§DA-panta-root; the load model, on-disk layout, and id rules are specified in
-§AR-rhei-panta.
+[§DA-panta-root](../decisions/architectural/panta-root.md#da-panta-root-panta-is-the-per-project-virtual-root-above-all-rheis); the load model, on-disk layout, and id rules are specified in
+[§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture).
 
 ## 1. What Panta is
 
@@ -42,8 +42,8 @@ Creating a rhei without specifying where it goes places it under Panta. Panta is
 the implicit default parent, so adding a rhei takes no location argument:
 dropping a `<id>.rhei.md` file or a workspace directory into the project
 directory is enough, and discovery picks it up on the next load
-(§AR-rhei-panta.1). `rhei new` scripts that action, and writing the file by
-hand stays exactly as valid (§FS-rhei-new):
+([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)). `rhei new` scripts that action, and writing the file by
+hand stays exactly as valid ([§FS-rhei-new](rhei-new.spec.md#fs-rhei-new-rhei-new)):
 
 ```bash
 rhei new "Authentication"                  # a rhei under Panta
@@ -53,7 +53,7 @@ rhei new "Rotate keys" --under auth        # a ticket inside rhei auth
 There is no `--under` for a *rhei*, because there is nowhere for it to point.
 The hierarchy is exactly Panta -> rhei -> ticket (§1), a rhei id is a single
 segment, and discovery never descends past the project directory's immediate
-children (§AR-rhei-panta.1): a rhei nested inside another rhei would not be
+children ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)): a rhei nested inside another rhei would not be
 found. `--under` therefore names where a *ticket* goes — the sense in which
 new work is ever placed somewhere other than the default.
 
@@ -62,7 +62,7 @@ basin is loaded as a level-1 rhei with id `basin`, so quick captures do not
 require choosing a domain rhei first while the hierarchy remains Panta -> rhei
 -> ticket. Basin tickets use ordinary rhei-local ids and project-wide ids such
 as `basin.3`. `rhei new "<title>" --under basin` is the capture path, creating
-`basin/` on first use (§FS-rhei-new.3).
+`basin/` on first use ([§FS-rhei-new.3](rhei-new.spec.md#3-creating-a-ticket)).
 
 `basin` is a permanently reserved rhei id, independent of whether any basin
 content currently exists: a discovered domain rhei with id `basin` is a
@@ -81,10 +81,10 @@ graph rather than as many disconnected plans:
   always derived from its rheis and is never stored.
 - **Dependencies resolve across rheis.** A ticket in one rhei may declare a
   `**Prior:**` on a ticket in another rhei; the reference resolves against the
-  whole project graph. §AR-rhei-panta
+  whole project graph. [§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture)
 - **Listing and monitoring** read the one merged graph: `rhei list` prints every
   ticket under its project-qualified id in a flat listing, indenting rhei-locally
-  so the rhei prefix marks ownership (§FS-rhei-list.4.1). Grouping the output
+  so the rhei prefix marks ownership ([§FS-rhei-list.4.1](rhei-list.spec.md#41-text-default)). Grouping the output
   under rhei-level headings with a per-rhei status rollup is deferred, tracked
   on the roadmap.
 
@@ -115,7 +115,7 @@ A rhei is addressed by its id (for example `auth`). A ticket is addressed by its
 project-wide path, formed by joining its rhei id with its rhei-local id
 (`auth.1`, `auth.1.2`, `basin.3`). This makes ticket identities unique across
 the whole project without authors coordinating ids by hand. The exact
-id-extension and grammar rules are specified in §AR-rhei-panta.
+id-extension and grammar rules are specified in [§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture).
 
 ## 6. Project scope and command behavior
 
@@ -128,8 +128,8 @@ file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>
 **A rhei that belongs to a project always loads through it.** Pointing a command
 at `panta/billing.rhei.md` loads the project and narrows to `billing` — it is
 `--rhei billing`, not a plan read in isolation. A member rhei cannot be
-understood alone: its `**Prior:**` may point across rheis (§AR-rhei-panta.3) and
-its state machine comes from the manifest (§AR-rhei-panta.4). Loading the file
+understood alone: its `**Prior:**` may point across rheis ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)) and
+its state machine comes from the manifest ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)). Loading the file
 by itself made a *correct* plan fail, because a cross-rhei prior has nothing to
 resolve against, so `rhei validate <member>` reported errors that
 `rhei validate` on the same project did not — false failures for any per-file
@@ -138,7 +138,7 @@ the id implied by the path.
 
 Two commands do not widen:
 
-- `rhei validate` takes no `--rhei` at all (§FS-rhei-validate.1.1), so pointing
+- `rhei validate` takes no `--rhei` at all ([§FS-rhei-validate.1.1](rhei-validate.spec.md#11-why-there-is-no---rhei)), so pointing
   it at a member rhei validates the whole project and says so.
 - `rhei cost` reads accounting artifacts under the target's own runtime root and
   resolves no dependency graph, so it stays on the path it was given.
@@ -180,10 +180,10 @@ current directory, nearest match first. At each level, in order:
 1. a directory containing `index.panta.md` is the project;
 2. a directory whose `panta/` child contains `index.panta.md` resolves to
    that child — the conventional project folder `rhei init` creates
-   (§FS-rhei-init), so bare commands work from the whole host repository;
+   ([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)), so bare commands work from the whole host repository;
 3. a directory containing `index.rhei.md` is that workspace rhei;
 4. in the invocation directory only: a directory containing exactly one
-   rhei — counted the way project discovery counts them (§AR-rhei-panta.1):
+   rhei — counted the way project discovery counts them ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)):
    a `*.rhei.md` file or a Directory Workspace subdirectory, hidden
    dot-prefixed names skipped — is that rhei.
 
@@ -195,7 +195,7 @@ subdirectory below it.
 
 An invocation directory holding more than one rhei but no `index.panta.md`
 is ambiguous: the error names the candidates and both fixes — pass one
-explicitly, or run `rhei init` (§FS-rhei-init) to make the directory a
+explicitly, or run `rhei init` ([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)) to make the directory a
 project. When the walk reaches the filesystem root without a match, the
 error says what was searched for and how to point the command at a plan, not
 merely that a required argument is missing.
@@ -211,7 +211,7 @@ the merged project graph; `rhei run`, `rhei next`, `rhei transition`,
 `rhei complete`, and `rhei reset` mutate it, routing every state, assignee,
 result, and runtime-artifact rewrite back to the owning rhei file. Because a
 single rhei loaded directly is the sole rhei of an implicit Panta
-(§AR-rhei-panta.2), there is no separate "bare rhei" command path: targeting one
+([§AR-rhei-panta.2](../architecture/rhei-panta.spec.md#2-load-model)), there is no separate "bare rhei" command path: targeting one
 rhei is simply a one-rhei project, and `--rhei <id>` narrows a multi-rhei project
 to named rheis.
 
@@ -228,7 +228,7 @@ the available rhei ids, rather than a silently empty scope.
 A ticket target passed to a command (`rhei complete <id>`, `rhei transition
 <id>`, `rhei release <id>`, …) is either the project-qualified id (`auth.1`) or
 a rhei-local shorthand (`1`). Every such command takes it the same two ways —
-positionally or through `--task` (§FS-rhei-usage.2). A rhei-local target resolves only when exactly one in-scope
+positionally or through `--task` ([§FS-rhei-usage.2](rhei-usage.spec.md#2-coordination-through-the-state-machine)). A rhei-local target resolves only when exactly one in-scope
 rhei contains that ticket; ambiguity across rheis is an error that names the
 qualified candidates. Output, artifacts, and ledgers always use the qualified
 id regardless of how the target was written.
@@ -248,7 +248,7 @@ The state machine is per-rhei, defaulted by the project. The `index.panta.md`
 declaration — or the built-in `rhei` machine when the manifest declares none —
 governs every rhei that does not declare its own `**States:**`, plus the
 synthetic `basin` rhei and the Panta root's node policy. A rhei that declares
-its own machine runs under it (§AR-rhei-panta.4): a machine is a *process*,
+its own machine runs under it ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)): a machine is a *process*,
 and one project holds several processes the moment it holds two instantiated
 templates. Restating the default is legal and means the same thing as omitting
 the line. Each ticket validates, transitions, and completes under its owning
@@ -258,11 +258,11 @@ under the target's machine (§6.1).
 ### 6.1. Readiness and `rhei next`
 
 Readiness is **project-global**. A ticket is ready when it is claimable — its
-own descendants, if any, all terminal (§FS-rhei-next.3) —
+own descendants, if any, all terminal ([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)) —
 and every `**Prior:**` is terminal-and-not-cancelled, resolved across the whole
 project graph — a ticket in one rhei may be blocked by a ticket in another.
 Terminal status of each prior is judged against the machine of the rhei that
-*owns the prior* (§AR-rhei-panta.4) — the target ticket's states mean what its
+*owns the prior* ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)) — the target ticket's states mean what its
 own process says they mean, wherever the waiting ticket lives.
 Rheis and Panta are structural rollups and are never claimable. `--rhei` narrows
 the candidate tickets but never narrows where their priors resolve: a candidate
@@ -278,13 +278,13 @@ tickets, and marks a blocking prior that lives outside the scope as such
 ticket as the work in progress is wrong — it reads as a bug in narrowing.
 
 Claim mode writes the `**Assignee:**` into the owning rhei's file, resolved
-through the source map (§AR-rhei-panta.2). `--peek` is read-only and never
+through the source map ([§AR-rhei-panta.2](../architecture/rhei-panta.spec.md#2-load-model)). `--peek` is read-only and never
 writes.
 
 ### 6.2. `rhei run`
 
 At project scope, `rhei run` orchestrates ready tickets across all in-scope rheis
-under one loop, applying the project state machine (§AR-rhei-panta.4). It drives
+under one loop, applying the project state machine ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)). It drives
 tickets to terminal states; it never writes state to a rhei or Panta node. Concurrency
 across rheis is bounded, and each spawned unit is attributed to its rhei in logs
 and accounting. The loop stops when no eligible ticket remains in scope or a
@@ -319,7 +319,7 @@ names any other id, is an error.
 
 `rhei complete` finishes a ticket, leaf or not — a non-leaf ticket is a task in
 its own right and is finished the same way, once its own descendants are
-terminal (§FS-rhei-plan-language.3). A rhei is done when all its tickets are
+terminal ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)). A rhei is done when all its tickets are
 terminal, and Panta when all rheis are done, but this status is **derived, not
 stored**: rheis and the virtual Panta have no `**State:**` to write, so no
 cascade stamps `completed` up the tree — doneness is computed on read. Giving a
@@ -349,12 +349,12 @@ roadmap.
   keys too, but only at an execution root whose every rhei is in scope —
   sibling rheis sharing a root make bare local ids ambiguous. Run-scoped output — the run report, the dashboard, accounting rollups —
   is not ticket-owned; a narrowed reset keeps it and **says so**, rather than
-  letting the operator discover the difference (§FS-rhei-reset.2.1).
+  letting the operator discover the difference ([§FS-rhei-reset.2.1](rhei-reset.spec.md#21-narrowed-reset---rhei)).
 - `rhei validate` always checks the whole project graph: cross-rhei dependency
   resolution, project-qualified id uniqueness, rhei-id validity, and the reserved
   `panta`/`rhei` kinds.
 - `rhei list` is project-wide, printing every rhei's tickets under their
-  qualified ids (§FS-rhei-list.4.1); existing filters
+  qualified ids ([§FS-rhei-list.4.1](rhei-list.spec.md#41-text-default)); existing filters
   (`--ready`, `--state`, `--assignee`, kind) apply across the project, and
   `--rhei` filters to a rhei. The `basin` rhei's tickets are ordered last in
   default output; visual de-emphasis is deferred (§4).
@@ -362,13 +362,13 @@ roadmap.
   uses, so its tickets carry their qualified ids (`auth.1`): every rhei's
   tickets in one graph, cross-rhei dependency edges drawn, and Directory
   Workspace rheis included. A member rhei renders that graph narrowed to itself,
-  keeping the one-hop neighbours its priors point at (§FS-rhei-viz.7.3). Panta
+  keeping the one-hop neighbours its priors point at ([§FS-rhei-viz.7.3](rhei-viz.spec.md#73-panta-projects-render-as-one-graph)). Panta
   is the implicit canvas, never a drawn root box. Rheis as *visually grouped*
   top-level bands, and a `basin` group placed last and de-emphasized, remain
   presentation work tracked on the roadmap (§4).
 
 ## Related Specifications
 
-- [Plan Language](rhei-plan-language.spec.md) — grammar, the node hierarchy, and the virtual-root model §FS-rhei-plan-language.3
-- [Panta Architecture](../architecture/rhei-panta.spec.md) — load model, on-disk layout, id rules §AR-rhei-panta
-- [Panta Root Decision](../decisions/architectural/panta-root.md) — why Panta is a unified virtual root §DA-panta-root
+- [Plan Language](rhei-plan-language.spec.md) — grammar, the node hierarchy, and the virtual-root model [§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)
+- [Panta Architecture](../architecture/rhei-panta.spec.md) — load model, on-disk layout, id rules [§AR-rhei-panta](../architecture/rhei-panta.spec.md#ar-rhei-panta-panta-root-architecture)
+- [Panta Root Decision](../decisions/architectural/panta-root.md) — why Panta is a unified virtual root [§DA-panta-root](../decisions/architectural/panta-root.md#da-panta-root-panta-is-the-per-project-virtual-root-above-all-rheis)

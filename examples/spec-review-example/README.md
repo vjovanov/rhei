@@ -19,7 +19,7 @@ across checkout locations and temporary e2e copies. Instantiating the template
 does not produce it — a real instantiation reviews the spec the `spec` input
 names, and ships no demo data.
 
-<!-- Fixture grounding for repository validation: §FS-template-review-fixture -->
+<!-- Fixture grounding for repository validation: [§FS-template-review-fixture](specs/template-review-fixture.spec.md#fs-template-review-fixture-template-review-fixture) -->
 
 ## Validate
 

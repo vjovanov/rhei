@@ -1,7 +1,7 @@
 # FS-rhei-version: `rhei version`
 
 Print the CLI and core crate versions so operators can include exact tool
-versions in bug reports, CI logs, release checks, and support handoffs. §GOAL-rhei-outcomes
+versions in bug reports, CI logs, release checks, and support handoffs. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. Usage
 
@@ -24,7 +24,7 @@ rhei-output <version>
 
 The version values come from the compiled crate metadata. `rhei-validator` and
 `rhei-output` are modules inside `rhei-cli` rather than separate packages
-(§FS-rhei-distribution.1); they stay on their own lines because §FS-rhei-version.3
+([§FS-rhei-distribution.1](rhei-distribution.spec.md#1-release-targets)); they stay on their own lines because [§FS-rhei-version.3](rhei-version.spec.md#3-output-contract)
 promises the component names are stable for scripts. The command does not read
 plans, load state machines, inspect settings, touch runtime files, or perform
 network access.

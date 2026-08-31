@@ -3,12 +3,12 @@
 Rhei uses GitHub Actions as the remote authority for formatting, linting,
 build, test, grounding, pre-commit, and release checks. The workflow layout
 keeps normal pull-request feedback fast while moving slower packaging work to
-pre-release and release workflows. §FS-rhei-distribution
+pre-release and release workflows. [§FS-rhei-distribution](../functional-spec/rhei-distribution.spec.md#fs-rhei-distribution-rhei-distribution-and-release-process)
 
 ## 1. Development CI
 
 The matrix is the cross-platform requirement made executable: Rhei supports
-Linux, macOS, and Windows as one tool (§REQ-cross-platform.3), so the
+Linux, macOS, and Windows as one tool ([§REQ-cross-platform.3](../requirements/cross-platform.md#3-tested-not-assumed)), so the
 suite that proves a behaviour runs on all three.
 
 The `CI` workflow runs on pushes and pull requests as two jobs that run in
@@ -28,7 +28,7 @@ cargo test --workspace --all-targets --locked --no-fail-fast
 ```
 
 No platform is a subset of another: every target the workspace has runs
-everywhere, which is what §REQ-cross-platform.3 asks of this workflow. The
+everywhere, which is what [§REQ-cross-platform.3](../requirements/cross-platform.md#3-tested-not-assumed) asks of this workflow. The
 individual tests that genuinely need POSIX semantics — signal delivery and
 process groups, file modes and symlinks, a contended `flock` — are
 `#[cfg(unix)]` and each says at the gate which semantics it exercises.
@@ -75,4 +75,4 @@ dry-run the release workflow from the candidate branch, then fast-forward
 PGO is exercised by the manual pre-release workflow and the release workflow,
 not by the normal development CI matrix. This keeps pull-request feedback tied
 to correctness and API behavior while still verifying that packaged binaries
-can be generated before a release. §FS-rhei-distribution.4
+can be generated before a release. [§FS-rhei-distribution.4](../functional-spec/rhei-distribution.spec.md#4-pgo-binary-builds)

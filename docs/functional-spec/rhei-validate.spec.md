@@ -3,7 +3,7 @@
 Validate a Rhei plan or Directory Workspace against the Rhei plan language,
 the resolved state machine, project settings, and runtime context checks. The
 command is read-only and exists to make execution predictable before a worker
-or orchestrator mutates plan state. §GOAL-rhei-outcomes
+or orchestrator mutates plan state. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. Usage
 
@@ -15,7 +15,7 @@ rhei --state-machine <PATH> validate [RHEI_PLAN_OR_WORKSPACE]
 
 `<RHEI_PLAN_OR_WORKSPACE>` may be a single `.rhei.md` file, a Directory
 Workspace root, or a Panta project directory; omitted, the target is resolved
-by walking up from the current directory (§FS-rhei-panta.6). When a workspace
+by walking up from the current directory ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). When a workspace
 root is passed, validation loads `index.rhei.md` and the workspace task files.
 A project target validates the whole merged graph.
 
@@ -60,12 +60,12 @@ pass `--state-machine`.
    fail-fast because later task-file diagnostics may depend on index structure.
 2. Resolve the state machine and validate plan semantics, including state
    values, task ids, dependencies, node policy, terminal and gating states,
-   counted-loop syntax, and artifact contracts. §FS-rhei-plan-language §FS-rhei-states
+   counted-loop syntax, and artifact contracts. [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification) [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)
 3. Load merged global and project settings, then validate referenced agents,
    models, MCP servers, skills, and snapshot settings used by the state
-   machine. §FS-rhei-agents §FS-rhei-snapshots
+   machine. [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification) [§FS-rhei-snapshots](rhei-snapshots.spec.md#fs-rhei-snapshots-rhei-session-snapshots-specification)
 4. Validate snapshot plan context and report orphaned snapshot diagnostics as
-   warnings when a snapshot cache exists. §FS-rhei-snapshot-operations
+   warnings when a snapshot cache exists. [§FS-rhei-snapshot-operations](rhei-snapshot-operations.spec.md#fs-rhei-snapshot-operations-rhei-snapshot-operations-specification)
 5. Report every ticket that reached a successful terminal state while one of
    its `**Prior:**` dependencies is still unsatisfied as a **warning** naming
    the ticket and each blocking prior with its state. Such a plan contradicts
@@ -73,7 +73,7 @@ pass `--state-machine`.
    terminal ticket drops out of `rhei list --blocked` and out of readiness
    entirely, so the plan reads as healthy. The condition is reachable through
    the deliberate `rhei transition` escape hatch
-   (§FS-rhei-transition-cmd.3), by editing a `**Prior:**` onto an
+   ([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)), by editing a `**Prior:**` onto an
    already-completed ticket, and by a prior that was later cancelled — all
    legitimate authoring moves. It is therefore a warning, never an error:
    validation must surface the inconsistency without making an existing plan
@@ -89,7 +89,7 @@ spawn programs, create runtime files, or rewrite the plan.
 A `**Prior:**` that resolves to no ticket is reported under **the id the author
 wrote**. A dotted reference whose leading segment names no rhei is kept
 unqualified at load precisely so this error can quote the source
-(§AR-rhei-panta.3); reporting it under a citing-rhei prefix would name an id
+([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)); reporting it under a citing-rhei prefix would name an id
 that appears in no file and cannot be searched for.
 
 Such a reference is ambiguous — a mistyped rhei name or a mistyped rhei-local
@@ -123,7 +123,7 @@ outside a task"* on a line the author did not get wrong; only the structural
 *"Tasks section must be the final `##` chapter"* diagnostic — which recovery
 reaches last — explains the mistake. Reporting one error per file would hide it
 behind the symptom, in the invocation form `rhei init` steers new authors toward
-(§FS-rhei-init).
+([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)).
 
 The project loader still stops at the first failing rhei entry: a project whose
 second rhei also fails reports the first one, and the next run reports the next.

@@ -9,7 +9,7 @@ the point they realize it.
 
 | ID | Subject |
 |---|---|
-| §REQ-cross-platform | One tool on Linux, macOS, and Windows: parity, tested on all three, portable fixtures, paths as data |
+| [§REQ-cross-platform](cross-platform.md#req-cross-platform-one-tool-on-linux-macos-and-windows) | One tool on Linux, macOS, and Windows: parity, tested on all three, portable fixtures, paths as data |
 
 This index is navigational. Normative citations should target the specific
 declaration ID rather than this file.

@@ -2,7 +2,7 @@
 
 Rhei records token usage for agent work, converts measured tokens into cost
 with a reproducible price book, rolls the result up to every task node, and
-shows those totals in the CLI, TUI, and browser dashboard. §GOAL-rhei-outcomes §FS-rhei-run
+shows those totals in the CLI, TUI, and browser dashboard. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals) [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run)
 
 For agent spawning see [Agents Specification](rhei-agents.spec.md). For run
 events and dashboard transport see [Run TUI Specification](rhei-run-tui.spec.md).
@@ -12,14 +12,14 @@ For visual dashboard behavior see [Flow Visualization](rhei-viz.spec.md).
 
 1. Every `claude-code`, `codex`, and `pi` invocation spawned by `rhei run`
    produces either a measured usage record or an explicit failure/status
-   record. §FS-rhei-agents
-2. Every task node has derived direct and subtree token/cost totals. §FS-rhei-plan-language
+   record. [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)
+2. Every task node has derived direct and subtree token/cost totals. [§FS-rhei-plan-language](rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification)
 3. Token measurement and price calculation are separate so old runs stay
    explainable when provider prices change.
 4. Unknown, omitted, unsupported, partial, and zero-valued token dimensions are
    distinct.
 5. Monitoring views show spend, token totals, cache effect, and coverage while
-   work is running. §FS-rhei-run-tui §FS-rhei-viz
+   work is running. [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal) [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization)
 
 ## Non-Goals
 
@@ -178,7 +178,7 @@ does not expose finer-grained usage.
 
 Accounting is separate from snapshots. Snapshot support may provide a useful
 transcript source, but a missing snapshot `session` profile must not disable
-accounting for `claude-code`, `codex`, or `pi`. §FS-rhei-snapshots
+accounting for `claude-code`, `codex`, or `pi`. [§FS-rhei-snapshots](rhei-snapshots.spec.md#fs-rhei-snapshots-rhei-session-snapshots-specification)
 
 For each agent invocation:
 
@@ -347,7 +347,7 @@ pub enum RunEvent {
 `UsageReported` may arrive repeatedly for the same invocation id as a streaming
 extractor observes additional turns, and may also arrive after `SlotReleased`;
 frontends must upsert by invocation id and update task, slot history, and run
-totals without assuming the slot is still active. §FS-rhei-run-tui
+totals without assuming the slot is still active. [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)
 
 `RunSummary.accounting` contains an optional `AccountingRunSummary` with the
 same dimension, cost, currency, coverage, and pricing-status shape as
@@ -399,7 +399,7 @@ UI.
 The end-of-run console summary and durable run report include the same run-level
 accounting strip. Task rows may show a compact direct task cost only; the direct
 task cost is the sum of usage reported for all agent states spawned for that
-task in the run. §FS-rhei-run-report
+task in the run. [§FS-rhei-run-report](rhei-run-report.spec.md#fs-rhei-run-report-per-run-report)
 
 The browser dashboard adds a **Cost** tab before **Journal**. Its live summary
 shows:
@@ -420,7 +420,7 @@ subtree rollups for the clicked task, and live refreshes that section when
 `/snapshot` reports updated accounting. The dashboard Slots view shows per-slot
 task accounting columns and a current run total below the slot table. Future
 Cube and Sankey modes may use subtree cost as heatmap color or ribbon width.
-§FS-rhei-viz
+[§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization)
 
 ## 10. Dashboard Data
 
@@ -444,7 +444,7 @@ type Snapshot = {
 ```
 
 Invocation details are served from a separate loopback endpoint such as
-`/accounting/invocations` so `/snapshot` stays small. §FS-rhei-run-tui
+`/accounting/invocations` so `/snapshot` stays small. [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)
 
 ## 11. Failure Modes
 

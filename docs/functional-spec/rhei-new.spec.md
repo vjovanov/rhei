@@ -10,7 +10,7 @@ metadata field order and which state the rhei's machine starts in.
 
 `rhei new` writes that file, or that ticket, from a title and flags. It is the
 zero-friction "add a rhei" action Panta exists to make possible
-(§FS-rhei-panta.2), extended to tickets because the same wall stands in front
+([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)), extended to tickets because the same wall stands in front
 of the second thing a user does.
 
 The command is deliberately **complete**: every field the plan language lets an
@@ -18,7 +18,7 @@ author write on a new ticket has a flag, so `rhei new` is never the thing that
 gets you started and then abandons you to an editor for `**Prior:**`. What it
 does not do is *change* anything — it only creates. Editing an existing ticket
 stays a file edit, and changing state stays `rhei transition`
-(§FS-rhei-plan-language.1.4).
+([§FS-rhei-plan-language.1.4](rhei-plan-language.spec.md#14-directory-workspace-metadata)).
 
 ## 1. Usage
 
@@ -36,7 +36,7 @@ rather than a silent no-op (§5.3).
 
 | Flag                  | Default          | Description                                                       |
 |-----------------------|------------------|-------------------------------------------------------------------|
-| `--project <PATH>`    | inferred         | The project or plan to write into, resolved exactly as every other command resolves one: omitted, the enclosing project, workspace, or lone plan; named, a member rhei widens to the project it belongs to (§FS-rhei-panta.6) |
+| `--project <PATH>`    | inferred         | The project or plan to write into, resolved exactly as every other command resolves one: omitted, the enclosing project, workspace, or lone plan; named, a member rhei widens to the project it belongs to ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)) |
 | `--id <ID>`           | derived          | Explicit id: for a rhei, the one otherwise derived from the title; for a ticket, the segment otherwise taken from the sibling numbering — a name works there too, so `--id review --under plat` writes `plat.review` (§4) |
 | `--description <TEXT>`| empty            | Body content — the ticket's description, or the rhei's lead paragraph (§3.4) |
 | `--description-file <PATH>` | —          | Read the description from a file; `-` reads standard input (§3.4) |
@@ -64,7 +64,7 @@ is an argument.
 | Flag                    | Default              | Description                                                    |
 |-------------------------|----------------------|----------------------------------------------------------------|
 | `--dir`                 | off                  | Create a Directory Workspace rhei instead of a single file (§2.1) |
-| `--states <NAME>`       | project default      | Write a `**States:**` declaration, binding this rhei to its own state machine (§AR-rhei-panta.4) |
+| `--states <NAME>`       | project default      | Write a `**States:**` declaration, binding this rhei to its own state machine ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)) |
 | `--max-levels <N>`      | unset                | Write `structure.maxLevels`                                    |
 | `--node-kinds <K,...>`  | unset                | Write `structure.nodeKinds`                                    |
 
@@ -73,14 +73,14 @@ is an argument.
 | Flag                       | Default            | Description                                              |
 |----------------------------|--------------------|----------------------------------------------------------|
 | `--under <PARENT>`         | —                  | Owning rhei id (`auth`, `basin`) for a top-level ticket, or ticket id (`auth.1`) for a subtask |
-| `--kind <KIND>`            | `task`             | Heading keyword, checked against `structure.nodeKinds` (§FS-rhei-plan-language.3.7) |
+| `--kind <KIND>`            | `task`             | Heading keyword, checked against `structure.nodeKinds` ([§FS-rhei-plan-language.3.7](rhei-plan-language.spec.md#37-node-kind-validity)) |
 | `--state <STATE>`          | the machine's initial | `**State:**`, checked against the owning rhei's machine (§3.2) |
 | `--prior <ID>`             | none               | `**Prior:**` entry; repeatable, and a comma-separated list is accepted |
-| `--provides <NAME>`        | none               | `**Provides:**` entry; repeatable (§FS-rhei-plan-language.3.12) |
-| `--consumes <ID:NAME>`     | none               | `**Consumes:**` entry; repeatable. Not a dependency — a consumer is `--ready` before its producer runs, so ordering comes from `--prior` (§FS-rhei-plan-language.3.12) |
+| `--provides <NAME>`        | none               | `**Provides:**` entry; repeatable ([§FS-rhei-plan-language.3.12](rhei-plan-language.spec.md#312-task-exports)) |
+| `--consumes <ID:NAME>`     | none               | `**Consumes:**` entry; repeatable. Not a dependency — a consumer is `--ready` before its producer runs, so ordering comes from `--prior` ([§FS-rhei-plan-language.3.12](rhei-plan-language.spec.md#312-task-exports)) |
 | `--assignee <WHO>`         | none               | `**Assignee:**`, which is a claim: `rhei next` and `rhei run` skip an assigned ticket until `rhei release <id>`, and the create says so (§5.4) |
-| `--model <MODEL>`          | none               | `**Model:**`; mutually exclusive with `--target` (§FS-rhei-plan-language.3.11) |
-| `--target <TARGET>`        | none               | `**Target:**`; mutually exclusive with `--model`, which the identity already carries (§FS-rhei-plan-language.3.11) |
+| `--model <MODEL>`          | none               | `**Model:**`; mutually exclusive with `--target` ([§FS-rhei-plan-language.3.11](rhei-plan-language.spec.md#311-task-execution-overrides)) |
+| `--target <TARGET>`        | none               | `**Target:**`; mutually exclusive with `--model`, which the identity already carries ([§FS-rhei-plan-language.3.11](rhei-plan-language.spec.md#311-task-execution-overrides)) |
 
 Repeatable fields are written in the order given, comma-separated, on one line.
 A `--prior` value is written through unchanged, so both authored forms work:
@@ -88,7 +88,7 @@ A `--prior` value is written through unchanged, so both authored forms work:
 `--prior auth.1` writes the bare cross-rhei reference. `rhei new` deliberately
 does not invent a keyword the author did not ask for, and does not resolve the
 reference itself — an unresolvable prior is a validation error with a code
-frame (§FS-rhei-validate.4.1), which is a better report than anything the
+frame ([§FS-rhei-validate.4.1](rhei-validate.spec.md#41-unresolved-prior-references)), which is a better report than anything the
 create path could produce.
 
 ## 2. Creating a rhei
@@ -104,7 +104,7 @@ and writes `authentication.rhei.md` next to `index.panta.md`:
 
 That is the whole file. A rhei with no tickets is valid — the Directory
 Workspace format has always accepted one, and as of this command the
-single-file format does too (§FS-rhei-plan-language.1.1). Seeding a
+single-file format does too ([§FS-rhei-plan-language.1.1](rhei-plan-language.spec.md#11-single-file-plan-1-agent-or-low-concurrency)). Seeding a
 placeholder ticket instead was rejected: a placeholder is indistinguishable
 from real work to `rhei next` and `rhei run`, so the first thing a new project
 would do is dispatch an agent onto a ticket nobody wrote.
@@ -131,7 +131,7 @@ Everything invoice-related, including dunning.
 declaring a machine that no `states.yaml` provides is an error at the next
 load, naming where the file is looked for, the machine names the project does
 provide, and `/rhei-state-machine-writer` for authoring the one that is missing
-(§AR-rhei-panta.4, §6). Every other flag with a declared set of legal values
+([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding), §6). Every other flag with a declared set of legal values
 lists that set when the value is wrong, and this one is no exception just
 because its set lives in files rather than in the plan. This is the
 honest order: the machine is authored, and the rhei points at it — so the
@@ -142,7 +142,7 @@ create is rolled back like any other invalid one (§5.2), and writing the rhei
 
 The default is a single file, because that is the format a rhei can be read in
 one screen and converted out of later. `--dir` creates the Directory Workspace
-shape instead (§FS-rhei-plan-language.1.2):
+shape instead ([§FS-rhei-plan-language.1.2](rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency)):
 
 ```text
 billing/
@@ -157,7 +157,7 @@ Creating a rhei requires a Panta project, and the target is resolved the way
 every other command resolves one. Standing in a member rhei's directory — or
 naming that member with `--project` — creates the new rhei in the project the
 member belongs to, and the widening is announced exactly as `rhei validate`
-announces it (§FS-rhei-validate.1.1). Only when the resolved target really is a
+announces it ([§FS-rhei-validate.1.1](rhei-validate.spec.md#11-why-there-is-no---rhei)). Only when the resolved target really is a
 lone plan or a bare workspace does the command say so and point at `rhei init`
 — a rhei is a *member* of a project, and there is nowhere to put a second one
 otherwise.
@@ -177,9 +177,9 @@ read as a ticket id and the new ticket becomes its child. A value that is
 neither is an error listing the rhei ids in the project.
 
 `--under basin` is how a ticket gets captured without choosing a domain rhei
-first (§FS-rhei-panta.2). The basin directory is created on demand; nothing
+first ([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)). The basin directory is created on demand; nothing
 else is generated, because the basin's manifest is synthetic by design
-(§AR-rhei-panta.1). Filing it into a domain rhei later stays a file move.
+([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)). Filing it into a domain rhei later stays a file move.
 
 The written ticket carries the fields that were asked for, in plan-language
 order:
@@ -204,7 +204,7 @@ across files would put a parent and its child in different diffs.
 
 A task file's name is the ticket's id, zero-padded to three digits, followed by
 a slug from the title: `004-rotate-signing-keys.md`. The padding is not
-cosmetic. Path order *is* plan order (§FS-rhei-plan-language.1.2) and commands
+cosmetic. Path order *is* plan order ([§FS-rhei-plan-language.1.2](rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency)) and commands
 that scan in plan order schedule in it, so an unpadded `10-…` sorts between
 `1-…` and `2-…` and the eleventh ticket in a rhei is handed out second — with
 nothing to notice, because the file itself is valid and `rhei validate`
@@ -231,8 +231,8 @@ three-line diff is a create they have to re-read the file to trust.
 
 `--state` is omitted in the normal case and the ticket starts in the initial
 state of the machine that governs it — resolved through the *owning rhei*
-(§AR-rhei-panta.4), and through the node profile matching the new ticket's kind
-and depth when the machine declares profiles (§FS-rhei-states.9.2). A ticket
+([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)), and through the node profile matching the new ticket's kind
+and depth when the machine declares profiles ([§FS-rhei-states.9.2](rhei-states.spec.md#92-resolution)). A ticket
 created in rhei `billing` starts in `billing`'s initial state even when the
 project default machine starts somewhere else.
 
@@ -240,7 +240,7 @@ project default machine starts somewhere else.
 machine. This is initial authoring, which is the one moment the plan language
 permits a state to be written directly; every change after it goes through
 `rhei transition` and its compare-and-swap, callbacks, and ledger
-(§FS-rhei-plan-language.1.4). `rhei new` does not run `on_enter` callbacks for
+([§FS-rhei-plan-language.1.4](rhei-plan-language.spec.md#14-directory-workspace-metadata)). `rhei new` does not run `on_enter` callbacks for
 the state it writes, for the same reason authoring a plan by hand does not: the
 ticket is being created in that state, not transitioning into it.
 
@@ -250,7 +250,7 @@ A subtask deeper than the rhei's `structure.maxLevels` is refused before
 anything is written, naming the limit and where it is declared. A rhei created
 without `--max-levels` carries no frontmatter block at all, so the refusal spells
 out the block to add rather than naming a field that is not there. `--kind` is
-checked against `structure.nodeKinds` the same way (§FS-rhei-plan-language.3.7),
+checked against `structure.nodeKinds` the same way ([§FS-rhei-plan-language.3.7](rhei-plan-language.spec.md#37-node-kind-validity)),
 so a mistyped kind is a message about the kinds this rhei declares rather than
 a parse error on the next command; and a rhei that declares kinds not including
 `task` is a rhei where `--kind` is *required*, which is what the refusal says
@@ -259,7 +259,7 @@ rather than blaming the user for a word they never typed.
 Every argument that has a checkable shape is checked in argument handling, and
 that includes the two reference fields: `--consumes` takes
 `<task-id>:<export-name>` and `--provides` takes an export name
-(§FS-rhei-plan-language.3.12). Round-tripping a flag through the file and
+([§FS-rhei-plan-language.3.12](rhei-plan-language.spec.md#312-task-exports)). Round-tripping a flag through the file and
 reporting it back as a parse error with a line number is the failure this
 section exists to prevent — the user typed a flag, so the message is about the
 flag. Whether the reference *resolves* is a different question, and nothing
@@ -328,13 +328,13 @@ Three ids are refused outright:
 - one that **collides** with an existing rhei or sibling ticket, naming the
   holder and pointing at `--id`;
 - `basin` as a *rhei* id, which is permanently reserved for the synthetic
-  basin rhei (§FS-rhei-panta.2) — the refusal is at create time rather than at
+  basin rhei ([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)) — the refusal is at create time rather than at
   the next load, where it would arrive as a broken project;
 - `index` as a *rhei* id, reserved for the same reason: `index.rhei.md` is the
   name that marks a Directory Workspace's index, and writing one beside
   `index.panta.md` would make the project directory read as a workspace as
   well;
-- an id that is not a legal single-segment rhei id (§AR-rhei-panta.3) or a
+- an id that is not a legal single-segment rhei id ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)) or a
   legal ticket id segment.
 
 Concurrent creates are serialized by two locks, taken in a fixed order.
@@ -499,7 +499,7 @@ create anywhere else in the project. A declaration written before its
 `states.yaml` exists is the ordinary half-finished state — it is what
 `--keep-on-error` produces on purpose — and resolving strictly makes one empty
 rhei take out every create in the project, basin capture included, which
-§FS-rhei-panta.2 says is the one thing that must survive somebody else's
+[§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis) says is the one thing that must survive somebody else's
 mid-edit. The rhei being written *to* is different, because the new ticket's
 starting state comes out of its machine, so that one must resolve. The project
 still fails validation for the unresolved machine, identically before and after,
@@ -589,13 +589,13 @@ one place a caller cannot notice it.
   re-parenting, no state changes — `rhei transition` and `rhei complete` own
   state, and everything else is a file edit.
 - It does not scaffold from a template. `rhei instantiate` writes a rhei
-  complete with its tickets and its own state machine (§FS-rhei-templates);
+  complete with its tickets and its own state machine ([§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification));
   `rhei new` writes an empty one. They are separate because a blank rhei should
   not require a template system to exist.
-- It does not create a project. That is `rhei init` (§FS-rhei-init), and the
+- It does not create a project. That is `rhei init` ([§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init)), and the
   two compose: `rhei init && rhei new "Auth"`.
 - It does not write a `states.yaml`. `--states` declares which machine a rhei
   runs under; authoring the machine is `rhei-state-machine-writer` territory
-  (§FS-rhei-state-machine-writer).
+  ([§FS-rhei-state-machine-writer](rhei-state-machine-writer.spec.md#fs-rhei-state-machine-writer-rhei-state-machine-writer)).
 - It does not check that a `**Consumes:**` reference resolves to a declared
-  `**Provides:**` — nothing does yet (§FS-rhei-plan-language.3.12).
+  `**Provides:**` — nothing does yet ([§FS-rhei-plan-language.3.12](rhei-plan-language.spec.md#312-task-exports)).

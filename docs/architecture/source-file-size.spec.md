@@ -3,7 +3,7 @@
 Rhei source files are part of the working memory shared by humans and agents.
 They must stay small enough for focused review, reliable agent context loading,
 and predictable refactoring. This architecture rule supports readable,
-reviewable plans and predictable execution work. §GOAL-rhei-outcomes
+reviewable plans and predictable execution work. [§GOAL-rhei-outcomes](../functional-spec/goals.md#goal-rhei-outcomes-goals)
 
 ## 1. File Size Policy
 
@@ -188,9 +188,9 @@ parts live beside it:
 - `common` contains shared task-label formatting helpers.
 - `tests` contains renderer tests split out of the public API shell.
 
-`crates/rhei-cli/tests/integration_markdown_plans.rs` is only the integration
+`tests/integration/integration_markdown_plans.rs` is only the integration
 test shell. Shared fixture helpers live in
-`crates/rhei-cli/tests/integration_markdown_plans/common.rs`; behavior groups
+`tests/integration/integration_markdown_plans/common.rs`; behavior groups
 live in sibling files named for their command or behavior area:
 `validation_cli_basics`, `validation_parse_errors`, `transitions_success`,
 `transitions_failures_completion`, `callbacks_execution`,

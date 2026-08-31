@@ -59,7 +59,7 @@ Flags are grouped by concern:
 
 `rhei run` drives a whole project by default: every load yields a Panta-rooted
 graph, and a bare rhei is simply the single rhei of its implicit Panta
-(§FS-rhei-panta.6.2). `--rhei <RHEI_ID>` is repeatable and narrows the run to
+([§FS-rhei-panta.6.2](rhei-panta.spec.md#62-rhei-run)). `--rhei <RHEI_ID>` is repeatable and narrows the run to
 the named rheis.
 
 - An id that names no rhei in the project is an error listing the available
@@ -67,7 +67,7 @@ the named rheis.
 - Narrowing selects **candidate** tickets only; it never narrows where their
   priors resolve. A candidate may still be blocked by a prior in a rhei outside
   the scope, and the no-work diagnostic names that prior as out of scope
-  (§FS-rhei-panta.6.1).
+  ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)).
 - Before spawning, `rhei run` reports its resolved scope and the rheis it will
   touch, using the shared scope line:
 
@@ -76,7 +76,7 @@ the named rheis.
   ```
 
   A one-rhei project has no fan-out to report and stays quiet
-  (§FS-rhei-panta.6). Because a TUI run takes over the screen right after
+  ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). Because a TUI run takes over the screen right after
   launch, a narrowed run repeats the scope in the run journal
   (`Scope: narrowed to <ids>`), where the interactive view can show it.
 - `--parallel > 1` stays available on a project, but two tickets of one rhei
@@ -105,19 +105,19 @@ scope.
 A **foreground** run blocks on a lock another run holds — waiting for your turn
 is a queueing idiom people use on purpose — but says so first, naming the run it
 is waiting for. Blocking in total silence is indistinguishable from a hang. The
-line goes to stderr when stdout is a record stream (§FS-rhei-run-json.1). The
+line goes to stderr when stdout is a record stream ([§FS-rhei-run-json.1](rhei-run-json.spec.md#1-selecting-the-format)). The
 wait is **interruptible**: `Ctrl+C` ends it at once, reporting that it stopped
 waiting and leaving the run that holds the lock untouched. A wait a command
 announces has to be one the operator can take back, and a wait parked inside a
 blocking `flock` cannot see the signal at all (§3.2). A **detached child** does
 not queue: it fails immediately with the diagnostic above, because its launcher
 is holding a startup handshake open and would otherwise report a timeout for
-what is really a lock refusal (§FS-rhei-run-headless.1.1).
+what is really a lock refusal ([§FS-rhei-run-headless.1.1](rhei-run-headless.spec.md#11-startup-is-synchronous)).
 
 The lock is also what answers *"is this run still alive?"* for a run nobody is
 watching: `flock` is released by the kernel on process death, so a workspace
 whose lock can be taken has no live run, whatever a stale descriptor claims
-(§FS-rhei-run-headless.3).
+([§FS-rhei-run-headless.3](rhei-run-headless.spec.md#3-run-identity-and-liveness)).
 
 ### 2.7. Run Identity
 
@@ -142,7 +142,7 @@ work, and finish it with `rhei complete`. This prevents the built-in machine
 from silently completing fresh tasks without executing them.
 
 1. Load the state machine and plan. Validate. Errors stop the run; the
-   validation **warnings** (§FS-rhei-validate.4) are printed once at start, in
+   validation **warnings** ([§FS-rhei-validate.4](rhei-validate.spec.md#4-behavior)) are printed once at start, in
    the same words `rhei validate` prints them. A machine that warns is still a
    legal machine, so the run proceeds — but the operator hears about it before
    the run spends an hour proving the warning right, rather than only if they
@@ -161,19 +161,19 @@ from silently completing fresh tasks without executing them.
    the poll scheduling rule.
 
    The descendant condition is the same eligibility rule `rhei next` applies
-   (§FS-rhei-next.3), and it is deliberately shared: a non-leaf task is a task
+   ([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)), and it is deliberately shared: a non-leaf task is a task
    in its own right, so the orchestrator schedules it — but only once the
-   subtree it integrates is finished (§FS-rhei-plan-language.3). A parent with
+   subtree it integrates is finished ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)). A parent with
    an agent state is therefore *not* spawned concurrently with its children;
    it is spawned after them. Nothing stamps a parent terminal because its
    descendants are, and a run that tried to would be rejected by the
    descendants-first guard on the shared transition path
-   (§FS-rhei-transition-cmd.3.1) rather than leaving behind a plan that fails
+   ([§FS-rhei-transition-cmd.3.1](rhei-transition-cmd.spec.md#31-descendants-first-on-terminal-entry)) rather than leaving behind a plan that fails
    `rhei validate`.
 
    A task in a *supervising* state, and every descendant of one, follow the
    hold/release rule instead of the descendant condition
-   (§FS-rhei-supervision.3.2): the supervisor is ready while its subtree is
+   ([§FS-rhei-supervision.3.2](rhei-supervision.spec.md#32-readiness)): the supervisor is ready while its subtree is
    held and nothing beneath it is in flight; its descendants are ready only
    while every supervising ancestor has released them.
 3. Up to `--parallel` tasks from the ready set are executed concurrently, subject to the [concurrent-state rule](#5-parallel-execution): at most one ready task per non-concurrent state is scheduled per pass. For each task:
@@ -182,7 +182,7 @@ from silently completing fresh tasks without executing them.
    - Compose the agent prompt ([Agents Specification — Prompt Composition](rhei-agents.spec.md#3-prompt-composition)). A prompt that cannot be composed — a `required: true` handoff with no content, an unreadable prior result — fails **that task**, not the pass: `rhei run` reports the task and the reason, then applies the same rule as any other task failure, continuing to the next task under `--continue-on-error` and aborting with a non-zero exit code without it. Sibling tasks already spawned in the pass are unaffected.
    - Spawn the subprocess with the state's resolved instructions, environment (`RHEI_*` variables defined in [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables)), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit, for the timeout to fire, or for the run to be interrupted. Each subprocess runs in its own process group and is terminated as a group — `SIGTERM`, grace 10 s, then `SIGKILL` — whichever of the three reasons ends it (§3.2).
-4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition (§FS-rhei-states.3.3) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt and in `RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4).
+4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt and in `RHEI_RESULT_PATH` ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)).
 5. Select the outgoing transition without applying it yet.
 
    - **The condition holds.** Select the first declared transition whose
@@ -199,13 +199,13 @@ from silently completing fresh tasks without executing them.
    - **The subprocess exited `0` and the completion condition fails** — a
      required `outputs:` artifact is missing, or the edge this exit selects
      lands on a `final: true` state and the ticket has no result
-     (§FS-rhei-states.3.3). **No transition fires.** The ticket stays in the
+     ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). **No transition fires.** The ticket stays in the
      state it is in, the engine logs the missing-artifact warning of
-     §FS-rhei-agents.3.2.1 naming every path it checked — the result under the
+     [§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics) naming every path it checked — the result under the
      artifact name `result`, so the operator sees which file the run is waiting
      for rather than a ticket that silently stopped advancing — and records the
      ticket as halted on missing outputs for the run report
-     (§FS-rhei-run-report.3.1). The stalled ticket is not spawned again for the
+     ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout)). The stalled ticket is not spawned again for the
      rest of the pass, and the run **continues with the other claimable
      tickets**: in sequential mode (`--parallel 1`) exactly as in the worker
      pool, and with or without `--continue-on-error`, which governs non-zero
@@ -217,14 +217,14 @@ from silently completing fresh tasks without executing them.
      The recovery is to **run the state again**, and only that. A later pass
      that reaches the ticket — this run's, or the next `rhei run`'s — schedules
      the same invocation, because step 3 skips an invocation only when the whole
-     completion condition already holds for it (§FS-rhei-agents.3.2). The engine
+     completion condition already holds for it ([§FS-rhei-agents.3.2](rhei-agents.spec.md#32-completion-condition)). The engine
      never advances the ticket instead: doing so would put it in a `final: true`
      state with no account of the work, and the only sentence the engine could
      write there would be about a worker it did not watch.
 
      Running the state again is bounded. One visit to a state — the span
      between two consecutive moves of the ticket — may be spawned at most
-     `attempts` times (§FS-rhei-agents.3.2.3), a budget that is persisted with
+     `attempts` times ([§FS-rhei-agents.3.2.3](rhei-agents.spec.md#323-attempt-budget)), a budget that is persisted with
      the visit and therefore survives the end of a run: a fresh `rhei run` does
      not buy the ticket a fresh allowance, because "once per run, forever" is
      exactly the unbounded case the budget exists for. Entering the state again
@@ -238,7 +238,7 @@ from silently completing fresh tasks without executing them.
      engine never saw.
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
-   failures affect cost coverage but do not alter transition selection. §FS-rhei-cost-accounting
+   failures affect cost coverage but do not alter transition selection. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 7. For agent-bearing states with supported snapshot sessions, write
    auto-emitted `_state` snapshots and any matching named `snapshot.emit:`
    after transition selection and before the transition is applied. Poll
@@ -248,11 +248,11 @@ from silently completing fresh tasks without executing them.
 8. Apply the selected transition and append one central state-transition entry
    to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. When the
    moved task has a supervising ancestor, the shared path records the
-   checkpoint on the nearest one and holds its subtree (§FS-rhei-supervision.2). The
+   checkpoint on the nearest one and holds its subtree ([§FS-rhei-supervision.2](rhei-supervision.spec.md#2-checkpoints)). The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
    orchestrator owns the transition. When the effective target is `final:
    true`, the transition passes the terminal-result obligation
-   (§FS-rhei-transition-cmd.3.2) on the shared path like any other verb, and
+   ([§FS-rhei-transition-cmd.3.2](rhei-transition-cmd.spec.md#32-terminal-result-on-entry)) on the shared path like any other verb, and
    terminal result finalization is performed as defined in
    [Complete Command — Result File](rhei-complete.spec.md#3-result-file).
 9. Repeat until no pass makes progress. Exit `0` when the plan reaches a state where every task is terminal. Exit non-zero when progress halts with non-terminal tasks remaining and no further advancement is possible.
@@ -287,12 +287,12 @@ from silently completing fresh tasks without executing them.
 | Route | Terminal result comes from |
 |-------|-----------------------------|
 | Agent or program exits `0` and the selected edge is terminal | The subprocess, which wrote `runtime/results/<task-id>.md` before exiting. Missing, and step 4 fails the completion condition (no transition, task stays put). |
-| A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`; the completion condition checks the invocation's own fragment, and once the last fragment lands `rhei run` merges them into `runtime/results/<task-id>.md` before applying the transition, idempotently (§FS-rhei-states.3.3). One worker's account never stands in for another's, and no invocation overwrites a sibling. A `program:` state is not fanned out: it runs once and writes the ticket-level file. |
-| Timeout (§FS-rhei-agents.7.3) | The engine, which knows the timeout that ended the work and writes it as the result message. |
-| Unavailable required tooling (§FS-rhei-agents.6) | The engine, which names the kind and the unavailable ids. |
+| A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`; the completion condition checks the invocation's own fragment, and once the last fragment lands `rhei run` merges them into `runtime/results/<task-id>.md` before applying the transition, idempotently ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). One worker's account never stands in for another's, and no invocation overwrites a sibling. A `program:` state is not fanned out: it runs once and writes the ticket-level file. |
+| Timeout ([§FS-rhei-agents.7.3](rhei-agents.spec.md#73-timeout-behavior)) | The engine, which knows the timeout that ended the work and writes it as the result message. |
+| Unavailable required tooling ([§FS-rhei-agents.6](rhei-agents.spec.md#6-missing-tooling)) | The engine, which names the kind and the unavailable ids. |
 | Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |
-| Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. What it says about the worker is what it can prove: with a spawn record for the source state on disk (§FS-rhei-agents.8.4) the sentence names the worker that ran — `agent '<id>'` or `program \`<command>\`` — its log, and how it ended; only with no such record does it say that no worker ran. |
-| Human gate released from a live surface — browser dashboard (§FS-rhei-viz.5.1) or TUI (§FS-rhei-run-tui.1.5.5) | The human who released it, through the gate surface's own optional **Result** field. The message rides the transition like `rhei transition --result` does. Left blank with no result on disk, a release into a terminal state is refused, and the refusal names `rhei transition <id> --from <state> --to <state> --result "<why>"`. Releasing a gate into a non-terminal state is unaffected either way. |
+| Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. What it says about the worker is what it can prove: with a spawn record for the source state on disk ([§FS-rhei-agents.8.4](rhei-agents.spec.md#84-spawn-records)) the sentence names the worker that ran — `agent '<id>'` or `program \`<command>\`` — its log, and how it ended; only with no such record does it say that no worker ran. |
+| Human gate released from a live surface — browser dashboard ([§FS-rhei-viz.5.1](rhei-viz.spec.md#51-human-gate-transitions)) or TUI ([§FS-rhei-run-tui.1.5.5](rhei-run-tui.spec.md#155-live-actions-intervene-and-human-gate)) | The human who released it, through the gate surface's own optional **Result** field. The message rides the transition like `rhei transition --result` does. Left blank with no result on disk, a release into a terminal state is refused, and the refusal names `rhei transition <id> --from <state> --to <state> --result "<why>"`. Releasing a gate into a non-terminal state is unaffected either way. |
 
 The line the table draws is one rule: **the engine writes a result only for the
 outcomes the engine itself produced** — a timeout it fired, tooling it could not
@@ -311,7 +311,7 @@ the fact the old, empty result file withheld, and the reason the audit trail
 used to depend on which verb drove the plan.
 
 The clause about the worker is checked, not assumed, and what it is checked
-against is the spawn record of §FS-rhei-agents.8.4 — never the presence of a log
+against is the spawn record of [§FS-rhei-agents.8.4](rhei-agents.spec.md#84-spawn-records) — never the presence of a log
 file. A log is opened, and its header written, *before* the subprocess starts,
 so a `command:` naming a binary that does not exist leaves a log behind for a
 worker that never ran; recording that such a worker "ran in that state earlier"
@@ -329,7 +329,7 @@ is then true.
 The account also says whether the state's declared `outputs:` were verified on
 this edge — not asserted, reported: the check either ran and passed immediately
 before the result was recorded, or it was waived because the edge lands on the
-reserved `cancelled` state (§FS-rhei-states.1.4), and the sentence says which.
+reserved `cancelled` state ([§FS-rhei-states.1.4](rhei-states.spec.md#14-reserved-state-names)), and the sentence says which.
 A state that declares no `outputs:` has nothing to report and the clause is
 omitted.
 
@@ -367,7 +367,7 @@ non-zero with a diagnostic that names the paths instead of silently reporting a
 durable success. This check is read-only: it does not create commits, stage
 files, or reject untracked runtime artifacts. Outside Git repositories, or
 when `HEAD` does not move during the run, the check is a no-op.
-§GOAL-rhei-outcomes
+[§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ### 3.2. Interruption and Process Ownership
 
@@ -378,11 +378,11 @@ shutdown are two triggers of the same routine.
 
 **What this covers.** Every subprocess `rhei run` starts itself to do a
 ticket's work: agents, programs, and the snapshot redactor
-(§FS-rhei-snapshots). Three are deliberately outside it: a subprocess a
+([§FS-rhei-snapshots](rhei-snapshots.spec.md#fs-rhei-snapshots-rhei-session-snapshots-specification)). Three are deliberately outside it: a subprocess a
 *callback* starts is that callback's own child and is governed by the callback
 contract; the `git` queries of the consistency check of §3.1 are short
 synchronous bookkeeping that has ended before the check returns; and the editor
-the browser dashboard launches (§FS-rhei-viz.5) is detached on purpose, because
+the browser dashboard launches ([§FS-rhei-viz.5](rhei-viz.spec.md#5-running-execution-view)) is detached on purpose, because
 it is the operator's and outliving the run is the point.
 
 **Process groups.** Each such subprocess starts in its own process group, which
@@ -393,7 +393,7 @@ grandchild. A subprocess never inherits the operator's terminal on standard
 input: one that is not handed piped input gets `/dev/null`, so no agent
 competes for the keystrokes meant for `rhei run`.
 
-**One termination sequence.** A timeout (§FS-rhei-agents.7.3) and an
+**One termination sequence.** A timeout ([§FS-rhei-agents.7.3](rhei-agents.spec.md#73-timeout-behavior)) and an
 interruption both terminate the group with `SIGTERM`, a 10-second grace, then
 `SIGKILL`. The invocation is reaped and its log footer closed either way. Every
 early termination takes this sequence, including the ones no waiter reached —
@@ -419,11 +419,11 @@ ledger called the ticket timed out.
 **Interruption.** `SIGINT`, `SIGTERM`, and `SIGHUP` delivered to `rhei run`
 interrupt the run. Ctrl+C under the TUI is the same event, because the TUI
 restores the terminal and re-raises `SIGINT` on the process
-(§FS-rhei-run-tui.1.8). So is `rhei stop`, which delivers the same signal to a
+([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)). So is `rhei stop`, which delivers the same signal to a
 detached run's pid and adds nothing to this contract
-(§FS-rhei-run-headless.7). Ctrl+C in an *attached* surface is not this event at
+([§FS-rhei-run-headless.7](rhei-run-headless.spec.md#7-rhei-stop)). Ctrl+C in an *attached* surface is not this event at
 all: it disconnects the surface and never reaches the run
-(§FS-rhei-run-headless.5.1). On the first such signal `rhei run`:
+([§FS-rhei-run-headless.5.1](rhei-run-headless.spec.md#51-attaching-does-not-drive)). On the first such signal `rhei run`:
 
 1. schedules no further work — no new pass begins, no freed worker slot
    refills, and the scheduler's waits return at once instead of sleeping out
@@ -443,14 +443,14 @@ all: it disconnects the surface and never reaches the run
    ticket is left in its state by that failure exactly as it is by any other
    redactor failure.
 4. records the invocation as `interrupted` — in the run report's ledger and
-   invocations (§FS-rhei-run-report.4), in the run journal, and in the agent or
-   program log footer (§FS-rhei-agents.8) — and names the log path;
+   invocations ([§FS-rhei-run-report.4](rhei-run-report.spec.md#4-transition-ledger)), in the run journal, and in the agent or
+   program log footer ([§FS-rhei-agents.8](rhei-agents.spec.md#8-log-capture)) — and names the log path;
 5. exits `128 + signal`: `130` for `SIGINT`, `143` for `SIGTERM`, `129` for
    `SIGHUP`. A run interrupted with non-terminal tickets remaining reports the
    interruption, not the halt diagnostic of §3 step 9. It reports the
    interruption when the signal cut the run's loop short — which is what the
    points above describe. A run whose loop had already finished when the signal
-   arrived, one parked on the TUI's finished screen (§FS-rhei-run-tui.1.5.7),
+   arrived, one parked on the TUI's finished screen ([§FS-rhei-run-tui.1.5.7](rhei-run-tui.spec.md#157-liveness-color-and-lifecycle)),
    reports its own result instead: nothing was interrupted. It still exits
    `128 + signal`, because a signalled process reports its signal.
 
@@ -461,7 +461,7 @@ work without shortening anyone's grace, so a single Ctrl+C is never escalated
 into an immediate kill by a failure somewhere else in the run.
 The operator is told so once, while the first shutdown is in progress, as a
 warning on the run's event stream; the frontend decides where it is legible
-(§FS-rhei-run-tui.1.8). One notice, whichever waiter notices the interrupt
+([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)). One notice, whichever waiter notices the interrupt
 first — not one per invocation:
 
 ```text
@@ -483,7 +483,7 @@ through the same group-termination path before the command returns. On Linux
 each subprocess additionally arms a parent-death signal, so a `SIGKILL`ed or
 OOM-killed supervisor — which runs no code at all — still delivers `SIGTERM` to
 what it started. That backstop is best-effort and Linux-only; the handled paths
-above are the contract. §GOAL-rhei-outcomes
+above are the contract. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 **Lost console output.** When the run's own output disappears mid-run — the
 reader of a pipe stopped (`EPIPE`), or the terminal it was printing to went
@@ -502,7 +502,7 @@ decides whether the run ends quietly or aborts mid-unwind.
 No run report is written in that case: there is nowhere left to say so, and
 what the run did is in the task files, which are already current. A terminal
 that goes away *after* the run has ended finds the report already on disk
-(§FS-rhei-run-tui.1.8).
+([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)).
 
 ## 4. Dry Run
 
@@ -529,7 +529,7 @@ under the built-in machine, whose initial state is manual-only, it made
 
 **A dry run predicts the real run, including its exit status.** When the scan
 finds nothing schedulable, it reports why each remaining in-scope ticket is not
-moving — the same classification the halt path uses (§FS-rhei-run-report.3.1) —
+moving — the same classification the halt path uses ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout)) —
 and then ends the way `rhei run` would on the same state:
 
 ```text
@@ -568,7 +568,7 @@ the freed slot is filled only with work whose dependencies are already satisfied
 
 A supervising task's subtree additionally drains at each checkpoint: once a
 checkpoint is delivered, no new descendant of that supervisor starts until the
-supervisor has run and released the subtree again (§FS-rhei-supervision.3.1).
+supervisor has run and released the subtree again ([§FS-rhei-supervision.3.1](rhei-supervision.spec.md#31-the-rule)).
 
 ### 5.1. Polling States
 

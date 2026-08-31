@@ -4,8 +4,8 @@ This document defines the operational surfaces around session snapshots: the
 `rhei snapshot` command family, `rhei run --from-snapshot`, snapshot
 settings, redaction, and rollout sequencing. It depends on the lineage,
 storage, manifest, compatibility, and runtime emit/preload model in
-§FS-rhei-snapshots; the run lifecycle in §FS-rhei-run; and agent session
-profiles and settings precedence in §FS-rhei-agents. §GOAL-rhei-outcomes
+[§FS-rhei-snapshots](rhei-snapshots.spec.md#fs-rhei-snapshots-rhei-session-snapshots-specification); the run lifecycle in [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run); and agent session
+profiles and settings precedence in [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification). [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. CLI Surface
 
@@ -88,7 +88,7 @@ before applying `--keep-generations`.
 following hold for the same plan workspace:
 
 1. An orchestrator process holds an active `.rhei/run.lock` (the lock
-   §FS-rhei-run uses to serialize `rhei run` invocations).
+   [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run) uses to serialize `rhei run` invocations).
 2. The snapshot's generation is reachable from any active
    `snapshot.inherit.select.generation` on a state whose task is currently in a
    non-terminal state. This includes explicit integer generations and

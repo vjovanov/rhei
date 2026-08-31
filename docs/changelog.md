@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **The e2e and integration suites move into grund's two non-citable test
+  homes.** `grund.toml` declared a citable `E2E` kind at `e2e/cases` with the
+  deprecated `prefix` key, and that directory held nothing but a `.gitkeep` —
+  the real end-to-end suite lived at `crates/rhei-cli/tests/e2e/` and the
+  markdown-plans integration suite at
+  `crates/rhei-cli/tests/integration_markdown_plans/`, neither directed nor
+  held to a citation obligation by grund. `prefix` also stops loading in grund
+  0.13.0. Both suites move to workspace members grund recognizes by place —
+  `tests/e2e/` (`rhei-e2e-tests`) and `tests/integration/`
+  (`rhei-integration-tests`), each runnable alone via `cargo test -p
+  <member>` — `grund.toml` renames every `prefix` to `kind` and adds
+  `[citations.e2e]` / `[citations.integration]`, and CI's pinned `grund` moves
+  from 0.9.0 to 0.12.3. No product behaviour changes. (PR #N)
 - **A failed visit to an `execute_on` state no longer strands the run.** On a
   non-zero subprocess exit, `rhei run` selected the first transition with no
   `exit_code` field — for a supervising state, that is the release self-loop
@@ -28,7 +41,7 @@
 - **The root `CHANGELOG.md` no longer claims the release maintains it.** It
   opened by saying this file's `Unreleased` section is what "release automation
   promotes into a numbered section here at release time", citing
-  §FS-rhei-distribution.5 — which describes a promotion *within*
+  [§FS-rhei-distribution.5](functional-spec/rhei-distribution.spec.md#5-release-notes) — which describes a promotion *within*
   `docs/changelog.md`, archiving the displaced release under `docs/changelog/`,
   and says nothing about the root file. `prepare_changelog_release.py` never
   opens it. Documenting a behaviour that never ran, it drifted the whole way: no

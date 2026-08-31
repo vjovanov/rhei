@@ -3,8 +3,8 @@
 This document describes how a user-directed agent creates a Rhei plan, validates
 and fixes syntax, and passes it to the orchestrator for state-managed execution.
 It expands the plan language, state machine, transition, and run-command
-contracts into the component workflow they imply. §FS-rhei-plan-language
-§FS-rhei-states §FS-rhei-transitions §FS-rhei-run §FS-rhei-agents
+contracts into the component workflow they imply. [§FS-rhei-plan-language](../functional-spec/rhei-plan-language.spec.md#fs-rhei-plan-language-rhei-plan-language-specification)
+[§FS-rhei-states](../functional-spec/rhei-states.spec.md#fs-rhei-states-rhei-states-specification) [§FS-rhei-transitions](../functional-spec/rhei-transitions.spec.md#fs-rhei-transitions-rhei-transitions-specification) [§FS-rhei-run](../functional-spec/rhei-run.spec.md#fs-rhei-run-rhei-run) [§FS-rhei-agents](../functional-spec/rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)
 
 ## 1. High-Level Architecture
 
@@ -259,14 +259,14 @@ Rhei-owned durable state is the authored plan/workspace task state plus the
 result ledger under `runtime/results`. The ticket's own result file there is
 the one Rhei-owned path a subprocess *does* write: a `final: true` state is not
 entered without it, and under orchestrator authority the subprocess is the
-worker that knows why the ticket is finishing (§FS-rhei-states.3.3). The
+worker that knows why the ticket is finishing ([§FS-rhei-states.3.3](../functional-spec/rhei-states.spec.md#33-terminal-result)). The
 orchestrator still owns the transition and the finalization around it. Agent
 subprocesses may otherwise edit repository files and may even create Git commits
 as part of their domain work, but they do not own Rhei state transitions under
 orchestrator authority.
 The orchestrator therefore treats Git commit creation as an external side
-effect, not as a state-transition persistence mechanism. §FS-rhei-agents.3.1
-§FS-rhei-run.3
+effect, not as a state-transition persistence mechanism. [§FS-rhei-agents.3.1](../functional-spec/rhei-agents.spec.md#31-completion-authority)
+[§FS-rhei-run.3](../functional-spec/rhei-run.spec.md#3-execution-loop)
 
 At `rhei run` entry, the CLI records the repository root and `HEAD` only when
 the execution workspace is inside Git. At successful run exit, it re-reads
@@ -276,13 +276,13 @@ from resolved filesystem paths and converted to repository-relative paths, so
 relative invocations from nested directories and repository-root invocations
 cover the same Rhei-owned files. A dirty tracked Rhei-owned path turns the
 would-be success into a clear error; non-Git workspaces, unchanged `HEAD`, and
-untracked runtime artifacts are ignored. §FS-rhei-run.3.1
+untracked runtime artifacts are ignored. [§FS-rhei-run.3.1](../functional-spec/rhei-run.spec.md#31-git-consistency-after-subprocess-commits)
 
 This boundary deliberately does not stage, commit, or roll back files. Rhei can
 detect that a subprocess commit made `HEAD` stale relative to the final
 orchestrator-owned transition, but deciding how to commit or discard that
 transition remains an operator or surrounding workflow responsibility.
-§FS-rhei-run.3.1
+[§FS-rhei-run.3.1](../functional-spec/rhei-run.spec.md#31-git-consistency-after-subprocess-commits)
 
 ---
 

@@ -29,7 +29,7 @@ The state-machine surface also permits these optional fields for richer workflow
 - Per-state `inputs:` / `outputs:` artifact contracts to require workspace files on entry/exit; individual inputs may be marked `optional: true` to skip the existence check while still exposing the path and an existence flag to agents and programs
 - Per-state `handoff:` inheritance to inject declared same-task handoff artifacts from the previous state into the successor prompt
 - Per-state `mcp_servers:` and `skills:` lists to attach MCP servers and agent skills to the agent subprocess for that state; individual entries may be marked `optional: true` to warn-and-continue rather than block when the tool is unavailable
-- Per-state `execute_on: <scope>-<event>` to make a non-leaf task in that state a *supervisor* of its subtree, woken at every finished child, every child transition, every finished descendant, or every descendant transition, and holding the subtree in between (§FS-rhei-supervision)
+- Per-state `execute_on: <scope>-<event>` to make a non-leaf task in that state a *supervisor* of its subtree, woken at every finished child, every child transition, every finished descendant, or every descendant transition, and holding the subtree in between ([§FS-rhei-supervision](rhei-supervision.spec.md#fs-rhei-supervision-subtree-supervision-specification))
 
 When `models` is omitted, the machine behaves as it does today and states are
 not model-constrained. For new workflows, prefer `target` / `all_targets`
@@ -90,7 +90,7 @@ can start in different states within the same state machine.
 | `execute_on` | enum | No | Marks this state as a *supervising* state: `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`. A non-leaf task in it is woken at checkpoints of its subtree — the scope picks whose moves it hears (its direct children, or any descendant), the event picks which (a terminal entry, or every transition) — and holds the subtree between visits. Requires a self-loop transition as the release edge. See [Supervision Specification](rhei-supervision.spec.md). |
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. A task may override this per work item with `**Model:**` or `**Target:**` unless `target_locked` is set; see [Plan Language — Task Execution Overrides](rhei-plan-language.spec.md#311-task-execution-overrides). |
 | `all_targets` | string array | No | Inline execution target selectors for fanout execution. The state runs once per listed selector. Preferred over `all_models` for new multi-target workflows. |
-| `target_locked` | boolean | No | When `true`, the state's execution identity is essential to the phase and must not be reassigned per task: any task-level `**Model:**` or `**Target:**` override (§FS-rhei-plan-language.3.11) on a task entering this state is a validation error. Defaults to `false`. |
+| `target_locked` | boolean | No | When `true`, the state's execution identity is essential to the phase and must not be reassigned per task: any task-level `**Model:**` or `**Target:**` override ([§FS-rhei-plan-language.3.11](rhei-plan-language.spec.md#311-task-execution-overrides)) on a task entering this state is a validation error. Defaults to `false`. |
 | `all_models` | string array | No | The complete set of declared model profile identifiers allowed to work this state |
 | `snapshot` | object | No | Per-state session snapshot emit/inherit contract. Optional; details and closed-schema validation live in [Snapshots Specification](rhei-snapshots.spec.md). |
 | `model` | string | No | A single model profile identifier from the machine-level `models` list |
@@ -153,7 +153,7 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
   [Snapshots Specification — Target Slug](rhei-snapshots.spec.md#71-target-slug).
 - `state.target_locked`, when present, must be a boolean. When `true`, a task
   entering this state must not carry a `**Model:**` or `**Target:**` override
-  (§FS-rhei-plan-language.3.11); such a combination is a validation error.
+  ([§FS-rhei-plan-language.3.11](rhei-plan-language.spec.md#311-task-execution-overrides)); such a combination is a validation error.
 - `state.target` and `state.all_targets` are mutually exclusive.
 - `state.target` and `state.all_targets` must not be combined with any of
   `state.model`, `state.all_models`, `state.agent`, or `state.agent_mode`.
@@ -203,8 +203,8 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
   it declares neither `visits` nor a transition whose `condition` is bounded by
   `visitCount`: the loop has no budget and no exit that counts, so a run may
   re-enter it forever. Visits of such a state are counted regardless, so an
-  authored `visitCount` exit works (§FS-rhei-supervision.4.2).
-- `state.execute_on`, when present, must be one of `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`, and the state must be agent-bearing. `execute_on` on a `final: true`, `gating: true`, `program:`, or `poll:` state is a validation error — a state has one trigger, `poll:` (time) or `execute_on:` (its subtree) — as is combining it with `all_targets` or `all_models`. A supervising state must declare a self-loop transition — its release edge. Warnings and the full rule set are in §FS-rhei-supervision.1.2.
+  authored `visitCount` exit works ([§FS-rhei-supervision.4.2](rhei-supervision.spec.md#42-self-loops-on-agent-states)).
+- `state.execute_on`, when present, must be one of `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`, and the state must be agent-bearing. `execute_on` on a `final: true`, `gating: true`, `program:`, or `poll:` state is a validation error — a state has one trigger, `poll:` (time) or `execute_on:` (its subtree) — as is combining it with `all_targets` or `all_models`. A supervising state must declare a self-loop transition — its release edge. Warnings and the full rule set are in [§FS-rhei-supervision.1.2](rhei-supervision.spec.md#12-validation-rules).
 - A state that declares both `poll` and `snapshot.inherit` is a validation
   error in v1. Polling states may still emit snapshots on terminal exit when
   otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#103-counted-loops-fanout-and-polling).
@@ -226,12 +226,12 @@ It is the one state name the engine reads as *the work was abandoned* rather
 than as a state like any other, and four rules key on it:
 
 - a `**Prior:**` in it does **not** satisfy a dependency, so a cancelled ticket
-  never unblocks downstream work (§FS-rhei-plan-language.3);
+  never unblocks downstream work ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints));
 - `rhei complete` never selects it as a completion target;
-- the run report marks it apart from success (§FS-rhei-run-report.3.2);
+- the run report marks it apart from success ([§FS-rhei-run-report.3.2](rhei-run-report.spec.md#32-task-tree));
 - a transition **into** it waives the *source* state's declared `outputs:` —
   cancellation abandons the work, so that contract is moot
-  (§FS-rhei-transitions.4.5). The terminal-result obligation still stands.
+  ([§FS-rhei-transitions.4.5](rhei-transitions.spec.md#45-artifact-enforcement)). The terminal-result obligation still stands.
 
 `canceled` is accepted as the same name; the two spellings are one reserved
 name, not two states. Any other name — `dropped`, `abandoned`, `wontfix` — is an
@@ -316,11 +316,11 @@ Each artifact definition has this shape:
 Supported path template variables:
 
 - `{task_id}` - the current ticket's **project-qualified** id (`auth.3`), not
-  the rhei-local id its heading carries in the plan file (§AR-rhei-panta.3)
+  the rhei-local id its heading carries in the plan file ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing))
 - `{task_id_local}` - the ticket id as written in its rhei file's heading
   (`3`). Use this — never `{task_id}` — in instructions that author new task
   headings or `**Prior:**` lines into the plan file, since the qualification
-  prefix is applied at load time and must not be authored (§AR-rhei-panta.3)
+  prefix is applied at load time and must not be authored ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing))
 - `{rhei_id}` - the owning rhei's id (`auth`); unresolved when the ticket
   carries no qualification prefix
 - `{state}` - the canonical unsuffixed state name
@@ -524,14 +524,14 @@ These are notes from previous `implement` state of this same task. They are cont
 Every `final: true` state carries one artifact contract that is not declared in
 YAML and cannot be opted out of: **a task does not enter a terminal state
 without a non-empty result**. The result lives at the fixed, convention-derived
-path every other surface already uses (§FS-rhei-complete.3):
+path every other surface already uses ([§FS-rhei-complete.3](rhei-complete.spec.md#3-result-file)):
 
 ```text
 runtime/results/<task-id>.md
 ```
 
 resolved against the execution root of the rhei that owns the ticket
-(§FS-rhei-plan-language.3.10), keyed by the project-qualified id.
+([§FS-rhei-plan-language.3.10](rhei-plan-language.spec.md#310-state-artifact-contracts)), keyed by the project-qualified id.
 
 **Why it has no per-state field.** A terminal state is where a ticket's story
 ends, and a plan whose finished tickets say nothing about why they finished is
@@ -545,7 +545,7 @@ where a target state's `inputs:` are enforced.
 
 **When it is checked.** On the shared transition path, against the *effective*
 target — after `on_leave` and any `nextState` redirect resolve
-(§FS-rhei-transitions.3.2), at the same point the target state's `inputs:` are
+([§FS-rhei-transitions.3.2](rhei-transitions.spec.md#32-callback-trigger-triggeredby-callback)), at the same point the target state's `inputs:` are
 checked, and before the state write. A redirect therefore cannot smuggle a
 terminal entry past it, and a refused move leaves the plan untouched.
 
@@ -557,15 +557,15 @@ terminal entry past it, and a refused move leaves the plan untouched.
 2. A result message carried by the caller through the transition
    (`rhei complete --result`, `rhei transition --result`, or an engine-owned
    failure route under `rhei run`). The message is appended in the existing
-   `## Result` entry format (§FS-rhei-complete.3.2) after the transition
+   `## Result` entry format ([§FS-rhei-complete.3.2](rhei-complete.spec.md#32-result-file-format)) after the transition
    succeeds.
 
 A file that exists but is only whitespace counts as **no result**, on the same
-reading §FS-rhei-states.3.2 applies to handoffs: an existence-only contract
+reading [§FS-rhei-states.3.2](rhei-states.spec.md#32-state-handoffs) applies to handoffs: an existence-only contract
 would otherwise let an empty file stand in for an answer.
 
 **A fanned-out state writes fragments, not the file.** A state that fans out
-(`all_targets`, `all_models` — §FS-rhei-transitions.4.2) runs several workers over
+(`all_targets`, `all_models` — [§FS-rhei-transitions.4.2](rhei-transitions.spec.md#42-state-definition)) runs several workers over
 one ticket, and each of them has its own account of what it did. One shared
 path would make them overwrite each other and let the first writer satisfy the
 obligation on everyone's behalf, so under fan-out each invocation is given a
@@ -576,7 +576,7 @@ runtime/results/<task-id>/<state>/<visit_count>/<identity>.md
 ```
 
 The key is the one the state's own per-invocation artifacts already use, in the
-same order (§FS-rhei-states.3.2): the state being worked, the visit of that
+same order ([§FS-rhei-states.3.2](rhei-states.spec.md#32-state-handoffs)): the state being worked, the visit of that
 state, and `<identity>` — the target slug for `all_targets`, the model id for
 `all_models`. All three carry weight. A fragment is one worker's account of one
 invocation of one state, and a ticket may fan out more than once: `review` then
@@ -588,8 +588,8 @@ alone does not separate them either — an uncounted state renders visit `1` on
 every entry — so the path carries both.
 
 The fragment path is what the invocation sees in its prompt and in
-`RHEI_RESULT_PATH` (§FS-rhei-agents.3, §FS-rhei-agents.4), and the completion
-condition (§FS-rhei-agents.3.2) checks *that invocation's own* fragment, exactly
+`RHEI_RESULT_PATH` ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)), and the completion
+condition ([§FS-rhei-agents.3.2](rhei-agents.spec.md#32-completion-condition)) checks *that invocation's own* fragment, exactly
 as it checks that invocation's declared `outputs:`. Both sides resolve the path
 through the same rule, so the file a worker is told to write is the file the run
 looks for.
@@ -615,14 +615,14 @@ an earlier hop is kept, not replaced.
 The merge still refuses the move, naming the fragments that are missing, if one
 is absent when it runs. That is the rule declared `outputs:` already follow —
 they are checked across every invocation identity on the edge out
-(§FS-rhei-plan-language.3.10) — and here it is a backstop rather than the
+([§FS-rhei-plan-language.3.10](rhei-plan-language.spec.md#310-state-artifact-contracts)) — and here it is a backstop rather than the
 ordinary path: an invocation that wrote nothing fails its own completion
 condition first, and nobody reaches the merge.
 
 **A `program:` state is not fanned out.** `rhei run` spawns a program once per
 ticket whatever else the state declares, so a program state has one invocation,
 no identity, and writes `runtime/results/<task-id>.md` directly — the path
-`RHEI_RESULT_PATH` holds for it (§FS-rhei-programs.2). Asking a state that runs
+`RHEI_RESULT_PATH` holds for it ([§FS-rhei-programs.2](rhei-programs.spec.md#2-environment-variables)). Asking a state that runs
 one process for one fragment per declared target would demand files nothing can
 write.
 
@@ -630,23 +630,23 @@ Invocations that are not fanned out are unaffected: they write
 `runtime/results/<task-id>.md` directly.
 
 **Who supplies the message.** Whoever knows the outcome. A worker under
-`worker` authority (§FS-rhei-agents.3.1) supplies it on the command that
+`worker` authority ([§FS-rhei-agents.3.1](rhei-agents.spec.md#31-completion-authority)) supplies it on the command that
 finishes the ticket. A worker under `orchestrator` authority writes the file
 before it exits — the path is in its prompt and in `RHEI_RESULT_PATH`
-(§FS-rhei-agents.3, §FS-rhei-agents.4). The engine supplies the message only for
+([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). The engine supplies the message only for
 outcomes the engine itself produced: a timeout it fired, tooling it could not
 start, an exit code it read, an edge it walked with no subprocess in the state
-(§FS-rhei-run.3). It never speaks for a worker that ran and never speaks for a
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)). It never speaks for a worker that ran and never speaks for a
 human — where a worker ran, a missing result fails the completion condition;
 where a human decided, the human is **asked**: the human-gate surfaces carry an
-optional result field (§FS-rhei-viz.5.1, §FS-rhei-run-tui.1.5.5) so the operator
+optional result field ([§FS-rhei-viz.5.1](rhei-viz.spec.md#51-human-gate-transitions), [§FS-rhei-run-tui.1.5.5](rhei-run-tui.spec.md#155-live-actions-intervene-and-human-gate)) so the operator
 who makes the call types the reason on the move that finishes the ticket. They
 carry it; they never invent it, so a gate release with no message and no result
 on disk is refused exactly as any other terminal move would be.
 
 **What it is not.** It is not a readiness rule. `rhei transition` deliberately
 skips `**Prior:**` readiness as the human escape hatch
-(§FS-rhei-transition-cmd.3), and keeps that; nothing about a deliberate
+([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)), and keeps that; nothing about a deliberate
 out-of-order move argues for a free pass on writing down why.
 
 ## 4. Template Variables in Instructions and Personality
@@ -658,7 +658,7 @@ The `instructions` and `personality` fields support template variable substituti
 | Variable | Source | Description | Example Value |
 |----------|--------|-------------|---------------|
 | `{task_id}` | claimed task | Ticket's project-qualified id — the rhei id joined with the rhei-local id, not the plain heading id | `auth.3`, `auth.setup` |
-| `{task_id_local}` | claimed task | Ticket id as written in its rhei file's heading. Required for instructions that author headings or `**Prior:**` lines into the plan file (§AR-rhei-panta.3) | `3`, `setup` |
+| `{task_id_local}` | claimed task | Ticket id as written in its rhei file's heading. Required for instructions that author headings or `**Prior:**` lines into the plan file ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)) | `3`, `setup` |
 | `{rhei_id}` | claimed task | Owning rhei's id (the qualification prefix); unresolved when the ticket carries none | `auth` |
 | `{task_title}` | claimed task | Task title text | `Implement caching layer` |
 | `{state}` | state machine | Canonical unsuffixed state name | `review` |
@@ -690,7 +690,7 @@ The `instructions` and `personality` fields support template variable substituti
   mode, when the agent subprocess cwd is a repository root or task worktree
   different from the Rhei artifact root, `{input.<name>.path}` and
   `{output.<name>.path}` resolve to absolute paths under `RHEI_ROOT`
-  (§FS-rhei-agents.4). When the subprocess cwd is the artifact root, they keep
+  ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). When the subprocess cwd is the artifact root, they keep
   the relative form shown above.
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
 - **`{target}` and `{target.slug}` are only available for target-based execution.** For states that use the legacy `model` / `all_models` fields, `{target}` is left unresolved.
@@ -1171,7 +1171,7 @@ explicitly.
 ## 9. Node Policy
 
 `node_policy` maps each node in a plan to a profile. Its keys are the required
-`root` (the Panta project root, §FS-rhei-panta) and `default`, and the optional
+`root` (the Panta project root, [§FS-rhei-panta](rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)) and `default`, and the optional
 `rhei` (the rhei tier), `by_type`, and `overrides`.
 
 ### 9.1. Shape
@@ -1196,7 +1196,7 @@ For a given node, resolve its profile in this order:
    `node_policy.root`.
 2. If the node is a rhei (kind `rhei`), use `node_policy.rhei` when defined.
    When it is omitted, the rhei is a structural rollup with no profile-driven
-   state: its status is derived from its descendants (§FS-rhei-panta.3), and it
+   state: its status is derived from its descendants ([§FS-rhei-panta.3](rhei-panta.spec.md#3-one-unified-view)), and it
    is never claimed or transitioned.
 3. Otherwise the node is a ticket. Walk `node_policy.overrides` in declaration
    order; use the profile of the first entry whose `match` matches the node. A

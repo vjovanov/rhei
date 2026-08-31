@@ -64,7 +64,7 @@ When `[SHELL]` is omitted:
 Rhei supports the notable interactive shells covered by `clap_complete`:
 
 `<bin>` below is the name the CLI was invoked under — `rhei`, or its short
-alias `rh` (§FS-rhei-distribution.1). Completions are registered and installed
+alias `rh` ([§FS-rhei-distribution.1](rhei-distribution.spec.md#1-release-targets)). Completions are registered and installed
 under that name, so installing for one name never overwrites the other's file
 and `rh <TAB>` completes exactly like `rhei <TAB>`.
 
@@ -119,7 +119,7 @@ Elvish as far as each shell's completion model permits.
 - Do not write files, delete files, acquire task locks, run callbacks, spawn
   agents, spawn programs, or mutate metadata during completion. Reading state
   that a command would otherwise tidy — the run registry of
-  §FS-rhei-run-headless.2, whose listing prunes — reads it without tidying: a
+  [§FS-rhei-run-headless.2](rhei-run-headless.spec.md#2-the-run-descriptor), whose listing prunes — reads it without tidying: a
   keypress is not a request for anything to happen.
 - Degrade quietly. If a plan, workspace, state machine, settings file, or
   template manifest cannot be read, return the best static/path completions that
@@ -136,7 +136,7 @@ When the shell supports descriptions, candidates should include concise help:
 | Template | Template description and source (`project` or `user`) |
 | Template input key | Type, required/default status, positional index when present, and description |
 | Task id | Task title and current state |
-| Rhei id (`--rhei`) | The loaded project's rhei ids (§FS-rhei-panta.6) |
+| Rhei id (`--rhei`) | The loaded project's rhei ids ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)) |
 | State name | State description when available |
 | Assignee | Number of matching tasks when available |
 | Node kind | Number of matching tasks when available |
@@ -266,7 +266,7 @@ does not silently drift from the current CLI surface.
 | `install-skills` | `--agent` | `claude-code`, `cursor`, `windsurf`, `copilot`, `kilocode`, `pi`, `codex`, `antigravity`, `all` |
 | `install-skills` | `--local`, `--link`, `--uninstall`, `--dry-run` | Static flag completion |
 | `install-skills` | `--skills` | Comma-aware skill name completion |
-| `attach` | `RUN` | Run ids from the registry: live and unchecked first, then the most recent ended ones (§FS-rhei-run-headless.3) |
+| `attach` | `RUN` | Run ids from the registry: live and unchecked first, then the most recent ended ones ([§FS-rhei-run-headless.3](rhei-run-headless.spec.md#3-run-identity-and-liveness)) |
 | `attach` | `--json`, `--wait` | Static flag completion |
 | `attach` | `--since` | No fixed candidates; a sequence number the caller holds |
 | `runs` | `--json` | Static flag completion |

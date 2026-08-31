@@ -5,7 +5,7 @@ binds them into one process: close the terminal and the run dies with it, and
 the only way to watch a run is to be the shell that started it. `--headless`
 separates them. The run becomes a detached supervisor identified by a **run
 id**; `rhei attach` is a client that connects a terminal surface to it and
-disconnects again without touching the work. §GOAL-rhei-outcomes
+disconnects again without touching the work. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ```bash
 rhei run --headless plan.rhei.md   # prints a run id, returns
@@ -26,8 +26,8 @@ a detached run.
 
 `--headless` **detaches**; it does not merely suppress the TUI. A foreground
 run with plain output is what `--no-tui` already selects
-(§FS-rhei-run-tui.1.4), and a machine-readable one is `--json`
-(§FS-rhei-run-json). What `--headless` adds is that the run outlives the
+([§FS-rhei-run-tui.1.4](rhei-run-tui.spec.md#14-frontend-selection)), and a machine-readable one is `--json`
+([§FS-rhei-run-json](rhei-run-json.spec.md#fs-rhei-run-json-rhei-run---json)). What `--headless` adds is that the run outlives the
 command that started it.
 
 `rhei run --headless` re-executes `rhei run` as a child in a **new session and
@@ -37,7 +37,7 @@ descriptor (§2) and returns. A `SIGHUP` on the launching terminal reaches the
 launcher's session, not the run's.
 
 The child is an ordinary `rhei run`: it acquires the same run locks
-(§FS-rhei-run.2.6), drives the same execution loop, honors the same signals,
+([§FS-rhei-run.2.6](rhei-run.spec.md#26-run-lock)), drives the same execution loop, honors the same signals,
 and writes the same run report. It is *not* a service, keeps no cross-run
 state, and exits when its plan is done.
 
@@ -78,12 +78,12 @@ stretch — pre-check, truncating `runtime/run.log`, spawning, handshake — and
 takes it without waiting. A second launcher on the same workspace fails at once
 with a message naming the run that is starting, rather than truncating the first
 run's console and then timing out on a child it did not start. The lock is
-distinct from the run lock (§FS-rhei-run.2.6), which the *child* takes and which
+distinct from the run lock ([§FS-rhei-run.2.6](rhei-run.spec.md#26-run-lock)), which the *child* takes and which
 covers every involved execution root — and it is the run lock, not this one,
 that catches two launches on different member plans of one project.
 
 A **detached child** never waits on a contended run lock: it fails fast with the
-§FS-rhei-run.2.6 diagnostic, so a lock refusal reaches the operator as a lock
+[§FS-rhei-run.2.6](rhei-run.spec.md#26-run-lock) diagnostic, so a lock refusal reaches the operator as a lock
 refusal rather than as a 30-second "did not report ready".
 
 The launcher's exit code answers "did the run start?", not "did the run
@@ -93,7 +93,7 @@ with `rhei attach --wait` (§5.3).
 ### 1.2. Human Gates
 
 A detached run **waits at a human gate**, as an interactive TUI run does
-(§FS-rhei-run-tui.1.5.7), rather than exiting the way a non-interactive run
+([§FS-rhei-run-tui.1.5.7](rhei-run-tui.spec.md#157-liveness-color-and-lifecycle)), rather than exiting the way a non-interactive run
 does. Waiting is the point: the operator who releases the gate is expected to
 arrive later, through `rhei attach` or the browser dashboard, and a run that
 quit at the gate would have nothing left to release. `rhei stop` is the way out
@@ -140,7 +140,7 @@ present**, and `null` until the run records one — a fixed shape a consumer can
 read without having to tell "still running" from "this build omitted the
 field". `control_url` is present only while the loopback control server is live
 (§4) and is the same address `runtime/dashboard.json` publishes for
-`rhei intervene` (§FS-rhei-viz.5). `log` is absent for a foreground run, which
+`rhei intervene` ([§FS-rhei-viz.5](rhei-viz.spec.md#5-running-execution-view)). `log` is absent for a foreground run, which
 has no redirected console of its own.
 `state_machine` is present only when the run was given an explicit
 `--state-machine`, and is what an attached surface resolves under (§5).
@@ -174,7 +174,7 @@ At most 100 ended entries are kept, newest first.
 ## 3. Run Identity and Liveness
 
 The run id is the same short identifier the run report already uses
-(§FS-rhei-run-report.2), so one id names a run in `runtime/run-reports/`, in
+([§FS-rhei-run-report.2](rhei-run-report.spec.md#2-markdown-ui)), so one id names a run in `runtime/run-reports/`, in
 `rhei runs`, and in `rhei attach`.
 
 With no reference at all, a command means the enclosing workspace's run, which
@@ -244,7 +244,7 @@ end that was never observed. Waiting is bounded: after a short grace of
 consecutive undecided probes they stop and say so on stderr, exiting non-zero.
 A wait that ends must have observed either an end or a failure to check; it must
 never report a run it could not check as finished, and a record stream that
-stops early must never exit `0` (§FS-rhei-run-json.2.1).
+stops early must never exit `0` ([§FS-rhei-run-json.2.1](rhei-run-json.spec.md#21-records)).
 
 Reading the registry is a read. Shell completion classifies entries exactly as
 the listing does but removes nothing: a tab keypress must not unlink a file.
@@ -253,9 +253,9 @@ ones, which is the order resolution tries them in.
 
 ## 4. The Control Server and the Browser Page
 
-The loopback server that serves the dashboard (§FS-rhei-viz.7.1) is the run's
+The loopback server that serves the dashboard ([§FS-rhei-viz.7.1](rhei-viz.spec.md#71-dynamic-live-during-rhei-run)) is the run's
 **control server**: it carries `/snapshot`, `/intervene`
-(§AR-rhei-viz-flow.7), and `/transition-gate` (§FS-rhei-viz.5.1). The browser
+([§AR-rhei-viz-flow.7](../architecture/rhei-viz-flow.spec.md#7-intervene-the-single-mutation-boundary)), and `/transition-gate` ([§FS-rhei-viz.5.1](rhei-viz.spec.md#51-human-gate-transitions)). The browser
 page is one thing it serves, not the reason it exists.
 
 `--headless` therefore always starts the control server, so an attached surface
@@ -267,8 +267,8 @@ ability to intervene in the run.
 
 **`rhei stop` is not a route.** Stopping a run sends it a signal, exactly as an
 operator's Ctrl+C does, so the server keeps the single inbound mutation
-boundary it was designed around (§AR-rhei-viz-flow.7) and stopping inherits the
-interruption contract of §FS-rhei-run.3.2 without restating it.
+boundary it was designed around ([§AR-rhei-viz-flow.7](../architecture/rhei-viz-flow.spec.md#7-intervene-the-single-mutation-boundary)) and stopping inherits the
+interruption contract of [§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership) without restating it.
 
 ## 5. `rhei attach`
 
@@ -276,7 +276,7 @@ interruption contract of §FS-rhei-run.3.2 without restating it.
 rhei attach [<RUN>] [--json] [--since <SEQ>] [--wait]
 ```
 
-`rhei attach` connects the run TUI (§FS-rhei-run-tui.1.5) to a run this process
+`rhei attach` connects the run TUI ([§FS-rhei-run-tui.1.5](rhei-run-tui.spec.md#15-tui-surface)) to a run this process
 did not start. It is a **reader of files plus a client of the control server**:
 
 - The plan model comes from the plan on disk, through the same loader the run
@@ -284,11 +284,11 @@ did not start. It is a **reader of files plus a client of the control server**:
   descriptor records (§2), not whatever the default resolves to now. A surface
   that resolved a different machine would draw states the run cannot be in.
 - The runtime overlay comes from `runtime/events.jsonl`
-  (§FS-rhei-run-json.3): the client replays the file to rebuild slot state,
+  ([§FS-rhei-run-json.3](rhei-run-json.spec.md#3-durable-event-log)): the client replays the file to rebuild slot state,
   then follows it as the run appends.
 - Live agent output comes from the per-task logs named by each
   `slot_assigned.log_path`, tailed directly. That is where the complete
-  transcript already is (§FS-rhei-run-tui.1.2), so nothing is duplicated into
+  transcript already is ([§FS-rhei-run-tui.1.2](rhei-run-tui.spec.md#12-live-agent-traffic)), so nothing is duplicated into
   the event log to make attachment work.
 - **Intervene** and **human gate release** post to the run's `control_url`,
   through the identical boundaries the browser dashboard and `rhei intervene`
@@ -303,7 +303,7 @@ files and clients of the same two endpoints.
 
 **`Ctrl+C` in an attached surface detaches. It does not stop the run.** This
 inverts the driving TUI, where Ctrl+C re-raises `SIGINT` on the run itself
-(§FS-rhei-run-tui.1.8), and the inversion is the whole point: the reflex that
+([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)), and the inversion is the whole point: the reflex that
 ends a foreground command must not end a run somebody else's terminal is also
 watching. `q` detaches too, at any time, rather than only once the run has
 finished.
@@ -319,8 +319,8 @@ The run does not know a surface was there.
 
 `rhei attach` on a finished run does not open a live surface. It reports the
 run's recorded result and points at what outlived it — `runtime/run-report.md`
-(§FS-rhei-run-report.1) and the frozen `runtime/dashboard.html`
-(§FS-rhei-viz.7.1) — because those, not a screen, are what the operator came
+([§FS-rhei-run-report.1](rhei-run-report.spec.md#1-report-artifact)) and the frozen `runtime/dashboard.html`
+([§FS-rhei-viz.7.1](rhei-viz.spec.md#71-dynamic-live-during-rhei-run)) — because those, not a screen, are what the operator came
 back for.
 
 A run whose liveness could not be decided (§3) is **not** a run that has ended.
@@ -331,7 +331,7 @@ operator loses the surface, and the run's own output says nothing about it.
 ### 5.3. `--json`
 
 `rhei attach --json` opens no surface. It writes the run's event records to
-stdout in the format of §FS-rhei-run-json.2, starting from `--since <SEQ>`
+stdout in the format of [§FS-rhei-run-json.2](rhei-run-json.spec.md#2-record-envelope), starting from `--since <SEQ>`
 (default: the beginning of the run) and following the live run until it ends.
 This is how a tool attaches to work it did not start.
 
@@ -365,7 +365,7 @@ Both waits treat an undecided probe (§3) as "keep waiting", not as an end, and
 both give up loudly rather than quietly: past the grace they report on stderr
 what they could not check and exit non-zero. For `--json` that also means the
 stream is announced as possibly incomplete, because a stream ending without
-`run_finished` otherwise reads as an interrupted run (§FS-rhei-run-json.2.1).
+`run_finished` otherwise reads as an interrupted run ([§FS-rhei-run-json.2.1](rhei-run-json.spec.md#21-records)).
 
 ## 6. `rhei runs`
 
@@ -385,7 +385,7 @@ the reason**. Keeping them silently and omitting them from the listing produces
 exactly the "no runs are live" lie the tri-state exists to prevent.
 
 `--json` emits an array of the live descriptor objects (§2) and follows the
-error envelope of §FS-rhei-errors.5; undecidable entries are reported on stderr,
+error envelope of [§FS-rhei-errors.5](rhei-errors.spec.md#5-machine-readable-errors); undecidable entries are reported on stderr,
 so stdout stays the array and nothing else.
 
 ## 7. `rhei stop`
@@ -394,7 +394,7 @@ so stdout stays the array and nothing else.
 rhei stop [<RUN>] [--kill] [--wait]
 ```
 
-Sends the run `SIGINT`, entering the interruption contract of §FS-rhei-run.3.2
+Sends the run `SIGINT`, entering the interruption contract of [§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)
 unchanged: in-flight invocations are terminated as process groups and reaped,
 no ticket transitions, the run report is written, and the run exits
 `130`. `rhei stop` adds nothing to that contract and must not: an operator's
@@ -402,7 +402,7 @@ Ctrl+C and a `rhei stop` are the same event reaching the run by two routes.
 
 `--kill` *asks twice*: it sends the signal, waits out a short grace, and — if
 the run is not known to have ended — sends it again, which is the escalation
-§FS-rhei-run.3.2 reserves for an operator who asks twice. It is not a different
+[§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership) reserves for an operator who asks twice. It is not a different
 mechanism and does not skip the first grace; the run's own handler decides what
 a second signal means, exactly as it does for a doubled Ctrl+C. An undecided
 probe (§3) does not skip the escalation either, for the same reason it does not
@@ -430,7 +430,7 @@ a pid, and pids are reused; the authoritative copy gets the last word.
   receive the terminal's `SIGHUP`. It keeps going; `runtime/run.log` keeps
   filling.
 - **A second `--headless` run on the same workspace.** It fails at the run lock
-  with the existing diagnostic (§FS-rhei-run.2.6), synchronously, before an id
+  with the existing diagnostic ([§FS-rhei-run.2.6](rhei-run.spec.md#26-run-lock)), synchronously, before an id
   is printed. Two launchers racing each other fail the same way, at the launch
   lock of §1.1, and only one run is ever started.
 - **The run dies without cleaning up.** The descriptor still says `running`.
@@ -447,7 +447,7 @@ a pid, and pids are reused; the authoritative copy gets the last word.
   start, like the latest run report: one file is one run, and the previous
   run's console is superseded rather than accumulated.
 - **The attached surface's terminal goes away.** The client ends the way a
-  driving TUI does (§FS-rhei-run-tui.1.8) — and because it was only ever a
+  driving TUI does ([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)) — and because it was only ever a
   reader, the run is unaffected.
 
 ## Related Specifications

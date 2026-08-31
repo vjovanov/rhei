@@ -37,12 +37,12 @@ mod validate_retry_cache_tests;
 
 // Shared with the `integration_markdown_plans` harness, which cannot see this
 // module tree and `include!`s the same file.
+#[path = "../support/binaries.rs"]
+mod binaries;
 #[path = "../support/python_fixture.rs"]
 mod python_fixture;
 #[path = "../support/test_dir.rs"]
 mod test_dir;
-#[path = "../support/binaries.rs"]
-mod binaries;
 
 pub use python_fixture::{
     fixture_command, fixture_command_line, python_command, write_python_agent,
@@ -61,8 +61,8 @@ pub fn python_callback_yaml(code: &str) -> String {
     serde_json::to_string(&format!("cli:{} -c \"{code}\"", python_command()))
         .expect("callback should serialize")
 }
-pub use test_dir::TestDir;
 pub use binaries::rhei_binary;
+pub use test_dir::TestDir;
 
 /// The product's own quoting, so a test builds an expected command line the way
 /// the product built it — POSIX quotes on Unix, `cmd`'s on Windows — instead of

@@ -133,7 +133,7 @@ rhei/
 ### Crate Responsibilities
 
 Only crates with an audience outside this repository are workspace crates; the
-CLI's own subsystems are modules inside `rhei-cli`. §FS-rhei-distribution.1
+CLI's own subsystems are modules inside `rhei-cli`. [§FS-rhei-distribution.1](../functional-spec/rhei-distribution.spec.md#1-release-targets)
 
 | Source crate | Published package | Role |
 |-------------|-------------------|------|

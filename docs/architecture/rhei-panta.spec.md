@@ -1,14 +1,14 @@
 # AR-rhei-panta: Panta root architecture
 
 This document specifies how Panta — the per-project virtual root above all rheis
-(§FS-rhei-panta) — is laid out on disk, loaded into a single graph, and
-addressed. It realizes the decision recorded in §DA-panta-root and extends the
-node hierarchy and virtual-root model of §FS-rhei-plan-language.3.
+([§FS-rhei-panta](../functional-spec/rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)) — is laid out on disk, loaded into a single graph, and
+addressed. It realizes the decision recorded in [§DA-panta-root](../decisions/architectural/panta-root.md#da-panta-root-panta-is-the-per-project-virtual-root-above-all-rheis) and extends the
+node hierarchy and virtual-root model of [§FS-rhei-plan-language.3](../functional-spec/rhei-plan-language.spec.md#3-semantic-constraints).
 
 ## 1. On-disk layout
 
 A Panta is a project directory. It reuses the Directory Workspace machinery
-(§FS-rhei-plan-language.1.2) one level up: where a Directory Workspace merges
+([§FS-rhei-plan-language.1.2](../functional-spec/rhei-plan-language.spec.md#12-directory-workspace-agent-teams-high-concurrency)) one level up: where a Directory Workspace merges
 task files into one plan, a Panta merges rheis into one project.
 
 ```
@@ -61,7 +61,7 @@ Loading a Panta produces one graph rooted at the virtual `panta` node:
    file is an author who believed the basin was an ordinary Directory
    Workspace, and its tickets would otherwise never load. Skipping it silently
    is the one outcome the basin must not have — unfiled work that disappears
-   behind a green `rhei validate` is precisely what §FS-rhei-panta.4 forbids.
+   behind a green `rhei validate` is precisely what [§FS-rhei-panta.4](../functional-spec/rhei-panta.spec.md#4-invisibility) forbids.
 4. Synthesize the virtual `panta` root and attach each loaded rhei, including the
    synthetic basin rhei, as a level-1 child.
 5. Merge into one task graph and resolve `**Prior:**` across the whole project,
@@ -120,10 +120,10 @@ its tickets:
 - `basin` is a permanently reserved rhei id. A discovered domain rhei with id
   `basin` (for example a `basin.rhei.md` in the project directory) is a
   load/validation error whether or not `basin/` content exists, so the
-  synthetic basin rhei can never collide with a domain rhei (§FS-rhei-panta.2).
+  synthetic basin rhei can never collide with a domain rhei ([§FS-rhei-panta.2](../functional-spec/rhei-panta.spec.md#2-default-home-for-new-rheis)).
 
 Within a rhei, tickets are authored and validated exactly as today
-(§FS-rhei-plan-language.3.4): the rhei-local id space is unchanged, including
+([§FS-rhei-plan-language.3.4](../functional-spec/rhei-plan-language.spec.md#34-hierarchical-task-consistency)): the rhei-local id space is unchanged, including
 `structure.maxLevels` (1–4) counted from the rhei-local level 1. The Panta prefix
 is applied at merge time and is not authored into the rhei's task headings.
 `**Prior:**` references may be written as project ids to point across rheis;
@@ -144,7 +144,7 @@ rhei ids. A mistyped rhei name is shaped like a cross-rhei reference and reads
 like one to the author; prefixing it with the citing rhei would make it
 surface — in validation errors, `rhei list`, and every renderer — as an id that
 appears in no file and matches no search. An unresolved reference is a
-validation error either way (§FS-rhei-validate.4.1), so the only thing
+validation error either way ([§FS-rhei-validate.4.1](../functional-spec/rhei-validate.spec.md#41-unresolved-prior-references)), so the only thing
 qualification could add is a wrong id.
 
 ## 4. State-machine binding
@@ -158,7 +158,7 @@ runs under the machine it names: a state machine here is the *process* — state
 vocabulary, transitions, per-state agent bindings, artifact contracts — and
 different workstreams in one project legitimately follow different processes
 (every instantiated template is one). The merge records which rhei declared
-which machine (§DA-per-rhei-state-machines); the graph stays one merged,
+which machine ([§DA-per-rhei-state-machines](../decisions/architectural/per-rhei-state-machines.md#da-per-rhei-state-machines-the-state-machine-is-a-per-rhei-property-defaulted-by-the-manifest)); the graph stays one merged,
 project-qualified task list, and every consumer resolves a ticket's machine
 through its owning rhei. Inheritance stays a default, never a merge: a rhei
 that omits `**States:**` takes the project default wholesale, and machines are
@@ -167,7 +167,7 @@ never combined or namespaced.
 Cross-rhei semantics need no shared vocabulary. The one computation where two
 machines meet is readiness: a `**Prior:**` into another rhei is satisfied when
 the target ticket is terminal-and-not-cancelled **under the target's own
-machine** (§FS-rhei-panta.6.1). Every other operation — validation of a
+machine** ([§FS-rhei-panta.6.1](../functional-spec/rhei-panta.spec.md#61-readiness-and-rhei-next)). Every other operation — validation of a
 ticket's state, transition legality, completion-target selection, artifact
 contracts, agent bindings — is a per-ticket question answered by the owning
 rhei's machine. The resolved source of each machine is surfaced in diagnostics
@@ -188,7 +188,7 @@ than asking once. A candidate that fails to load is likewise an error, not a
 silent non-match — it would otherwise surface as a misleading "no states file
 found". Name-match resolution is file resolution, not shadowing, and it is
 what lets a project initialized over existing plans by `rhei init` keep each
-machine file where its rhei always kept it (§FS-rhei-init.2).
+machine file where its rhei always kept it ([§FS-rhei-init.2](../functional-spec/rhei-init.spec.md#2-behavior)).
 
 `--state-machine <path>` stays a whole-scope override: it replaces resolution
 for every rhei in scope, and errors when any in-scope rhei declares a machine
@@ -202,16 +202,16 @@ resolves through the dedicated `node_policy.rhei` key when declared; when it is
 omitted, the rhei is a pure structural rollup with no profile-driven state. The
 reserved names `panta` and `rhei` may not appear in `structure.nodeKinds` or as
 `by_type` keys. Panta carries no stored state; any project-level status is a
-rollup derived from its rheis (§FS-rhei-panta.3). The full resolution and
+rollup derived from its rheis ([§FS-rhei-panta.3](../functional-spec/rhei-panta.spec.md#3-one-unified-view)). The full resolution and
 validation rules are specified in the states spec node-policy section
-(§FS-rhei-states).
+([§FS-rhei-states](../functional-spec/rhei-states.spec.md#fs-rhei-states-rhei-states-specification)).
 
 ## 5. Execution root and per-rhei runtime
 
 Each rhei keeps its own **execution root**, so artifact and relative-link
 resolution is **per rhei**, not per project. A rhei's execution
 root is defined exactly as a standalone plan's is today
-(§FS-rhei-plan-language.3.10): the containing directory for a Single-File Plan,
+([§FS-rhei-plan-language.3.10](../functional-spec/rhei-plan-language.spec.md#310-state-artifact-contracts)): the containing directory for a Single-File Plan,
 the workspace directory for a Directory Workspace rhei. State-machine `inputs`,
 `outputs`, `> **Result:**` paths, and content links inside a rhei all resolve
 against that rhei's root.
@@ -248,13 +248,13 @@ scan, claim selection, and rollup all walk the single merged graph (§2), so
 project-wide is the natural default and `--rhei` is a filter applied to candidate
 nodes after the merge. The fan-out commands — `rhei run` and `rhei reset` —
 report the resolved scope and the set of rheis they will touch before acting;
-other mutating commands act without a scope report (§FS-rhei-panta.6).
+other mutating commands act without a scope report ([§FS-rhei-panta.6](../functional-spec/rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 ## 7. Invisibility surface
 
 Panta is excluded from default output by the layers that present nodes:
 listing, `rhei next` claim selection, rendering, and visualization treat rheis as
-the top level (§FS-rhei-panta.4). Tooling may expose the root behind an explicit
+the top level ([§FS-rhei-panta.4](../functional-spec/rhei-panta.spec.md#4-invisibility)). Tooling may expose the root behind an explicit
 opt-in. Because the root is virtual and derived, no command may claim,
 transition, complete, cancel, or reset it.
 
@@ -264,10 +264,10 @@ in every surface that walks it, but it participates normally in readiness,
 claim selection, execution, and rollup. Rendering it in a visually
 de-emphasized form is deferred presentation work tracked on the roadmap; the
 de-emphasis is presentational only and never alters scheduling
-(§FS-rhei-panta.4).
+([§FS-rhei-panta.4](../functional-spec/rhei-panta.spec.md#4-invisibility)).
 
 ## Related Specifications
 
-- [Panta (functional)](../functional-spec/rhei-panta.spec.md) §FS-rhei-panta
-- [Plan Language](../functional-spec/rhei-plan-language.spec.md) §FS-rhei-plan-language.3
-- [Panta Root Decision](../decisions/architectural/panta-root.md) §DA-panta-root
+- [Panta (functional)](../functional-spec/rhei-panta.spec.md) [§FS-rhei-panta](../functional-spec/rhei-panta.spec.md#fs-rhei-panta-panta-the-project-root-above-all-rheis)
+- [Plan Language](../functional-spec/rhei-plan-language.spec.md) [§FS-rhei-plan-language.3](../functional-spec/rhei-plan-language.spec.md#3-semantic-constraints)
+- [Panta Root Decision](../decisions/architectural/panta-root.md) [§DA-panta-root](../decisions/architectural/panta-root.md#da-panta-root-panta-is-the-per-project-virtual-root-above-all-rheis)

@@ -4,7 +4,7 @@ Rhei releases ship the command-line binary, Rust crates, and release notes in a
 repeatable process so users can install the same version from crates.io or a
 GitHub release artifact. The release process must keep published package
 versions, binary names, and release notes aligned with the workspace version.
-§GOAL-rhei-outcomes
+[§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. Release Targets
 
@@ -101,5 +101,5 @@ release PGO build is intentionally excluded from local commit hooks.
 
 Which platforms Rhei supports, and what support means, is a project-wide
 requirement rather than a property of the release process:
-§REQ-cross-platform. The release's part is §1 of it — a release ships binaries
+[§REQ-cross-platform](../requirements/cross-platform.md#req-cross-platform-one-tool-on-linux-macos-and-windows). The release's part is §1 of it — a release ships binaries
 for every supported platform (§4) — and the PGO matrix is the list.

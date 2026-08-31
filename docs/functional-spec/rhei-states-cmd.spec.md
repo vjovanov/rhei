@@ -2,7 +2,7 @@
 
 Print the resolved state machine so humans and scripts can inspect available
 states, transitions, profiles, node policy, artifacts, agents, programs, and
-snapshot configuration before executing a plan. §GOAL-rhei-outcomes
+snapshot configuration before executing a plan. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 ## 1. Usage
 
@@ -15,7 +15,7 @@ rhei --state-machine <PATH> states
 ```
 
 `rhei states` reports the machine the target plan actually runs under, resolved
-exactly as every other command resolves it (§FS-rhei-plan-language.1.3). An
+exactly as every other command resolves it ([§FS-rhei-plan-language.1.3](rhei-plan-language.spec.md#13-state-machine-resolution)). An
 omitted `<RHEI_PLAN>` resolves to the nearest enclosing project, workspace, or
 lone plan, matching `rhei list` and `rhei run`. A command that reported the
 built-in default while the project ran a declared machine would misdescribe
@@ -30,7 +30,7 @@ every state name the author is about to type.
 | `--state-machine <PATH>` | No | resolved from the plan | Global option selecting an explicit states YAML file |
 
 `--rhei` narrows the report to the machines governing the named rheis, on the
-project-wide-by-default rule every command follows (§FS-rhei-panta.6). It is
+project-wide-by-default rule every command follows ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). It is
 the flag this command needs most: a project holding several instantiated
 templates holds several machines, and "what states does *billing* have?" is
 otherwise answered by reading past every other rhei's. An id naming no rhei in
@@ -41,14 +41,14 @@ default" is no longer a claim about the rest of the project.
 ## 3. Behavior
 
 1. Load the explicit states YAML file when `--state-machine` is supplied.
-   §FS-rhei-states
+   [§FS-rhei-states](rhei-states.spec.md#fs-rhei-states-rhei-states-specification)
 2. Otherwise resolve the target plan and load the machine its `**States:**`
    declaration selects, including a declaration inherited from
-   `index.panta.md`. §FS-rhei-plan-language.1.3
+   `index.panta.md`. [§FS-rhei-plan-language.1.3](rhei-plan-language.spec.md#13-state-machine-resolution)
 3. Fall back to the built-in default state machine when no plan or project
    resolves — there is then nothing to declare a machine.
 4. Render a complete inspection view of the machine. For a project whose rheis
-   declare their own machines (§FS-rhei-panta.6), render the project default
+   declare their own machines ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)), render the project default
    first, then each additional distinct machine, each introduced by its own
    `Source:` line naming the rheis that run under it — one project, several
    processes, all inspectable from one command.
@@ -99,7 +99,7 @@ Text output includes:
 - Each state with description and flags such as `final`, `gating`, and
   `concurrent`.
 - Per-state execution details such as visits, the supervision trigger
-  (§FS-rhei-supervision.1.1), polling, targets, models, agent, agent mode,
+  ([§FS-rhei-supervision.1.1](rhei-supervision.spec.md#11-the-execute_on-field)), polling, targets, models, agent, agent mode,
   timeouts, program presence, MCP servers, skills, snapshots, inputs, outputs,
   personality, and instructions. A supervising state's `execute_on:` is spelled
   as *when the supervisor wakes*, on an `Executes on:` line: `every finished

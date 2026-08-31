@@ -20,65 +20,85 @@ number_pattern = "\\d+"
 slug_pattern = "[a-z0-9][a-z0-9-]*"
 
 [[kinds]]
-prefix = "GND"
+kind = "GND"
 file = "docs/grund.md"
 title = "Reason for existence"
 
 [[kinds]]
-prefix = "GOAL"
+kind = "GOAL"
 file = "docs/functional-spec/goals.md"
 title = "Outcomes the project is trying to achieve"
 
 [[kinds]]
-prefix = "REQ"
+kind = "REQ"
 folder = "docs/requirements"
 title = "Cross-cutting requirements every feature is held to"
 
 [[kinds]]
-prefix = "FS"
+kind = "FS"
 folder = "docs/functional-spec"
 title = "User-visible behavior and requirements"
 
 [[kinds]]
-prefix = "AR"
+kind = "AR"
 folder = "docs/architecture"
 title = "System design and technical structure"
 
 [[kinds]]
-prefix = "DF"
+kind = "DF"
 folder = "docs/decisions/functional"
 title = "Product behavior decisions and tradeoffs"
 
 [[kinds]]
-prefix = "DA"
+kind = "DA"
 folder = "docs/decisions/architectural"
 title = "Architecture decisions and tradeoffs"
 
 [[kinds]]
-prefix = "ADR"
+kind = "ADR"
 folder = "docs/adr"
 title = "Architecture decision records"
 
+# The two test homes are places, not ID namespaces: a test cites the document
+# whose claim it proves and is never cited back.
 [[kinds]]
-prefix = "E2E"
-folder = "e2e/cases"
-title = "Executable user scenarios"
+kind = "e2e"
+folder = "tests/e2e"
+citable = false
+title = "User scenarios: black-box proof of the spec"
 
 [[kinds]]
-prefix = "RM"
+kind = "integration"
+folder = "tests/integration"
+citable = false
+title = "Integration tests: proof that the parts fit as designed"
+
+[[kinds]]
+kind = "RM"
 file = "docs/functional-spec/roadmap.md"
 title = "Planned milestones and sequencing"
 
 [scan]
-include = ["AGENTS.md", "README.md", "docs", "examples", "crates", "packages", "skills", "e2e"]
+include = ["AGENTS.md", "README.md", "docs", "examples", "crates", "packages", "skills", "tests"]
 # `templates/` holds payloads for `rhei instantiate`, not this project's own
 # grounded documents. A template's fixture spec is meant to be copied verbatim
 # into every instantiated workspace, so scanning it declares the same id twice.
-exclude = ["target", "node_modules", ".git", "dist", "build", ".venv", "docs/plans", "templates"]
+# `tests/e2e/fixtures` is test-input data the scanner never cites through, same
+# reasoning as `templates/`.
+exclude = ["target", "node_modules", ".git", "dist", "build", ".venv", "docs/plans", "templates", "tests/e2e/fixtures"]
 extensions = ["md", "rs", "go", "java", "kt", "ts", "tsx", "js", "py", "c", "cpp", "swift", "scala", "rb", "php", "cs"]
 comment_prefixes = ["//", "#", ";", "--", "*", "/*"]
 docstring_python = true
 respect_gitignore = true
+
+# A scenario proves the What as a user sees it, so one that reads the design is
+# not black-box; an integration test proves the How.
+[citations.e2e]
+must = ["FS"]
+should-not = ["AR"]
+
+[citations.integration]
+should = ["AR"]
 
 [output]
 format = "text" # text | json

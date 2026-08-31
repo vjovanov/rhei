@@ -5,7 +5,7 @@ operator can understand what happened without replaying the browser dashboard,
 reading raw logs, or knowing the internal artifact-reuse rules. The report is a
 commit-friendly UI: plain Markdown first, with enough structure for dashboards
 and future JSON export to render the same facts. It complements the live TUI and
-Flow dashboard; it does not replace either surface. §GOAL-rhei-outcomes
+Flow dashboard; it does not replace either surface. [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals)
 
 The report answers four questions:
 
@@ -55,7 +55,7 @@ The report layout is optimized for scan-first reading:
    paths.
 8. **Task Costs** - direct task cost and token totals when accounting was
    reported. The task cost is the sum of agent states spawned directly for that
-   task; subtree accounting remains available through `rhei cost`. §FS-rhei-cost-accounting
+   task; subtree accounting remains available through `rhei cost`. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 
 The top of the report must expose reuse counts and blocked counts without
 scrolling. A run that performs no spawned work because every required output
@@ -74,7 +74,7 @@ On an interactive terminal the summary supersedes the flat `Run complete: … /
 Final states: … / one line per task` dump. It obeys the console-first visual
 language: monospace, dark, near-zero chrome, and saturated color reserved for
 states that need attention, so the terminal, the TUI tiles, and the dashboard
-name the same state the same way. §FS-rhei-viz-ux When stdout is not a TTY, the
+name the same state the same way. [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) When stdout is not a TTY, the
 existing line-oriented output is preserved verbatim so scripts and tests that
 match it keep working (§3.4).
 
@@ -86,7 +86,7 @@ the summary prints five stacked groups:
 1. **Result line** - plan title, run id, duration, and overall result, using the
    same result vocabulary as the report header.
 
-   A run the operator interrupted (§FS-rhei-run.3.2) reads as its own outcome
+   A run the operator interrupted ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)) reads as its own outcome
    and not as a halt: the result line is `interrupted — re-run to continue`,
    taking precedence over every other phrase, and the Attention row of a ticket
    whose worker was interrupted names the interruption as the blocker with
@@ -100,14 +100,14 @@ the summary prints five stacked groups:
    are sized by count and colored by state hue; the labeled counts beside it are
    the authoritative, non-color readout. Reuse and blocked counts are always on
    screen, never below a fold. The bar is drawn once and never animates
-   §FS-rhei-viz-ux.4.
+   [§FS-rhei-viz-ux.4](rhei-viz-ux.spec.md#4-motion-and-liveness).
 3. **Attention** - up to five highest-priority halted tasks (gated first, then
    blocked, then halted), each with its state, the proven blocker, and the next
    action, ordered exactly as the report's Attention section. A trailing
    `… N more in the report` line appears when the list is truncated. The group is
    omitted entirely when no task is halted, rather than printing an empty heading.
 
-   A ticket **held by a supervisor** (§FS-rhei-supervision.3.4) is not in this
+   A ticket **held by a supervisor** ([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)) is not in this
    group. Its own next action is "nothing to do on this ticket", so listing it
    beside rows a person must act on dilutes them; it goes under a **Waiting**
    group of its own — same columns, calm marker, omitted when empty — and the
@@ -121,12 +121,12 @@ the summary prints five stacked groups:
    each non-terminal task node is not moving, in this order: an open descendant
    subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
    unsatisfied `**Prior:**`; a worker interrupted mid-flight by an *operator's*
-   shutdown (§FS-rhei-run.3.2) — a run that tore its own workers down while
+   shutdown ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)) — a run that tore its own workers down while
    failing describes their tickets by the failure instead, never by "re-run to
    continue"; a manual-only initial state; a worker that ran and
    left a required artifact unwritten — agent or program alike, since both are
    workers and both stall the same way; a required `inputs:` artifact of the
-   ticket's current state that is not on disk (§FS-rhei-states.3), named with
+   ticket's current state that is not on disk ([§FS-rhei-states.3](rhei-states.spec.md#3-artifact-contracts)), named with
    the path readiness looked for; a ticket the run never scheduled; no
    declared outgoing transition; anything else. Interruption is classified
    ahead of the missing-artifact class because it explains it: a worker the run
@@ -141,7 +141,7 @@ the summary prints five stacked groups:
    the file releases neither. The path is named, and named absolutely, because
    the file the operator wrote and the file readiness looked for can differ — a
    rhei that is a member of a Panta project resolves its inputs against its own
-   execution root (§AR-rhei-panta.5), not the project's, so *which root* is the
+   execution root ([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)), not the project's, so *which root* is the
    whole question a relative path leaves open.
 
    The classification is one answer per run, not one per surface: it is made
@@ -153,7 +153,7 @@ the summary prints five stacked groups:
 
    Non-leaf tasks are classified alongside leaves
    because a non-leaf task is a task in its own right
-   (§FS-rhei-plan-language.3); a parent whose subtree is still open reads as
+   ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)); a parent whose subtree is still open reads as
    waiting on that subtree, which is a structural consequence rather than
    something a human must fix, so — like a gate — it does not by itself make
    the run exit non-zero. The descendants named in it do that on their own
@@ -180,7 +180,7 @@ the summary prints five stacked groups:
    outranks them in the classification order above.
 
    A **gating** parent that still carries a `held` supervision block
-   (§FS-rhei-supervision.3.1) is classified ahead of the open-subtree reading,
+   ([§FS-rhei-supervision.3.1](rhei-supervision.spec.md#31-the-rule)) is classified ahead of the open-subtree reading,
    because it is not waiting on its descendants — it is holding them. Its row
    says so and names them, and the next action is the human's: move it back into
    its supervising state to resume supervision, or anywhere else to release the
@@ -190,7 +190,7 @@ the summary prints five stacked groups:
    The run's exit status and `--dry-run`'s are one judgment, not two readings
    of this classification: a run ends non-zero when work remains that is
    waiting on neither a human gate, a poll backoff, nor a `**Prior:**` that is
-   itself waiting on one of those (§FS-rhei-run.4). Deriving the prediction
+   itself waiting on one of those ([§FS-rhei-run.4](rhei-run.spec.md#4-dry-run)). Deriving the prediction
    from the per-ticket causes instead made `--dry-run` exit non-zero on plans
    the run itself exits zero on — a ticket whose prior chain ends in a gate is
    blocked by that gate, however its own line reads.
@@ -202,7 +202,7 @@ the summary prints five stacked groups:
    problem is the work, not the scheduling. When that work exited `0` and the
    run knows *which* required artifacts were missing — including the ticket's
    terminal result, reported under the artifact name `result` like any other
-   (§FS-rhei-agents.3.2.1) — the row names them: `worker exited 0 without
+   ([§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics)) — the row names them: `worker exited 0 without
    <name> (<path>), …`, and the next action is to write those files, or to
    record the outcome by hand with `rhei transition <id> --from … --to …
    --result …`. That is the whole difference between a report an operator can
@@ -212,7 +212,7 @@ the summary prints five stacked groups:
    run never scheduled says so, rather than borrowing it.
 
    The same classification feeds the live halt message and `--dry-run`
-   (§FS-rhei-run.4), so the durable report and the terminal never disagree
+   ([§FS-rhei-run.4](rhei-run.spec.md#4-dry-run)), so the durable report and the terminal never disagree
    about one run. They did: the report described a claimed ticket, a
    prior-blocked ticket, and a manual-only ticket alike as `stalled in
    non-terminal state <state>` with `inspect logs or mark the task cancelled`,
@@ -264,7 +264,7 @@ Dashboard  runtime/dashboard.html
 ```
 
 Only the result line, the `!` attention rows, and each task's state column carry
-saturated color, and the hue is the state color defined in §FS-rhei-viz-ux.
+saturated color, and the hue is the state color defined in [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux).
 Every other line is plain chrome.
 
 ### 3.2. Task tree
@@ -276,7 +276,7 @@ report, TUI, and dashboard show. Each row is four aligned columns:
 `<marker> <task-id>   <state>   <driver-or-detail>`
 
 - **marker** - a fast scan glyph that degrades gracefully; color and the state
-  label remain the primary signal §FS-rhei-viz-ux.3, so the marker is never the
+  label remain the primary signal [§FS-rhei-viz-ux.3](rhei-viz-ux.spec.md#3-color), so the marker is never the
   only cue and an ASCII fallback is used where the glyph is unavailable.
 
   | Marker | Fallback | Meaning |
@@ -288,7 +288,7 @@ report, TUI, and dashboard show. Each row is four aligned columns:
   | `·` | `.` | terminal at the start of the run |
 
   A non-leaf task is halted for as long as any descendant is open, which is the
-  eligibility rule working (§FS-rhei-plan-language.3), not a fault: one gated
+  eligibility rule working ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)), not a fault: one gated
   leaf otherwise turns every ancestor above it into its own attention row. Such
   a parent takes the paused marker, and the task tree is the only place it
   appears — it is counted in no Attention, header, or ledger tally (§3.1). Its
@@ -346,7 +346,7 @@ subprocess ran. A reused run never collapses to a bare `✓` with a fast timing.
 
 When stdout is not a TTY (piped, redirected, CI), the rich summary is suppressed
 and `rhei run` keeps its existing line-oriented output verbatim, so scripts and
-tests that match it keep working. §FS-rhei-run-tui.1.4 The frontend's TTY
+tests that match it keep working. [§FS-rhei-run-tui.1.4](rhei-run-tui.spec.md#14-frontend-selection) The frontend's TTY
 detection decides this once, the same way the TUI/stdout frontend is chosen. The
 preserved output keeps the greppable `Final states: <state>=<count>` prefix, the
 `N/N tasks in terminal state` summary line, and one `- Task <id>: <title>
@@ -403,7 +403,7 @@ transition rules while autonomous spawning was disabled or not applicable. It is
 not used for existing-output reuse, because that case needs its own visual
 treatment.
 
-An invocation the operator interrupted (§FS-rhei-run.3.2) reports `interrupted`
+An invocation the operator interrupted ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)) reports `interrupted`
 as both its exit status in **Invocations** and its ledger `reason`: the run
 stopped the worker before it could finish, so the row records the state it ran
 in and no transition out of it. It is deliberately distinct from `timed out`
@@ -439,7 +439,7 @@ The UI uses four output statuses:
 
 This makes accidental artifact reuse visible. `{task_id}` renders the
 project-qualified ticket id, so two rheis sharing an execution root no longer
-collide on paths like `runtime/milestones/{task_id}.md` (§AR-rhei-panta.5); the
+collide on paths like `runtime/milestones/{task_id}.md` ([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)); the
 remaining reuse case is an artifact left behind by an earlier run of the same
 ticket. Such a run shows `driver: reused-output` and `output: milestone reused`
 instead of implying that an agent completed the work.
@@ -576,7 +576,7 @@ The execution engine must retain enough per-run facts to render the report:
 These facts already overlap heavily with the run event surface and transition
 journal, but the report should not be reconstructed only from
 `runtime/transitions.log`. The journal is a tail-friendly event log; the report
-is an end-of-run explanation with artifact and blocker context. §FS-rhei-run-tui
+is an end-of-run explanation with artifact and blocker context. [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal)
 
 ## 9. Non-Goals
 

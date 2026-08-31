@@ -22,7 +22,7 @@ rhei next <RHEI_PLAN> [--peek] [--task <ID>] [--rhei <RHEI_ID>]
 rhei-local shorthand (`1`). A shorthand resolves only when exactly one in-scope
 rhei contains that ticket; when more than one does, the error names the
 qualified candidates. Output, artifacts, and ledgers always use the qualified
-id regardless of how the target was written (§FS-rhei-panta.6).
+id regardless of how the target was written ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 A ticket named explicitly with `--task` must itself be in scope: targeting a
 ticket outside `--rhei` is an error rather than a silent widening.
@@ -34,7 +34,7 @@ Panta-rooted graph and a bare rhei is the single rhei of its implicit Panta.
 `--rhei <RHEI_ID>` is repeatable and narrows which tickets are **candidates**;
 it never narrows where their priors resolve, so a candidate may still be
 blocked by a prior in a rhei outside the scope. The no-work diagnostic names
-the scope and marks such a prior as out of scope (§FS-rhei-panta.6.1).
+the scope and marks such a prior as out of scope ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)).
 
 An id that names no rhei in the project is an error listing the available rhei
 ids. Claim mode writes `**Assignee:**` into the owning rhei's file, resolved
@@ -66,25 +66,25 @@ A task is *claimable* when:
 6. No `poll:` deadline stands in the way: if the current state declares a
    `poll:` block and `metadata.tasks.<id>.pollNextAttemptAt.<state-name>` is
    later than the current wall-clock time, the task is not claimable until the
-   interval elapses (§FS-rhei-states.2). This is the same exclusion `rhei run`
-   applies to the ready set (§FS-rhei-run.3).
+   interval elapses ([§FS-rhei-states.2](rhei-states.spec.md#2-polling-states)). This is the same exclusion `rhei run`
+   applies to the ready set ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)).
 7. Its current state is the machine's initial state for that task node. Claim
    mode enters a ticket at the top of its workflow; one already partway through
    is being worked by whoever holds it, so automatic selection passes over it.
    `--task` names a ticket explicitly and bypasses selection (§3.4).
 
 Rules 1, 2, 4, 5 and 6 are the *ready set* — the one definition `rhei run`
-(§FS-rhei-run.3) schedules from and `rhei list --ready` reports
-(§FS-rhei-list.3.1). Rules 3 and 7 are this command's own narrowing, about
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)) schedules from and `rhei list --ready` reports
+([§FS-rhei-list.3.1](rhei-list.spec.md#31-what---ready-means)). Rules 3 and 7 are this command's own narrowing, about
 availability rather than readiness, which is why a ticket `rhei list --ready`
 names can still be one `rhei next` declines to claim.
 
 Rule 1 is the eligibility half of the non-leaf model
-(§FS-rhei-plan-language.3): a non-leaf task node is a task in its own right —
+([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)): a non-leaf task node is a task in its own right —
 it owns its state, its work, and its result — and nothing advances it on its
 children's behalf, so it must be claimable. It becomes claimable exactly when
 its subtree is terminal, which is also when `rhei run` will schedule it
-(§FS-rhei-run.3). Until then a parent and its own descendant are never worked
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)). Until then a parent and its own descendant are never worked
 at the same time.
 
 Rule 1 governs `--task` too; see §3.4.
@@ -92,7 +92,7 @@ Rule 1 governs `--task` too; see §3.4.
 Rule 1 has one declared refinement. A task in a *supervising* state is
 claimable while its subtree is held and nothing beneath it is in flight, and a
 descendant of a supervising task is claimable only while every supervising
-ancestor has released it (§FS-rhei-supervision.3.2). Such a descendant is
+ancestor has released it ([§FS-rhei-supervision.3.2](rhei-supervision.spec.md#32-readiness)). Such a descendant is
 reported as held by its supervisor rather than as blocked.
 
 ### 3.1. Behavior
@@ -196,14 +196,14 @@ it says so and points at `rhei list`.
 
 Once every descendant is terminal the refusal no longer applies and the parent
 is claimed like any other ticket. There is no cascade to wait for: nothing
-advances a parent when its children advance (§FS-rhei-plan-language.3), so a
+advances a parent when its children advance ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)), so a
 refusal that told the caller to wait for the children to "advance the parent"
 would describe a mechanism that does not exist.
 
 Claiming does not advance state (§3), so claiming a parent is exactly that —
 taking the ticket. `rhei transition` and `rhei complete` move it afterwards,
 both subject to the descendants-first guard on the shared transition path
-(§FS-rhei-transition-cmd.3.1).
+([§FS-rhei-transition-cmd.3.1](rhei-transition-cmd.spec.md#31-descendants-first-on-terminal-entry)).
 
 ## 4. Peek Mode (`--peek`)
 
@@ -243,7 +243,7 @@ Personality: <the state's personality, when it declares one>
 ```
 
 `<state>` is the state in its machine form: the `-<visit>` suffix a counted
-loop writes into `**State:**` (§FS-rhei-plan-language.3.2) is dropped in the
+loop writes into `**State:**` ([§FS-rhei-plan-language.3.2](rhei-plan-language.spec.md#32-state-validity)) is dropped in the
 first line and in the instructions banner alike. That is the only form
 `rhei transition --from` accepts and the form `## Position` prints, so one
 screen spells a state one way; the visit is shown in `## Position` instead.
@@ -254,9 +254,9 @@ The `Agent:` line is printed only when an agent or model resolves, and the
 `Personality:` block only when the state declares one. After the instructions
 come the mid-term memory sections in the run prompt's order — `## Position`,
 `## Plan History`, `## Previous Visits`, and `## Rhei Navigation` — each
-omitted exactly when the run prompt would omit it (§FS-rhei-memory.5), together
+omitted exactly when the run prompt would omit it ([§FS-rhei-memory.5](rhei-memory.spec.md#5-surfaces)), together
 with the supervision sections that already travel this way
-(§FS-rhei-supervision.3.4).
+([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)).
 
 If no claimable task exists, the same status summary is printed as in claim mode.
 
@@ -273,8 +273,8 @@ action is:
 | All otherwise-ready non-terminal tasks are claimed | `No tasks available to claim. <N> task(s) are currently in progress: Task <ID> (<state>, assignee <ASSIGNEE>), ...` |
 | A ready task is mid-workflow rather than in its profile's initial state | `No tasks can be auto-claimed: Task <ID> is mid-workflow in state '<state>'. Pick one of its outgoing transitions explicitly.` followed by one `rhei [--state-machine=<states>] transition <plan> --task <ID> --from=<state> --to=<target>` command per currently applicable outgoing transition, with shell quoting applied to copied arguments |
 | Non-terminal tasks are blocked by prerequisites | `no tasks are ready to claim: <N> task(s) blocked by incomplete prerequisites: Task <ID> waiting on Task <PRIOR> (<state>), ...` |
-| Non-terminal tickets are held by a supervisor whose visit is pending or in flight (§FS-rhei-supervision.3.4) | `no tickets are ready to claim: <N> ticket(s) held by a supervisor: Task <ID> held by supervisor Task <P> (<state>), ...` |
-| Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such (§FS-rhei-panta.6.1) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
+| Non-terminal tickets are held by a supervisor whose visit is pending or in flight ([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)) | `no tickets are ready to claim: <N> ticket(s) held by a supervisor: Task <ID> held by supervisor Task <P> (<state>), ...` |
+| Under `--rhei`, in-scope tasks are blocked by prerequisites; a blocking prior outside the scope is marked as such ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)) | `no tasks are ready to claim in the --rhei scope (<ids>): <N> task(s) blocked by incomplete prerequisites: Task billing.2 waiting on Task auth.1 (pending, outside the --rhei scope).` |
 | Under `--rhei`, all in-scope tasks are in terminal states | `Scope complete. All <N> task(s) in the --rhei scope (<ids>) are in terminal states.` |
 
 Every row speaks about a task the caller can act on directly, so the categories
@@ -330,7 +330,7 @@ The mid-term memory sections `rhei run` composes travel the same way: the text
 output renders them after the instructions, and JSON carries each as a string
 field named after its section — `position`, `plan_history`,
 `previous_visits`, and `navigation` — present exactly when the run prompt
-would carry that section. §FS-rhei-memory.5
+would carry that section. [§FS-rhei-memory.5](rhei-memory.spec.md#5-surfaces)
 
 In text output mode, the agent is shown after the state line:
 

@@ -7,7 +7,7 @@ inferring the one-hop non-cancelled terminal target (§4.1) — and reaches it
 through the same shared transition path as every other verb, carrying
 `--result` (§4). The result file, its link, the dropped assignee, the ledger
 line, and the refusal of a terminal entry with no result are all properties of
-entering a `final: true` state (§FS-rhei-states.3.3), not of this command.
+entering a `final: true` state ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)), not of this command.
 
 ## 1. Usage
 
@@ -36,7 +36,7 @@ A ticket target accepts either the project-qualified ticket id (`auth.1`) or a
 rhei-local shorthand (`1`). A shorthand resolves only when exactly one rhei in
 the project contains that ticket; when more than one does, the error names the
 qualified candidates. There is no `--rhei` flag — the explicit ticket target is
-the scope (§FS-rhei-panta.6).
+the scope ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)).
 
 The positional argument doubles as the plan path (`RHEI_PLAN`, as on every
 other command) and the ticket id, resolved in this order:
@@ -77,15 +77,15 @@ before child nodes):
 the plan file keeps its rhei-local form (`### Task 1:`). Plans completed before
 ticket ids gained their rhei prefix keep their rhei-local link and artifact —
 no command rewrites an existing result link, and both forms validate
-(§FS-rhei-panta.6.3, §FS-rhei-plan-language.3.8).
+([§FS-rhei-panta.6.3](rhei-panta.spec.md#63-completion-and-rollup), [§FS-rhei-plan-language.3.8](rhei-plan-language.spec.md#38-result-block-consistency)).
 
 This keeps task files concise — the result detail lives in a separate artifact under `runtime/`, consistent with how other runtime outputs (findings, verifications, fixes) are stored in directory workspaces.
 
 The file is not optional and it is not `rhei complete`'s private artifact. A
 non-empty result at this path is an implicit required artifact of every `final:
 true` state, enforced on the edge into that state by whichever verb drives it
-(§FS-rhei-states.3.3, §FS-rhei-transition-cmd.3.2). This section defines the
-path, the link, and the entry format; §FS-rhei-states.3.3 defines the
+([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result), [§FS-rhei-transition-cmd.3.2](rhei-transition-cmd.spec.md#32-terminal-result-on-entry)). This section defines the
+path, the link, and the entry format; [§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result) defines the
 obligation.
 
 **Terminal finalization** is the work that runs once a transition into a
@@ -138,7 +138,7 @@ writes the entry as the heading, a blank line, the message, and a trailing
 blank line, so successive entries stay separated. The ordered audit trail of
 state transitions lives in `runtime/state-transitions.log`.
 
-A file a **worker** wrote itself (§FS-rhei-states.3.3) is taken verbatim: Rhei
+A file a **worker** wrote itself ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) is taken verbatim: Rhei
 reads it to decide the obligation is met and never rewrites it. So the two
 routes coincide exactly when the worker writes the entry above — same heading,
 same blank lines — and a worker that writes something else keeps its own bytes.
@@ -173,20 +173,20 @@ Added avatar_url column and migration 0042
 5. Reject if the task's current state is a [gating state](rhei-states.spec.md#12-per-state-fields) (`gating: true`) — those can only be exited by an explicit human-initiated `rhei transition`.
 6. Reject if any `**Prior:**` of the target task is unsatisfied — resolved
    across the whole project graph and judged the same way readiness judges it
-   (terminal-and-not-cancelled, §FS-rhei-panta.6.1). The error names every
+   (terminal-and-not-cancelled, [§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)). The error names every
    blocking prior with its current state. Completing a ticket ahead of its
    prerequisites contradicts the dependency semantics the plan declares, and
    nothing downstream would ever surface it: the ticket becomes terminal, so
    `rhei list --blocked` stops reporting it and the plan reads as healthy.
    A deliberate out-of-order move stays available through the explicit
-   human-initiated `rhei transition` (§FS-rhei-transition-cmd.3), the same
+   human-initiated `rhei transition` ([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)), the same
    escape hatch a gating state uses in point 5.
 7. Find the completion target: the first non-cancelled terminal state reachable via a declared transition from the current state. Fail if none exists (e.g., from `agent-review-fix` there is no direct path to a terminal state — the agent must transition to `agent-review` first). `cancelled` is never treated as a successful completion target. The order of transitions in the YAML `transitions` list is significant when selecting the target; editors and formatters should preserve declaration order.
-8. Run the shared transition (§FS-rhei-transition-cmd.3) from the current state
+8. Run the shared transition ([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)) from the current state
    to that target, carrying `--result`: compare-and-swap under the file lock,
-   the descendants-first guard (§FS-rhei-transition-cmd.3.1), `on_leave`,
+   the descendants-first guard ([§FS-rhei-transition-cmd.3.1](rhei-transition-cmd.spec.md#31-descendants-first-on-terminal-entry)), `on_leave`,
    source `outputs:`, target `inputs:`, the terminal-result obligation
-   (§FS-rhei-transition-cmd.3.2), the atomic state write, `on_enter`, the
+   ([§FS-rhei-transition-cmd.3.2](rhei-transition-cmd.spec.md#32-terminal-result-on-entry)), the atomic state write, `on_enter`, the
    ledger line, and the terminal finalization of §3 — in the artifact order
    defined in [Plan Language Specification — State Artifact Contracts](rhei-plan-language.spec.md#310-state-artifact-contracts).
    `rhei complete` does not re-implement any of it and appends exactly one
@@ -203,7 +203,7 @@ Added avatar_url column and migration 0042
    - The move happened and the ledger has it, so the worker's account rides
      with the move rather than being thrown away with the command's exit code.
      This is exactly what `rhei transition --result` on a non-terminal hop
-     does (§FS-rhei-states.3.3, item 1) — results accumulate as `## Result`
+     does ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result), item 1) — results accumulate as `## Result`
      entries by design, and `complete` holds no private variant of the rule.
    - That recorded message then **satisfies the terminal-result obligation at
      the eventual terminal edge**, as any earlier `transition --result` on the
@@ -231,7 +231,7 @@ per-task result file when no message was carried.
 are full stateful task nodes, and so is their parent — completing a parent is
 completing a task, not rolling up its children. The descendants-first rule that
 governs it is specified once, on the shared transition path
-(§FS-rhei-transition-cmd.3.1), and is not restated here: `rhei complete` holds
+([§FS-rhei-transition-cmd.3.1](rhei-transition-cmd.spec.md#31-descendants-first-on-terminal-entry)), and is not restated here: `rhei complete` holds
 no private copy of it, so the same plan state is refused identically whichever
 verb drove the terminal edge.
 

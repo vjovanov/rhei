@@ -10,7 +10,7 @@ Panta shipped with a deliberate limit: one state machine governed a whole
 project. The `index.panta.md` declaration (or the built-in `rhei` machine) was
 the law; a member rhei could restate it but declaring a different machine was a
 load error, and per-rhei divergence was parked on the roadmap as polish.
-§FS-rhei-panta.6 §AR-rhei-panta.4
+[§FS-rhei-panta.6](../../functional-spec/rhei-panta.spec.md#6-project-scope-and-command-behavior) [§AR-rhei-panta.4](../../architecture/rhei-panta.spec.md#4-state-machine-binding)
 
 Two later product moves invalidated the limit's weighting without revisiting
 it. Templates became the front door — eleven built-ins ship in the binary, each
@@ -36,7 +36,7 @@ assume one machine. The redundant declaration was the tell: `**States:**`
 existed at two levels with a rule that the lower must restate the upper — a
 field whose only legal value is "same as the parent" is a field that wants to
 be an override. The plan language even said so already:
-§FS-rhei-plan-language.1.3 resolved the effective declaration "per rhei", with
+[§FS-rhei-plan-language.1.3](../../functional-spec/rhei-plan-language.spec.md#13-state-machine-resolution) resolved the effective declaration "per rhei", with
 "a declaration in the rhei itself wins" — the Panta layer clamped it back to
 uniformity.
 
@@ -56,7 +56,7 @@ The state machine is a property of the **rhei**, defaulted by the project.
    project model carries, per rhei, the declared machine name (when declared)
    and the rhei's execution root, and every consumer resolves a ticket's
    machine through its owning rhei.
-4. The graph stays one merged, project-qualified task list (§DA-panta-root is
+4. The graph stays one merged, project-qualified task list ([§DA-panta-root](panta-root.md#da-panta-root-panta-is-the-per-project-virtual-root-above-all-rheis) is
    unchanged). Machines are never combined, namespaced, or merged.
 5. Cross-rhei readiness is the one computation where two machines meet: a
    `**Prior:**` is satisfied when the target ticket is
@@ -66,7 +66,7 @@ The state machine is a property of the **rhei**, defaulted by the project.
    answered by the owning rhei's machine.
 6. Machine files resolve per declaration: a self-declaring rhei's execution
    root `states.yaml` first (the shape every template ships), then the
-   existing project-root / unique-name-match rules. §AR-rhei-panta.4
+   existing project-root / unique-name-match rules. [§AR-rhei-panta.4](../../architecture/rhei-panta.spec.md#4-state-machine-binding)
 7. `--state-machine` stays a whole-scope override and errors when any
    in-scope rhei declares a name different from the override file's.
 8. Machine **adoption** is removed everywhere it existed — `rhei instantiate`

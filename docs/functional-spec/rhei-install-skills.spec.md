@@ -180,7 +180,7 @@ paths that would have satisfied it and pointing at plain copying instead.
 unprivileged Windows process cannot create a symbolic link, so there `--link`
 refuses the agent it was asked for, names the platform limit, and points at
 plain copying; the other agents in the same invocation are unaffected, and the
-copying default behaves identically everywhere. §REQ-cross-platform.2
+copying default behaves identically everywhere. [§REQ-cross-platform.2](../requirements/cross-platform.md#2-parity)
 
 ### 4.5. Registration
 

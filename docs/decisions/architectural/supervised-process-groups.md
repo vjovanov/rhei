@@ -8,7 +8,7 @@ accepted
 
 `rhei run` promised a subprocess lifetime it did not own. The spec described
 exactly one way an agent dies early — its timeout, `SIGTERM` then a 10-second
-grace then `SIGKILL` (§FS-rhei-agents.7.3) — and said nothing about the reverse
+grace then `SIGKILL` ([§FS-rhei-agents.7.3](../../functional-spec/rhei-agents.spec.md#73-timeout-behavior)) — and said nothing about the reverse
 direction: the supervisor exiting while an agent is in flight.
 
 The implementation matched the omission. Agents and programs were plain
@@ -18,7 +18,7 @@ handler at all, and the only kill path was the timeout watchdog signalling the
 
 1. **Ctrl+C under the TUI orphaned agents.** In raw mode the tty generates no
    `SIGINT`; the TUI reads the key, restores the terminal, and re-raises
-   `SIGINT` on `rhei` alone (§FS-rhei-run-tui.1.8). The default disposition
+   `SIGINT` on `rhei` alone ([§FS-rhei-run-tui.1.8](../../functional-spec/rhei-run-tui.spec.md#18-failure-modes)). The default disposition
    killed the supervisor and left every agent running. Only the non-TUI case
    worked, and by accident: the tty delivers `SIGINT` to the whole foreground
    process group, which happened to contain the agents.
@@ -40,7 +40,7 @@ The bug is not three bugs. It is one missing concept: nothing named the unit
 Every subprocess `rhei run` starts **itself to do a ticket's work** is a
 **supervised process group** with exactly one early-termination path and three
 reasons to take it: its deadline, an operator interrupt, or the supervisor's
-death. That is agents, programs, and the snapshot redactor. §FS-rhei-run.3.2
+death. That is agents, programs, and the snapshot redactor. [§FS-rhei-run.3.2](../../functional-spec/rhei-run.spec.md#32-interruption-and-process-ownership)
 
 Three subprocesses stay outside the decision, each deliberately. A subprocess a
 *callback* starts is that callback's own child and the callback contract
@@ -128,7 +128,7 @@ Because the two facts are separate, so are the two readings. `interrupt_requeste
 answers "should this loop stop", which both reasons mean; `interrupted_by_signal`
 answers "was this run interrupted", which only the operator's does. Every
 statement the run makes about itself — the report's result, the halt diagnostic,
-the exit code, the postcondition of §FS-rhei-run.3.1 — reads the second, and
+the exit code, the postcondition of [§FS-rhei-run.3.1](../../functional-spec/rhei-run.spec.md#31-git-consistency-after-subprocess-commits) — reads the second, and
 reads it once, so they cannot disagree with each other or with a signal that
 arrived after the work was done.
 
@@ -139,7 +139,7 @@ frontend's question. Writing it to stderr from the engine was right for a TUI
 Ctrl+C, which restores the terminal first, and wrong for an external `SIGTERM`
 arriving mid-render, which put it inside the alternate screen. The notice goes
 out as an ordinary `Message` event, and `TuiSink` sends warnings and errors to
-stderr from the moment it has restored the screen (§FS-rhei-run-tui.1.8).
+stderr from the moment it has restored the screen ([§FS-rhei-run-tui.1.8](../../functional-spec/rhei-run-tui.spec.md#18-failure-modes)).
 
 **4. A drop guard covers the paths no handler can.**
 
@@ -159,9 +159,9 @@ task file is not rewritten, the transitions log gains no entry, and the next
 `rhei run` re-executes the state. Reporting it as `failed` or `timed out` would
 route it through error or timeout transitions and park tickets in states nobody
 chose; reporting it as `cancelled` would collide with `cancelled` the terminal
-*task state* (§FS-rhei-run-report.3.2). It is its own outcome, `interrupted`,
+*task state* ([§FS-rhei-run-report.3.2](../../functional-spec/rhei-run-report.spec.md#32-task-tree)). It is its own outcome, `interrupted`,
 in the journal, the dashboard, the run report, and the log footer
-(§FS-rhei-agents.8).
+([§FS-rhei-agents.8](../../functional-spec/rhei-agents.spec.md#8-log-capture)).
 
 **6. PDEATHSIG is a backstop, not the design.**
 
@@ -211,7 +211,7 @@ misbehaving.
 available, and the least portable: a cgroup needs a writable
 `cgroup.subtree_control` or a delegated slice, which an unprivileged CLI cannot
 assume, and Job Objects solve only the Windows half. Windows keeps
-`child.kill()` exactly as before (§FS-rhei-run.3.2 is specified over the Unix
+`child.kill()` exactly as before ([§FS-rhei-run.3.2](../../functional-spec/rhei-run.spec.md#32-interruption-and-process-ownership) is specified over the Unix
 mechanism); revisiting it is a separate decision, not a prerequisite for
 fixing the orphan.
 

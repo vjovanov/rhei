@@ -13,13 +13,13 @@ rhei list <RHEI_PLAN> [FILTERS] [--rhei <RHEI_ID>] [--limit N] [--json]
 
 `<RHEI_PLAN>` is a single-file plan, a Directory Workspace, or a Panta project
 directory. Listing is project-wide: filters apply across every rhei, and
-`--rhei` narrows the listing to named rheis (§FS-rhei-panta.6.4).
+`--rhei` narrows the listing to named rheis ([§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz)).
 
 ## 2. Options
 
 | Flag                     | Description                                                                       |
 |--------------------------|-----------------------------------------------------------------------------------|
-| `--rhei <RHEI_ID>`       | Only tickets in the named rheis. Repeatable. An id that names no rhei in the project is an error listing the available ids. §FS-rhei-panta.6.4 |
+| `--rhei <RHEI_ID>`       | Only tickets in the named rheis. Repeatable. An id that names no rhei in the project is an error listing the available ids. [§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz) |
 | `--state <STATE>`        | Filter by state. Repeatable; comma-separated also accepted. Aliases are normalized per owning machine. A state no loaded machine declares is an error (§2.1). |
 | `--assignee <ASSIGNEE>`  | Exact `**Assignee:**` match. Mutually exclusive with `--no-assignee`.            |
 | `--no-assignee`          | Only tasks with no `**Assignee:**` field.                                         |
@@ -42,7 +42,7 @@ Filters combine with logical AND. Empty result sets are not an error.
 A filter *value* that cannot exist is a different thing from a filter that
 matches nothing, and the two must not look alike. `--rhei` already draws that
 line: an id naming no rhei is an error listing the available ids "rather than a
-silently empty scope" (§FS-rhei-panta.6). `--state` follows the same rule — a
+silently empty scope" ([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior)). `--state` follows the same rule — a
 value no loaded machine declares is an error naming the states that do exist:
 
 ```text
@@ -54,7 +54,7 @@ state", which is exactly the wrong conclusion to hand someone whose state was
 renamed out from under a script, or who typed it slightly wrong.
 
 Validation is against every machine the project loads, not the `--rhei` scope.
-A project runs one machine per rhei (§AR-rhei-panta.4), so `--rhei billing
+A project runs one machine per rhei ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)), so `--rhei billing
 --state review` names a state that genuinely exists while no in-scope ticket
 can hold it. That is an honest empty result, not a mistake.
 
@@ -66,7 +66,7 @@ there is no declared set to check it against.
 1. Load the plan and resolve each rhei's state machine the same way
    `rhei validate` does (auto-discovery, `**States:**` field,
    `--state-machine` override). A project resolves one machine per rhei
-   (§AR-rhei-panta.4), and every state judgment below — normalization,
+   ([§AR-rhei-panta.4](../architecture/rhei-panta.spec.md#4-state-machine-binding)), and every state judgment below — normalization,
    terminality, gating — uses the machine of the rhei that owns the ticket.
 2. Walk the task tree in source order, recording each task with its parent id.
 3. Apply filters in order; normalize `--state` values and the task's own state
@@ -81,14 +81,14 @@ there is no declared set to check it against.
 
 `--ready` answers "what work could be picked up", so it lists exactly the set
 `rhei next` *draws from*: `rhei list` asks the same ready-set scan that
-`rhei next` (§FS-rhei-next.3) and `rhei run` (§FS-rhei-run.3) ask, and narrows
+`rhei next` ([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)) and `rhei run` ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)) ask, and narrows
 the answer with its other filters. It does not re-derive readiness from its own
 copy of the conditions — a copy drifts, and the promise this section makes is
 only true when there is one definition for it to be true to.
 
 Drawn from, not equal to. `rhei next` narrows the ready set once more before it
 claims, keeping only a ticket that carries no `**Assignee:**` and is in its
-machine's initial state (§FS-rhei-next.3). So `--ready` is the wider of the two:
+machine's initial state ([§FS-rhei-next.3](rhei-next.spec.md#3-default-behavior-claim-mode)). So `--ready` is the wider of the two:
 everything `rhei next` would claim is listed here, and a listed ticket may still
 be one `rhei next` refuses. That is not the two surfaces disagreeing about
 readiness — it is `rhei next` asking a second question, about availability,
@@ -99,7 +99,7 @@ A ticket is ready when every descendant is terminal, every task in its
 machine declares and is neither terminal nor gating, every required `inputs:`
 artifact declared on that state exists on disk, and no `poll:` deadline recorded
 for that state is still in the future. An input marked `optional: true` is not
-part of it, exactly as it is not for the scheduler (§FS-rhei-states.3).
+part of it, exactly as it is not for the scheduler ([§FS-rhei-states.3](rhei-states.spec.md#3-artifact-contracts)).
 
 The declared-state condition is one only `rhei list` can reach. Every command
 that schedules validates the plan first and refuses it outright when a ticket
@@ -112,7 +112,7 @@ is reported.
 A ticket whose subtree is still open is not work anyone can be handed: its
 children are. Once every descendant is terminal the parent is ordinary claimable
 work and is listed like any other ticket, because a non-leaf ticket is a task in
-its own right (§FS-rhei-plan-language.3).
+its own right ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)).
 
 `--ready` reports *readiness*, not *availability*: a ready ticket that already
 carries an `**Assignee:**` is still listed, because whether someone has claimed
@@ -124,7 +124,7 @@ one or the other, never both and never neither. An operator asking "why is this
 not moving?" therefore gets an answer from a single flag, whether the reason is
 an unsatisfied `**Prior:**`, a missing required input, a gating state awaiting a
 human, a `poll:` retry whose deadline has not come round, a supervisor holding
-the ticket (§FS-rhei-supervision.3.2), a state no machine declares, or a
+the ticket ([§FS-rhei-supervision.3.2](rhei-supervision.spec.md#32-readiness)), a state no machine declares, or a
 non-leaf whose subtree is still open.
 
 ## 4. Output
@@ -144,13 +144,13 @@ Task release.3: Roll out release bot [in-progress] (prior: release.1, release.2)
 
 Ticket ids are project-qualified, including for a bare rhei loaded directly:
 `release.rhei.md` is the single rhei of an implicit Panta with the id `release`
-(§FS-rhei-panta.6, §AR-rhei-panta.3).
+([§FS-rhei-panta.6](rhei-panta.spec.md#6-project-scope-and-command-behavior), [§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)).
 
 Tickets print in the merged graph's source order: discovered rheis in
 deterministic discovery order, with the `basin` rhei's tickets last because the
-basin loads after every discovered rhei (§FS-rhei-panta.4). No rhei-level
+basin loads after every discovered rhei ([§FS-rhei-panta.4](rhei-panta.spec.md#4-invisibility)). No rhei-level
 headings or visual de-emphasis are applied; rhei-level grouping is deferred
-(§FS-rhei-panta.3).
+([§FS-rhei-panta.3](rhei-panta.spec.md#3-one-unified-view)).
 
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.
@@ -171,7 +171,7 @@ not landed. Only the text output names them, and only when no filter is active:
 a filter asks a question about tickets, and a rhei with none has no answer to
 give. The JSON array is unchanged, because its shape is a contract and an empty
 rhei is not a ticket. This is not rhei-level grouping, which stays deferred
-(§FS-rhei-panta.3).
+([§FS-rhei-panta.3](rhei-panta.spec.md#3-one-unified-view)).
 
 When no task matches, `rhei list` prints `(no tasks match the given filters)`
 and exits 0.

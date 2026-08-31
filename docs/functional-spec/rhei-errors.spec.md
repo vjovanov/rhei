@@ -4,7 +4,7 @@ Every failure Rhei reports must tell the user three things: what failed, why, an
 what to run next. An error a user cannot act on without reading the source or
 the spec is a defect, not a diagnostic.
 
-This follows from §GOAL-rhei-outcomes: execution is predictable only when the
+This follows from [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals): execution is predictable only when the
 tool says how to get unstuck, and simple work stays simple only when a wrong
 first command teaches the right second command.
 
@@ -115,7 +115,7 @@ typed rather than the rendered artifact that failed to load.
 ### 3.1. Execution Target Inputs
 
 A template input declared with `format: execution-target` is parsed as an
-execution target selector (§FS-rhei-agents) at instantiation time. A malformed
+execution target selector ([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)) at instantiation time. A malformed
 value reports the input name, the offending value, the accepted shapes, and a
 corrected, shell-quoted example built from the value the user supplied.
 
@@ -162,9 +162,9 @@ every site that reaches it.
 
 ## Related
 
-- [Templates Specification](rhei-templates.spec.md) §FS-rhei-templates —
+- [Templates Specification](rhei-templates.spec.md) [§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification) —
   instantiation inputs and `--list-inputs`
-- [Agents Specification](rhei-agents.spec.md) §FS-rhei-agents — execution target
+- [Agents Specification](rhei-agents.spec.md) [§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification) — execution target
   selector grammar
-- [Validate Specification](rhei-validate.spec.md) §FS-rhei-validate — plan and
+- [Validate Specification](rhei-validate.spec.md) [§FS-rhei-validate](rhei-validate.spec.md#fs-rhei-validate-rhei-validate) — plan and
   state machine validation diagnostics

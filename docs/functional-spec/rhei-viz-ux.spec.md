@@ -1,15 +1,15 @@
 # FS-rhei-viz-ux: Console-First Visualization UX
 
 This spec defines the look and feel of every Rhei visualization surface — the
-browser dashboard §FS-rhei-viz and the terminal TUI §FS-rhei-run-tui — as a
+browser dashboard [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization) and the terminal TUI [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal) — as a
 single visual language. It does not change *which* views exist or *what* data
 they show; it constrains *how* they present it. The governing requirement is
 that a visualization must feel like a calm console, not a web application:
 opening it should cause no startle and no context switch. Bright, busy, and
 animated surfaces make everyday agent work feel like operating infrastructure
-instead of reading a plan §GND-rhei-purpose.1, and they fight the goal of
+instead of reading a plan [§GND-rhei-purpose.1](../grund.md#1-the-problem), and they fight the goal of
 monitoring that is useful and pretty enough to read at a glance
-§GOAL-rhei-outcomes.
+[§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
 
 The principle in one line: **keep the calm of the command line, add the
 structure of a UI, and add nothing else.**
@@ -36,18 +36,18 @@ structure of a UI, and add nothing else.**
    Any node, not only the running ones, can be entered to see its surroundings:
    what it depends on, what it unblocks, where it sits in its state machine and
    what it can move to next. Walking from a node to a neighbor and back costs a
-   keystroke, never a tab hunt or a rebuilt mental model §GOAL-rhei-outcomes.
+   keystroke, never a tab hunt or a rebuilt mental model [§GOAL-rhei-outcomes](goals.md#goal-rhei-outcomes-goals).
 
 ## Non-Goals
 
 - Not a redefinition of dashboard tabs, charts, or TUI tiles — that is
-  §FS-rhei-viz and §FS-rhei-run-tui. This spec is purely presentational.
+  [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization) and [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal). This spec is purely presentational.
 - No marketing aesthetic: no hero sections, brand logos, illustrations,
   decorative gradients, glow, or drop shadows for drama.
 - No audio, no browser notifications, no moving toasts.
 - No general theming/skinning engine. Adaptive dark/light and reduced-motion
   only; palette presets are Future Work.
-- No external assets. The self-containment rule of §FS-rhei-viz stands and is a
+- No external assets. The self-containment rule of [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization) stands and is a
   strain and load-time benefit, not just a security one.
 
 ## 1. Design doctrine
@@ -63,7 +63,7 @@ decide it the way these stances point.
    is monochrome and still. Chroma and change are spent only where they inform.
 3. **Quiet entrance.** No splash, no loading spinner, no animated reveal. The
    first frame shows the last-good snapshot immediately, consistent with the
-   reload-tolerance rule of §FS-rhei-viz.
+   reload-tolerance rule of [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization).
 4. **Two renderers, one model.** Anything a reader can name — a state, an id, an
    arrow, a severity, a cost — looks and reads the same in both surfaces.
 
@@ -160,9 +160,9 @@ shape it:
 | `cancelled` | `#475569` | `#424b57` | terminal → near-gray |
 | `archived` | `#334155` | `#353c46` | terminal → near-gray |
 
-Custom states keep the existing stable name-derived fallback from §FS-rhei-viz,
+Custom states keep the existing stable name-derived fallback from [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization),
 but desaturated to the same level so a project state never out-shouts a built-in
-attention state. Cost heatmaps (§FS-rhei-cost-accounting) use a single-hue ramp
+attention state. Cost heatmaps ([§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)) use a single-hue ramp
 of `--accent`, not a rainbow.
 
 ### 3.3. Adaptive theme and contrast
@@ -215,7 +215,7 @@ The bridge between surfaces is concrete, not thematic:
   `i` info, `!` warn, `x` error) shared by the TUI journal and the dashboard
   journal.
 - **Identical journal lines.** The dashboard journal pane shows the same
-  fixed-column lines as `runtime/transitions.log` §FS-rhei-run-tui — a reader
+  fixed-column lines as `runtime/transitions.log` [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal) — a reader
   can `tail -f` the file or watch the browser and see the same text.
 - **Mirrored framing.** The dashboard's tiles, journal, legend, and status strip
   reuse the TUI's spatial arrangement so layout knowledge transfers.
@@ -234,7 +234,7 @@ The "cool from the UI" is structure, delivered calmly.
   navigable from the keyboard: tab switching by digit/`h`–`l`, `/` to filter, and
   a visible `--accent` focus ring. The mouse is supported but never required.
 - **Quiet empty states.** Empty views render the useful placeholder of
-  §FS-rhei-viz in monochrome — a short line of guidance, never a blank or a
+  [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization) in monochrome — a short line of guidance, never a blank or a
   decorative illustration.
 - **Selectable text.** All content is selectable and copy-friendly; it is a
   console, and copying an id, a path, or a journal line must just work.
@@ -244,9 +244,9 @@ The "cool from the UI" is structure, delivered calmly.
 - Honor `prefers-color-scheme`, `prefers-reduced-motion`, and `prefers-contrast`.
 - Meet the contrast targets of §3.3 and never encode meaning in color alone.
 - Stay self-contained: no external fonts, scripts, styles, or network assets, so
-  the surface loads instantly and works offline (restated from §FS-rhei-viz).
+  the surface loads instantly and works offline (restated from [§FS-rhei-viz](rhei-viz.spec.md#fs-rhei-viz-flow-visualization)).
 - Degrade without drama: the TUI already collapses to a compact list on small
-  terminals §FS-rhei-run-tui; the browser stacks panels on narrow viewports
+  terminals [§FS-rhei-run-tui](rhei-run-tui.spec.md#fs-rhei-run-tui-rhei-run-tui-and-run-event-journal); the browser stacks panels on narrow viewports
   rather than truncating or animating.
 
 ## 9. Anti-patterns: what "flashiness" means here
