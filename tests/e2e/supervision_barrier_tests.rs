@@ -63,7 +63,7 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
         )"#
     .replace(
         "RHEI_BIN",
-        &serde_json::to_string(env!("CARGO_BIN_EXE_rhei")).expect("binary path json"),
+        &serde_json::to_string(&rhei_binary().to_string_lossy()).expect("binary path json"),
     );
     let (dir, plan_path, machine_path) = setup_supervision(
         "supervision-cancel",

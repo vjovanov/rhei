@@ -45,7 +45,7 @@ which adds a `snapshot:` block to the supervising state. That block is only
 legal on a session-capable agent — of the built-in profiles, `pi` — so an
 example carrying it would not run with the `claude-code` targets every other
 example uses. It is covered by an end-to-end test instead
-(`crates/rhei-cli/tests/e2e/supervised_delivery_tests.rs`).
+(`tests/e2e/supervised_delivery_tests.rs`).
 
 ## What it shows
 

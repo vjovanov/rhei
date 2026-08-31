@@ -4,6 +4,8 @@ members = [
     "crates/rhei-agent-core",
     "crates/rhei-cli",
     "crates/rhei-napi",
+    "tests/e2e",
+    "tests/integration",
     "xtask",
 ]
 
