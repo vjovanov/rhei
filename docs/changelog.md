@@ -14,7 +14,7 @@
   it declares no `exit_code`, per its existing `pollAttempts >=
   pollMaxAttempts` routing. An unmatched non-zero exit otherwise fires no
   transition, so a failed visit leaves `phase: held`, its checkpoints, and
-  `stateVisits` untouched, and a rerun re-spawns it. (PR #N)
+  `stateVisits` untouched, and a rerun re-spawns it. (PR #124)
 
 ## 2. [0.3.2] - 2026-08-30
 
