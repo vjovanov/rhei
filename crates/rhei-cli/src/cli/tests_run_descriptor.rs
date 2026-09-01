@@ -195,11 +195,13 @@ mod run_descriptor_tests {
     fn a_dead_recorded_process_with_a_free_lock_has_ended() {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
-        let mut running = descriptor("dead01", &workspace.path, "2026-08-22T14:03:22Z");
+        let running = descriptor("dead01", &workspace.path, "2026-08-22T14:03:22Z");
         #[cfg(unix)]
-        {
+        let running = {
+            let mut running = running;
             running.pid = exited_process_pid();
-        }
+            running
+        };
         publish_run_descriptor(&running);
         // The lock file has to exist before its absence stops being ambiguous.
         drop(try_acquire_run_lock(&workspace.path).expect("lock"));
