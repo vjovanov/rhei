@@ -906,6 +906,18 @@ fn display_agent_output_line(
     Some(line.to_string())
 }
 
+// §FS-rhei-run-tui.1.2: decoded Claude results remain line-oriented live
+// traffic, including internal blank lines.
+fn agent_output_lines(line: String, split_logical_lines: bool) -> Vec<String> {
+    if !split_logical_lines {
+        return vec![line];
+    }
+    match line.is_empty() {
+        true => vec![String::new()],
+        false => line.lines().map(str::to_owned).collect(),
+    }
+}
+
 fn extract_usage_from_output_line(
     extractor: AgentUsageExtractor,
     line: &str,

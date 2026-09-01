@@ -212,6 +212,36 @@ fn agent_output_is_recorded_on_slot() {
 }
 
 #[test]
+fn agent_output_logical_lines_remain_separate_in_live_traffic() {
+    // §FS-rhei-run-tui.1.2: line-oriented events must not concatenate a
+    // multiline structured result when the TUI sanitizes live traffic.
+    let mut state = state_with_plan();
+    state.apply(&RunEvent::SlotAssigned {
+        slot: 0,
+        task: "1".into(),
+        from: "in-progress".into(),
+        to: "in-progress".into(),
+        agent: Some("claude-code".into()),
+        template_context: None,
+        log_path: PathBuf::from("1.log"),
+        started_at: Instant::now(),
+        wall_clock: SystemTime::now(),
+    });
+    for line in ["first", "", "second"] {
+        state.apply(&RunEvent::AgentOutput {
+            slot: 0,
+            task: "1".into(),
+            stream: AgentStream::Stdout,
+            line: line.into(),
+            wall_clock: SystemTime::now(),
+        });
+    }
+
+    let traffic = state.slots[0].traffic.iter().map(|line| line.text.as_str()).collect::<Vec<_>>();
+    assert_eq!(traffic, ["first", "", "second"]);
+}
+
+#[test]
 fn slot_release_clears_live_marker() {
     let mut state = state_with_plan();
     state.apply(&RunEvent::SlotAssigned {
