@@ -202,7 +202,7 @@ Built-in extractor requirements:
 
 | Agent | Requirement |
 | --- | --- |
-| `claude-code` | For an ordinary one-shot launch, request Claude Code's typed `json` result output (`--output-format json`). Accept only a result envelope with `type: "result"`, a textual `result`, and its typed `usage` object; normalize its input, cache-read, cache-write, and output token fields. The envelope's `result` text is the human-readable agent output. When `intervene_stdin` selects the existing stream-json transport, retain that transport and apply the same result-envelope usage extraction to its final result event. |
+| `claude-code` | For an ordinary one-shot launch, request Claude Code's typed `json` result output (`--output-format json`). Accept only a result envelope with `type: "result"`, a textual `result`, and a complete typed `usage` or `modelUsage` object containing input, cache-read, cache-write, and output token fields; normalize those dimensions. The envelope's `result` text is the human-readable agent output. When `intervene_stdin` selects the existing stream-json transport, retain that transport and apply the same result-envelope usage extraction to its final result event. |
 | `codex` | Run `codex exec --json`; extract `turn.completed.usage` from JSONL stdout and normalize it into `runtime/accounting/captures/*.jsonl`. Do not depend on Codex snapshot support. |
 | `pi` | Run `pi --mode json`; extract each assistant `message_end.message.usage` event and normalize it into `runtime/accounting/captures/*.jsonl`. Ignore the duplicate message usage carried by `turn_end` and `agent_end`. Do not depend on Pi snapshot session data. |
 

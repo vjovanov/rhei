@@ -180,8 +180,7 @@ enum AgentUsageExtractor {
 struct ClaudeResultEnvelope {
     #[serde(rename = "type")]
     event_type: String,
-    #[serde(default)]
-    result: Option<String>,
+    result: String,
     #[serde(default)]
     usage: Option<ClaudeUsage>,
     #[serde(default, rename = "modelUsage")]
@@ -190,36 +189,28 @@ struct ClaudeResultEnvelope {
 
 #[derive(Debug, Deserialize)]
 struct ClaudeUsage {
-    #[serde(default)]
-    input_tokens: Option<u64>,
-    #[serde(default)]
-    cache_read_input_tokens: Option<u64>,
-    #[serde(default)]
-    cache_creation_input_tokens: Option<u64>,
-    #[serde(default)]
-    output_tokens: Option<u64>,
+    input_tokens: u64,
+    cache_read_input_tokens: u64,
+    cache_creation_input_tokens: u64,
+    output_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct ClaudeModelUsage {
-    #[serde(default)]
     #[serde(rename = "inputTokens")]
-    input_tokens: Option<u64>,
-    #[serde(default)]
+    input_tokens: u64,
     #[serde(rename = "cacheReadInputTokens")]
-    cache_read_input_tokens: Option<u64>,
-    #[serde(default)]
+    cache_read_input_tokens: u64,
     #[serde(rename = "cacheCreationInputTokens")]
-    cache_creation_input_tokens: Option<u64>,
-    #[serde(default)]
+    cache_creation_input_tokens: u64,
     #[serde(rename = "outputTokens")]
-    output_tokens: Option<u64>,
+    output_tokens: u64,
 }
 
 #[derive(Debug)]
 struct ClaudeResult {
-    text: Option<String>,
-    usage: Option<ExtractedUsage>,
+    text: String,
+    usage: ExtractedUsage,
 }
 
 enum ClaudeResultLine {
@@ -921,11 +912,8 @@ fn extract_usage_from_output_line(
 ) -> OutputUsage {
     match extractor {
         AgentUsageExtractor::Claude => match parse_claude_result_line(line) {
-            ClaudeResultLine::Result(ClaudeResult { usage: Some(usage), .. }) => {
-                OutputUsage::Measured(usage)
-            }
-            ClaudeResultLine::Result(ClaudeResult { usage: None, .. })
-            | ClaudeResultLine::Unrelated => OutputUsage::Ignored,
+            ClaudeResultLine::Result(ClaudeResult { usage, .. }) => OutputUsage::Measured(usage),
+            ClaudeResultLine::Unrelated => OutputUsage::Ignored,
             ClaudeResultLine::Malformed => OutputUsage::Failed,
         },
         AgentUsageExtractor::Codex => extract_codex_json_usage(line)
@@ -940,10 +928,7 @@ fn extract_usage_from_output_line(
 fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> AgentOutputLine {
     match extractor {
         AgentUsageExtractor::Claude => match parse_claude_result_line(line) {
-            ClaudeResultLine::Result(ClaudeResult { text: Some(text), .. }) => {
-                AgentOutputLine::Replace(text)
-            }
-            ClaudeResultLine::Result(ClaudeResult { text: None, .. }) => AgentOutputLine::Suppress,
+            ClaudeResultLine::Result(ClaudeResult { text, .. }) => AgentOutputLine::Replace(text),
             ClaudeResultLine::Unrelated | ClaudeResultLine::Malformed => {
                 AgentOutputLine::Passthrough
             }
@@ -973,20 +958,25 @@ fn parse_claude_result_line(line: &str) -> ClaudeResultLine {
     let usage = envelope
         .usage
         .as_ref()
-        .and_then(claude_usage_from_usage)
+        .map(claude_usage_from_usage)
         .or_else(|| envelope.model_usage.as_ref().and_then(claude_usage_from_models));
-    ClaudeResultLine::Result(ClaudeResult { text: envelope.result, usage })
+    let Some(usage) = usage else {
+        return ClaudeResultLine::Malformed;
+    };
+    ClaudeResultLine::Result(ClaudeResult {
+        text: envelope.result,
+        usage,
+    })
 }
 
-fn claude_usage_from_usage(usage: &ClaudeUsage) -> Option<ExtractedUsage> {
-    let extracted = ExtractedUsage {
-        input_total: usage.input_tokens,
-        input_cached_read: usage.cache_read_input_tokens,
-        input_cache_write: usage.cache_creation_input_tokens,
-        output_total: usage.output_tokens,
+fn claude_usage_from_usage(usage: &ClaudeUsage) -> ExtractedUsage {
+    ExtractedUsage {
+        input_total: Some(usage.input_tokens),
+        input_cached_read: Some(usage.cache_read_input_tokens),
+        input_cache_write: Some(usage.cache_creation_input_tokens),
+        output_total: Some(usage.output_tokens),
         ..ExtractedUsage::default()
-    };
-    extracted.has_total().then_some(extracted)
+    }
 }
 
 fn claude_usage_from_models(
@@ -995,10 +985,10 @@ fn claude_usage_from_models(
     let mut extracted = ExtractedUsage::default();
     for usage in models.values() {
         extracted.merge(ExtractedUsage {
-            input_total: usage.input_tokens,
-            input_cached_read: usage.cache_read_input_tokens,
-            input_cache_write: usage.cache_creation_input_tokens,
-            output_total: usage.output_tokens,
+            input_total: Some(usage.input_tokens),
+            input_cached_read: Some(usage.cache_read_input_tokens),
+            input_cache_write: Some(usage.cache_creation_input_tokens),
+            output_total: Some(usage.output_tokens),
             ..ExtractedUsage::default()
         });
     }

@@ -582,7 +582,7 @@
             model: Some("claude-sonnet-4-6".to_string()),
             slot: 3,
         };
-        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"plain Claude response","usage":{"input_tokens":12,"output_tokens":7}}"#;
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"plain Claude response","usage":{"input_tokens":12,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":7}}"#;
 
         let handle = spawn_agent_output_reader(
             std::io::Cursor::new(format!("{result}\n").into_bytes()),
