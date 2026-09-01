@@ -96,6 +96,7 @@ fn an_unchecked_run_resolves_for_both_attach_and_stop() {
 /// not answer is not an answer, so the signal goes anyway — and `--wait` waits
 /// for the run to actually go rather than returning on the same silence.
 // §FS-rhei-run-headless.7 §FS-rhei-run-headless.3
+#[cfg(not(target_os = "linux"))]
 #[test]
 fn stop_wait_signals_an_unchecked_run_and_waits_for_it_to_really_end() {
     let ws = Workspace::new("undecided-stop", 20);
@@ -121,6 +122,38 @@ fn stop_wait_signals_an_unchecked_run_and_waits_for_it_to_really_end() {
     // §FS-rhei-run.3.2
     assert!(!is_alive(pid), "`--wait` returned while pid {pid} was still running");
     assert!(text.contains("It exited 130"), "it waited for the recorded status: {text}");
+}
+
+/// Linux may recover exact ownership through a pidfd even when the pathname is
+/// unreadable. It signals only in that case; otherwise it refuses rather than
+/// treating numeric pid existence as authorization.
+// §FS-rhei-run-headless.7
+#[cfg(target_os = "linux")]
+#[test]
+fn stop_wait_handles_an_unchecked_run_only_with_proven_ownership() {
+    let ws = Workspace::new("undecided-stop", 20);
+    let id = launch_unreadable(&ws);
+    let pid = descriptor_pid(&ws);
+    assert!(is_alive(pid), "the run is working when the lock becomes unreadable");
+
+    let out = ws.rhei(&["stop", "--wait", &id]);
+    readable_again(&ws);
+
+    if out.status.success() {
+        let text = stdout(&out);
+        assert!(text.contains(&format!("Asked run {id}")), "the signal was delivered: {text}");
+        assert!(!is_alive(pid), "`--wait` returned while pid {pid} was still running");
+        assert!(text.contains("It exited 130"), "it waited for the recorded status: {text}");
+    } else {
+        assert!(
+            stderr(&out).contains("refusing to stop")
+                && stderr(&out).contains("ownership could not be confirmed"),
+            "the refusal explains the missing proof: {}",
+            stderr(&out)
+        );
+        assert!(is_alive(pid), "the refused stop signalled pid {pid}");
+        ws.stop_quietly();
+    }
 }
 
 // ---------------------------------------------------------------------------
