@@ -7,7 +7,7 @@
   extract its input, cache, and output token dimensions, preserve the result
   text in logs and live output, and roll the measured invocation into priced
   task and run totals. Existing stream-json intervention transport remains
-  unchanged. [§FS-rhei-cost-accounting.4](functional-spec/rhei-cost-accounting.spec.md#4-extraction-flow) (PR #N)
+  unchanged. [§FS-rhei-cost-accounting.4](functional-spec/rhei-cost-accounting.spec.md#4-extraction-flow) (PR #144)
 - **`rhei run`'s completion condition resolves declared `outputs:` against the
   owning rhei's execution root, not the run-level workspace root.** In a Panta
   project whose member rhei sits below the directory `rhei run` was pointed
