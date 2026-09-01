@@ -75,6 +75,7 @@ include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
 include!("cli/intervene.rs");
 include!("cli/accounting.rs");
+include!("cli/summary_command.rs");
 include!("cli/programs.rs");
 include!("cli/snapshot_pointer.rs");
 include!("cli/snapshot_records.rs");
@@ -144,6 +145,7 @@ mod tests {
     include!("cli/tests_spawn_records.rs");
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_accounting.rs");
+    include!("cli/tests_summary.rs");
     include!("cli/tests_settings_tooling.rs");
     include!("cli/tests_snapshots_gc.rs");
     include!("cli/tests_snapshot_pointer.rs");

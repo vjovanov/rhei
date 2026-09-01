@@ -564,6 +564,13 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Cost { input, task, json, by } => {
             cost_command(resolve_plan_target(input)?.path(), task.as_deref(), json, by)
         }
+        // `rhei summary` reads the same target-local accounting root, so it
+        // stays on the path it was given for the same reason. §FS-rhei-summary.1
+        Commands::Summary { input, details } => summary_command(
+            resolve_plan_target(input)?.path(),
+            before_subcommand.as_deref(),
+            details,
+        ),
         Commands::Attach { run, json, since, wait } => {
             attach_command(run.as_deref(), json, since, wait)
         }
