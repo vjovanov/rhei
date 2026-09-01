@@ -147,7 +147,7 @@ fn stop_wait_handles_an_unchecked_run_only_with_proven_ownership() {
     } else {
         assert!(
             stderr(&out).contains("refusing to stop")
-                && stderr(&out).contains("ownership could not be confirmed"),
+                && stderr(&out).contains("lock ownership could not be"),
             "the refusal explains the missing proof: {}",
             stderr(&out)
         );
