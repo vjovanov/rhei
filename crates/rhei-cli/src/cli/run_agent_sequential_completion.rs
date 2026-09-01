@@ -90,7 +90,7 @@ fn handle_sequential_agent_completion(
                 selected_forward_transition(&loaded.rhei, machine, task);
             let outputs_ok = status.success()
                 && state_outputs_exist_for_resolved_invocation(
-                    workspace_root,
+                    &task_workspace_root,
                     task,
                     current_state,
                     task.state.as_str(),
@@ -120,7 +120,6 @@ fn handle_sequential_agent_completion(
                 .is_none();
             let missing_required_outputs = if status.success() && !outputs_ok {
                 collect_missing_required_outputs_for_resolved_invocation(
-                    workspace_root,
                     &task_workspace_root,
                     machine,
                     loaded.rhei.metadata.as_ref(),
@@ -256,7 +255,6 @@ fn handle_sequential_agent_completion(
                         .get(state_before)
                         .map(|state_def| {
                             task_has_pending_agent_invocations(
-                                workspace_root,
                                 &task_workspace_root,
                                 task,
                                 state_before,

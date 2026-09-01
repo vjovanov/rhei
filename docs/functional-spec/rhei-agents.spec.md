@@ -760,6 +760,14 @@ The condition is normative and universal for agent states:
    `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md` does
    ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)).
 
+Condition (2) resolves declared `outputs:` against the execution root of the
+rhei that owns the ticket ([§FS-rhei-plan-language.3.10](rhei-plan-language.spec.md#310-state-artifact-contracts))
+— the same root the invocation's prompt and `RHEI_ROOT` named — at both
+moments this condition is asked: after the subprocess exits, and before a pass
+decides whether the invocation can be skipped. In a Panta project this root can
+sit below the run-level workspace root that `rhei run` was pointed at; the two
+must not be conflated.
+
 All three are evaluated after the process exits. If the state declares no
 `outputs:`, condition (2) is vacuously true. If the selected transition is
 non-terminal, condition (3) is vacuously true — it is a property of the edge

@@ -14,15 +14,17 @@
 /// One state visit, ready to be asked the completion condition about each of
 /// its invocations.
 ///
-/// `workspace_root` is where declared `outputs:` resolve; `result_root` is the
-/// owning rhei's execution root, which is where results live.
+/// `artifact_root` is the owning rhei's execution root: where declared
+/// `outputs:` resolve and where results live. One field, not two same-typed
+/// roots, because both resolve against the same place and a run-level root
+/// passed here would look in the wrong directory for a Panta project member.
+/// §FS-rhei-agents.3.2 condition (2)
 /// `finishes_ticket` is a property of the *edge* the exit would select, not of
 /// the state, which is why it is settled once here rather than re-derived per
 /// invocation.
 // §FS-rhei-agents.3.2 §FS-rhei-states.3.3 §FS-rhei-panta.6.2
 struct InvocationCompletion<'a> {
-    workspace_root: &'a Path,
-    result_root: &'a Path,
+    artifact_root: &'a Path,
     task: &'a rhei_core::ast::Task,
     state_name: &'a str,
     current_state_raw: &'a str,
@@ -45,7 +47,7 @@ impl InvocationCompletion<'_> {
     // §FS-rhei-agents.3.2 §FS-rhei-states.3.3
     fn invocation_is_pending(&self, resolved: &ResolvedAgent) -> bool {
         if !state_outputs_exist_for_resolved_invocation(
-            self.workspace_root,
+            self.artifact_root,
             self.task,
             self.state_name,
             self.current_state_raw,
@@ -65,7 +67,7 @@ impl InvocationCompletion<'_> {
             resolved.model.as_deref(),
         );
         let path = invocation_result_file_path(
-            self.result_root,
+            self.artifact_root,
             &self.task.id.to_string(),
             ResultInvocation {
                 state: self.state_name,
@@ -87,8 +89,7 @@ impl InvocationCompletion<'_> {
 // §FS-rhei-agents.3.2 §FS-rhei-states.3.3 §FS-rhei-panta.6.2
 #[allow(clippy::too_many_arguments)]
 fn task_has_pending_agent_invocations(
-    workspace_root: &Path,
-    result_root: &Path,
+    artifact_root: &Path,
     task: &rhei_core::ast::Task,
     state_name: &str,
     current_state_raw: &str,
@@ -106,8 +107,7 @@ fn task_has_pending_agent_invocations(
         Some(task),
     )?;
     let completion = InvocationCompletion {
-        workspace_root,
-        result_root,
+        artifact_root,
         task,
         state_name,
         current_state_raw,
@@ -154,10 +154,9 @@ fn agent_invocations_to_spawn(
     }
     let current_state_raw = task.state.as_str();
     let metadata = loaded.rhei.metadata.as_ref();
-    let result_root = loaded.task_root(&task.id.to_string(), workspace_root);
+    let artifact_root = loaded.task_root(&task.id.to_string(), workspace_root);
     let completion = InvocationCompletion {
-        workspace_root,
-        result_root: &result_root,
+        artifact_root: &artifact_root,
         task,
         state_name,
         current_state_raw,
