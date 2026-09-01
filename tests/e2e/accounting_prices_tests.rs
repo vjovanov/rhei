@@ -309,8 +309,9 @@ fn successive_run_rejects_mixed_currency_before_any_root_changes() {
     assert!(second.stderr.contains("USD"), "selected currency missing from:\n{}", second.stderr);
     assert!(second.stderr.contains("CHF"), "durable currency missing from:\n{}", second.stderr);
     let beta_accounting = project.join("beta/runtime/accounting");
+    let portable_stderr = second.stderr.replace('\\', "/");
     assert!(
-        second.stderr.contains(beta_accounting.to_string_lossy().as_ref()),
+        portable_stderr.contains("project/beta/runtime/accounting"),
         "conflicting root missing from:\n{}",
         second.stderr
     );
