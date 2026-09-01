@@ -56,6 +56,36 @@ fn write_run_lock_owner(lock: &mut HeldRunLock, id: &str, pid: u32) -> Result<()
 // §FS-rhei-run-headless.3
 #[cfg(target_os = "linux")]
 fn probe_recorded_lock_owner(descriptor: &RunDescriptor) -> ProcessProbe {
+    probe_recorded_lock_owner_with(descriptor, |_fd, path| {
+        fs::File::open(path).map_err(|err| err.to_string())
+    })
+}
+
+/// The pre-signal variant can duplicate a target descriptor through the pidfd
+/// when the inode itself became unreadable. Positional reads below leave the
+/// target process's shared file offset untouched. §FS-rhei-run-headless.7
+#[cfg(target_os = "linux")]
+fn probe_recorded_lock_owner_for_signal(
+    descriptor: &RunDescriptor,
+    process: &rustix::fd::OwnedFd,
+) -> ProcessProbe {
+    use rustix::process::{pidfd_getfd, PidfdGetfdFlags};
+
+    probe_recorded_lock_owner_with(descriptor, |fd, path| match fs::File::open(path) {
+        Ok(file) => Ok(file),
+        Err(open_err) => pidfd_getfd(process, fd, PidfdGetfdFlags::empty())
+            .map(fs::File::from)
+            .map_err(|duplicate_err| {
+                format!("{open_err}; the held descriptor could not be duplicated: {duplicate_err}")
+            }),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn probe_recorded_lock_owner_with(
+    descriptor: &RunDescriptor,
+    mut open_locked_file: impl FnMut(i32, &Path) -> Result<fs::File, String>,
+) -> ProcessProbe {
     if descriptor.pid == 0 {
         return ProcessProbe::Unknown("recorded pid 0 does not identify one process".to_string());
     }
@@ -98,9 +128,7 @@ fn probe_recorded_lock_owner(descriptor: &RunDescriptor) -> ProcessProbe {
             }
         };
         let fd = entry.file_name();
-        if fd.to_string_lossy().parse::<u32>().is_err() {
-            continue;
-        }
+        let Ok(fd_number) = fd.to_string_lossy().parse::<i32>() else { continue };
         let fdinfo = match fs::read_to_string(entry.path()) {
             Ok(fdinfo) => fdinfo,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
@@ -133,19 +161,22 @@ fn probe_recorded_lock_owner(descriptor: &RunDescriptor) -> ProcessProbe {
         if !metadata.is_file() {
             continue;
         }
-        let file = match fs::File::open(&fd_path) {
+        let file = match open_locked_file(fd_number, &fd_path) {
             Ok(file) => file,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(reason) => {
+                inconclusive = Some(format!("{} could not be read: {reason}", fd_path.display()));
+                continue;
+            }
+        };
+        let mut body = vec![0; RUN_LOCK_OWNER_MAX_BYTES as usize + 1];
+        let bytes = match std::os::unix::fs::FileExt::read_at(&file, &mut body, 0) {
+            Ok(bytes) => bytes,
             Err(err) => {
                 inconclusive = Some(format!("{} could not be read: {err}", fd_path.display()));
                 continue;
             }
         };
-        let mut body = Vec::new();
-        if let Err(err) = file.take(RUN_LOCK_OWNER_MAX_BYTES + 1).read_to_end(&mut body) {
-            inconclusive = Some(format!("{} could not be read: {err}", fd_path.display()));
-            continue;
-        }
+        body.truncate(bytes);
         if body.len() as u64 > RUN_LOCK_OWNER_MAX_BYTES {
             if displaced_run_lock_target(&target, &lock_path) {
                 inconclusive = Some(format!(

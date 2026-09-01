@@ -58,11 +58,21 @@ state directory it has no way to guarantee is writable, and handshaking on it
 turned an unwritable `$XDG_STATE_HOME` into a 30-second wait and a launcher
 failure for a run that was working the whole time.
 
-**The run lock is the liveness oracle.** `.rhei/run.lock` is `flock`-based and
-released by the kernel when the holder dies, so "is this run alive?" is
-answered by trying to take it. A recorded pid cannot answer it — pid reuse
-makes a stale descriptor point at an unrelated process — and a heartbeat would
-add a clock, a timeout, and a new way to be wrong.
+**The run lock is the primary liveness oracle, but its pathname is not the
+lock.** `.rhei/run.lock` is `flock`-based and released by the kernel when the
+holder dies, so contention on the current pathname proves that an open file
+description still holds that inode. Acquiring the pathname is not a complete
+answer: rename, unlink, or replacement can leave the live process holding the
+old inode while the current path is free or absent. On Linux, the acquired inode
+therefore carries a structured run id, pid, workspace, and kernel process-start
+identity. `/proc/<pid>/fdinfo` bridges the pathname gap only when it proves that
+the same stable process identity owns an exclusive flock on a descriptor
+carrying that exact record. `rhei stop` requires this ownership proof before it
+signals even when the current pathname is contended, and uses a stable process
+handle for delivery so exit and pid reuse cannot redirect the signal. A numeric
+pid, its existence, or registry/workspace agreement cannot answer ownership —
+pid reuse makes a stale descriptor point at an unrelated process — and a
+heartbeat would add a clock, a timeout, and a new way to be wrong.
 
 **The oracle answers three things, not two.** Live, ended, and *unknown*. The
 probe reads a file and takes a lock, and either can fail for reasons that say

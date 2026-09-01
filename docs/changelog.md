@@ -12,8 +12,10 @@
   is inconclusive; mere pid reuse cannot resurrect a stale run. Registry and
   workspace descriptors must also agree on both id and pid. Terminal and
   superseded descriptors still win, and failed ownership inspection is
-  reported as undecided. The run descriptor and command output schemas are
-  unchanged. (PR #N)
+  reported as undecided. Before `rhei stop` signals on Linux, the same exact
+  ownership proof is required even when the current lock pathname is held, so
+  an unrelated lock holder cannot make a reused descriptor pid a valid signal
+  target. The run descriptor and command output schemas are unchanged. (PR #N)
 - **`rhei summary` prints a compact Markdown run summary, short enough to
   paste into a pull request body.** Nothing rhei printed could say what the
   agents actually did: `rhei render --format github` renders the plan with all

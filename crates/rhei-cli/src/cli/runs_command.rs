@@ -87,9 +87,8 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
     // operator's intent — "make sure this is not running" — is satisfied.
     //
     // Only a *decided* end short-circuits, though. An entry this process could
-    // not check is not an entry to report as ended: the operator asked to make
-    // sure the run is not running, and a `SIGINT` to a pid that is gone is a
-    // harmless `ESRCH`.
+    // not check is not an entry to report as ended: it still reaches the
+    // platform's pre-signal authorization path.
 
     // §FS-rhei-run-headless.3 §FS-rhei-run-headless.7
     match descriptor.liveness() {
@@ -100,11 +99,7 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
         }
         Liveness::Live => {}
         Liveness::Unknown(reason) => {
-            eprintln!(
-                "warning: could not confirm whether run {} is still running ({reason}); \
-                 signalling pid {} anyway",
-                descriptor.id, descriptor.pid
-            );
+            report_unknown_stop_liveness(&descriptor, &reason);
         }
     }
 
@@ -134,6 +129,24 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
         println!("It is terminating its in-flight work; `rhei runs` shows when it is gone.");
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn report_unknown_stop_liveness(descriptor: &RunDescriptor, reason: &str) {
+    eprintln!(
+        "warning: could not confirm whether run {} is still running ({reason}); \
+         checking exact run-lock ownership before signalling pid {}",
+        descriptor.id, descriptor.pid
+    );
+}
+
+#[cfg(not(target_os = "linux"))]
+fn report_unknown_stop_liveness(descriptor: &RunDescriptor, reason: &str) {
+    eprintln!(
+        "warning: could not confirm whether run {} is still running ({reason}); \
+         signalling pid {} anyway",
+        descriptor.id, descriptor.pid
+    );
 }
 
 /// Block until the run has actually gone, not merely until it said it would go.
@@ -180,14 +193,15 @@ fn report_recorded_result(descriptor: &RunDescriptor) {
 }
 
 /// Re-read the workspace descriptor immediately before signalling, and refuse
-/// unless it still names this run *and* this pid.
+/// unless it still names this run *and* this pid. Linux also refuses when this
+/// last re-read is inconclusive; other platforms retain the previous best-
+/// effort behavior because they have no stable ownership proof.
 ///
 /// A registry entry is a memory of a pid, and pids are reused. Between
 /// resolving the run and delivering the signal the process may have died and
 /// its pid been handed to something else entirely — so the authoritative copy
-/// gets the last word. An unreadable descriptor is not a refusal: it is the
-/// one case where the operator's "make sure this is not running" outranks a
-/// check that cannot be performed.
+/// gets the last word. On Linux, an unreadable descriptor is one more missing
+/// part of the exact ownership proof and therefore refuses the signal.
 // §FS-rhei-run-headless.7 §FS-rhei-run-headless.3
 fn confirm_signal_target(descriptor: &RunDescriptor) -> MietteResult<()> {
     let path = run_descriptor_path(&descriptor.workspace);
@@ -211,21 +225,104 @@ fn confirm_signal_target(descriptor: &RunDescriptor) -> MietteResult<()> {
             descriptor.id,
             path.display()
         )),
-        DescriptorRead::Unreadable(why) => {
-            eprintln!(
-                "warning: could not re-read {} ({why}); signalling pid {} on the registry's \
-                 word alone",
-                path.display(),
-                descriptor.pid
-            );
-            Ok(())
-        }
+        DescriptorRead::Unreadable(why) => confirm_unreadable_signal_target(descriptor, &path, &why),
     }
 }
 
+#[cfg(target_os = "linux")]
+fn confirm_unreadable_signal_target(
+    descriptor: &RunDescriptor,
+    path: &Path,
+    why: &str,
+) -> MietteResult<()> {
+    Err(miette!(
+        help = "restore access to the workspace descriptor, then retry `rhei stop`",
+        "refusing to signal run {} because {} could not be re-read: {why}",
+        descriptor.id,
+        path.display()
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn confirm_unreadable_signal_target(
+    descriptor: &RunDescriptor,
+    path: &Path,
+    why: &str,
+) -> MietteResult<()> {
+    eprintln!(
+        "warning: could not re-read {} ({why}); signalling pid {} on the registry's \
+         word alone",
+        path.display(),
+        descriptor.pid
+    );
+    Ok(())
+}
+
 /// Deliver `SIGINT` to the run, entering §FS-rhei-run.3.2 exactly as an
-/// operator's Ctrl+C does.
-#[cfg(unix)]
+/// operator's Ctrl+C does. Linux first opens a stable process handle and proves
+/// that exact identity owns this run's stamped lock; current-path contention is
+/// listing evidence, never signal authorization. §FS-rhei-run-headless.7
+#[cfg(target_os = "linux")]
+fn signal_run(descriptor: &RunDescriptor, what: &str) -> MietteResult<()> {
+    use rustix::process::{pidfd_open, pidfd_send_signal, Pid, PidfdFlags};
+
+    let raw_pid = i32::try_from(descriptor.pid).ok();
+    let pid = raw_pid.and_then(Pid::from_raw).ok_or_else(|| {
+        miette!(
+            help = "check `rhei runs` and the run's workspace descriptor",
+            "refusing to {what} run {} because pid {} is not a valid process id",
+            descriptor.id,
+            descriptor.pid
+        )
+    })?;
+    // Open first: if the process exits after ownership is proved, this handle
+    // cannot silently retarget a reused numeric pid. §FS-rhei-run-headless.7
+    let process = pidfd_open(pid, PidfdFlags::empty()).map_err(|err| {
+        miette!(
+            help = "the run may have ended already; check `rhei runs`",
+            "refusing to {what} run {} because pid {} could not be opened safely: {err}",
+            descriptor.id,
+            descriptor.pid
+        )
+    })?;
+    match probe_recorded_lock_owner_for_signal(descriptor, &process) {
+        ProcessProbe::OwnsLock => {}
+        ProcessProbe::DoesNotOwnLock => {
+            return Err(miette!(
+                help = "check `rhei runs`; the descriptor may be stale or the lock may belong to another process",
+                "refusing to {what} run {} because pid {} does not own its recorded run lock",
+                descriptor.id,
+                descriptor.pid
+            ));
+        }
+        ProcessProbe::Gone => {
+            return Err(miette!(
+                help = "check `rhei runs`; the recorded process may already have ended",
+                "refusing to {what} run {} because pid {} ended before lock ownership could be confirmed",
+                descriptor.id,
+                descriptor.pid
+            ));
+        }
+        ProcessProbe::Unknown(reason) => {
+            return Err(miette!(
+                help = "restore access to the recorded process and its lock, then retry `rhei stop`",
+                "refusing to {what} run {} because pid {} lock ownership could not be confirmed: {reason}",
+                descriptor.id,
+                descriptor.pid
+            ));
+        }
+    }
+    pidfd_send_signal(&process, rustix::process::Signal::INT).map_err(|err| {
+        miette!(
+            help = "the run may have ended already; check `rhei runs`",
+            "could not {what} run {} (pid {}): {err}",
+            descriptor.id,
+            descriptor.pid
+        )
+    })
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
 fn signal_run(descriptor: &RunDescriptor, what: &str) -> MietteResult<()> {
     let pid = Pid::from_raw(descriptor.pid as i32);
     signal::kill(pid, Signal::SIGINT).map_err(|err| {

@@ -3,6 +3,7 @@ mod error_guidance_tests;
 mod examples_tests;
 mod handoff_tests;
 mod headless_recovery_tests;
+mod headless_stop_ownership_tests;
 mod headless_support;
 mod headless_tests;
 mod headless_undecided_tests;

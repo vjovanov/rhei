@@ -252,9 +252,12 @@ disk, an exhausted descriptor table, or an inconclusive ownership inspection
 permanently unregister a run that was working the whole time.
 
 **Every consumer answers the third case, and none of them answers it "ended".**
-Resolution keeps it (above); `rhei runs` lists it separately (§6); `rhei stop`
-signals it anyway (§7); `rhei attach` opens its surface and says what it could
-not confirm (§5.2). The commands that *wait* — `attach --wait`, `attach --json`,
+Resolution keeps it (above); `rhei runs` lists it separately (§6); `rhei attach`
+opens its surface and says what it could not confirm (§5.2). On Linux, `rhei
+stop` treats liveness and permission to signal as separate questions: it may
+signal an undecided or current-path-live entry only after the exact ownership
+proof below succeeds (§7). Platforms without that proof retain the lock-only
+stop behavior. The commands that *wait* — `attach --wait`, `attach --json`,
 `stop --wait` — keep waiting through an undecided probe rather than reporting an
 end that was never observed. Waiting is bounded: after a short grace of
 consecutive undecided probes they stop and say so on stderr, exiting non-zero.
@@ -431,14 +434,24 @@ returning on one reported a run as ended while its process was still tearing
 down the work it was asked to stop.
 
 Stopping a run that has already ended is not an error: it says so and exits
-`0`. That short-circuit needs a *decided* end, though — an entry whose liveness
-could not be checked (§3) is signalled anyway, because the operator asked to
-make sure the run is not running and a `SIGINT` to a pid that is gone is a
-harmless `ESRCH`.
+`0`. That short-circuit needs a *decided* end, though. An entry whose liveness
+could not be checked (§3) still reaches the pre-signal checks rather than being
+reported as ended.
 
-Before signalling, `rhei stop` re-reads the workspace descriptor and refuses
-unless it still names this run **and** this pid. A registry entry is a memory of
-a pid, and pids are reused; the authoritative copy gets the last word.
+Before every signal, `rhei stop` re-reads the workspace descriptor. A missing
+or changed descriptor refuses the signal rather than trusting the registry's
+memory of the pid. On Linux, an unreadable descriptor also refuses; the command
+then opens a stable handle to the process, revalidates its start identity, and
+requires `/proc` to prove that the same process owns an exclusively locked file
+descriptor carrying this run's exact structured lock record. The proof applies
+whether that descriptor names the current `.rhei/run.lock` inode or a renamed
+or unlinked one. Current-path contention establishes listing liveness, not
+permission to signal a recorded pid. Missing, mismatched, stale, or
+inconclusive ownership refuses the signal with a diagnostic, and the stable
+process handle keeps exit and pid reuse between proof and delivery from
+redirecting the signal. Numeric pid existence and registry/workspace agreement
+alone are never sufficient. Platforms without this stable ownership probe
+retain the previous best-effort descriptor re-read and lock-only stop behavior.
 
 ## 8. Failure Modes
 
