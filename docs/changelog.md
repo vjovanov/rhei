@@ -15,7 +15,7 @@
   reported as undecided. Before `rhei stop` signals on Linux, the same exact
   ownership proof is required even when the current lock pathname is held, so
   an unrelated lock holder cannot make a reused descriptor pid a valid signal
-  target. The run descriptor and command output schemas are unchanged. (PR #N)
+  target. The run descriptor and command output schemas are unchanged. (PR #147)
 - **`rhei summary` prints a compact Markdown run summary, short enough to
   paste into a pull request body.** Nothing rhei printed could say what the
   agents actually did: `rhei render --format github` renders the plan with all
