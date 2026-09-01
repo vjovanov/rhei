@@ -593,7 +593,7 @@
             "task-live".to_string(),
             Some(capture),
         );
-        drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout).expect("reader drains");
+        handle.join().expect("reader thread joins").expect("reader drains");
 
         let log = fs::read_to_string(&log_path).expect("read log");
         assert_eq!(log, "first\n\nsecond\n");
