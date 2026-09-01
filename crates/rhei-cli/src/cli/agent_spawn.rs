@@ -83,16 +83,29 @@ where
                 break;
             }
 
+            let raw_line = output_line(&buf);
+            let display_line = display_agent_output_line(usage_capture.as_ref(), stream, &raw_line);
             with_agent_log(&log_file, |f| {
-                f.write_all(&buf)?;
+                if stream == rhei_tui::AgentStream::Stdout
+                    && usage_capture
+                        .as_ref()
+                        .is_some_and(|capture| capture.extractor == AgentUsageExtractor::Claude)
+                    && matches!(parse_claude_result_line(&raw_line), ClaudeResultLine::Result(_))
+                {
+                    if let Some(line) = display_line.as_deref() {
+                        f.write_all(line.as_bytes())?;
+                        if buf.ends_with(b"\n") && !line.ends_with('\n') {
+                            f.write_all(b"\n")?;
+                        }
+                    }
+                } else {
+                    f.write_all(&buf)?;
+                }
                 f.flush()
             })?;
 
-            let raw_line = output_line(&buf);
             capture_agent_output_usage(usage_capture.as_ref(), stream, &raw_line, &sink);
-            if let Some(line) =
-                display_agent_output_line(usage_capture.as_ref(), stream, &raw_line)
-            {
+            if let Some(line) = display_line {
                 sink.emit(rhei_tui::RunEvent::AgentOutput {
                     slot,
                     task: task_id.clone(),

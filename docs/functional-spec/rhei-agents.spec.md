@@ -436,7 +436,7 @@ historically the agent's default.
 
 | Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | `yolo` Mode Flags |
 |----------|--------|-----------------|------------|------------|--------------|-------------------|
-| `claude-code` | `claude` | `-p <prompt>`; with `intervene_stdin`, stream-json stdin | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
+| `claude-code` | `claude` | `-p <prompt>` and typed `--output-format json`; with `intervene_stdin`, stream-json stdin/output | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
 | `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check -c approval_policy="never"` |
 | `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode yolo` |
 | `cursor` | `cursor-agent` | `--print <prompt>` | `--model <m>` | unsupported | unsupported | `--force` |
@@ -1364,7 +1364,8 @@ mcp_servers: postgres,grafana?
 skills: test-authoring
 ===
 
-<raw agent stdout and stderr, interleaved>
+<human-readable agent output and stderr, interleaved; a built-in structured
+result envelope is represented by its result text>
 
 === exit ===
 code: 0
@@ -1373,7 +1374,7 @@ ended: 2026-04-20T10:34:23Z
 ===
 ```
 
-The header and footer are added by `rhei run`. The `v1` suffix is the log format version — increment it when the header/footer structure changes. The body is the raw, unmodified output of the agent process.
+The header and footer are added by `rhei run`. The `v1` suffix is the log format version — increment it when the header/footer structure changes. The body is the raw, unmodified output of the agent process except that a built-in structured result envelope is represented by its human-readable `result` text.
 
 An invocation the engine ended early says so in the footer, above `=== exit ===`
 and again as a machine-readable flag inside it:

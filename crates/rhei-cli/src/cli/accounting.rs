@@ -171,14 +171,73 @@ enum ExtractedUsageStatus {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AgentUsageExtractor {
-    StructuredCapture,
-    CodexJson,
-    PiJson,
+    Claude,
+    Codex,
+    Pi,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeResultEnvelope {
+    #[serde(rename = "type")]
+    event_type: String,
+    #[serde(default)]
+    result: Option<String>,
+    #[serde(default)]
+    usage: Option<ClaudeUsage>,
+    #[serde(default, rename = "modelUsage")]
+    model_usage: Option<BTreeMap<String, ClaudeModelUsage>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeUsage {
+    #[serde(default)]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    output_tokens: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeModelUsage {
+    #[serde(default)]
+    #[serde(rename = "inputTokens")]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    #[serde(rename = "cacheReadInputTokens")]
+    cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    #[serde(rename = "cacheCreationInputTokens")]
+    cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    #[serde(rename = "outputTokens")]
+    output_tokens: Option<u64>,
+}
+
+#[derive(Debug)]
+struct ClaudeResult {
+    text: Option<String>,
+    usage: Option<ExtractedUsage>,
+}
+
+enum ClaudeResultLine {
+    Result(ClaudeResult),
+    Unrelated,
+    Malformed,
+}
+
+enum OutputUsage {
+    Measured(ExtractedUsage),
+    Ignored,
+    Failed,
 }
 
 #[derive(Clone, Debug)]
 struct AgentUsageCapture {
     extractor: AgentUsageExtractor,
+    replace_usage_capture: bool,
     path: PathBuf,
     invocation_id: String,
     task_id: String,
@@ -232,7 +291,11 @@ fn record_agent_accounting_invocation(
 
     // §FS-rhei-cost-accounting.11: Extraction failures affect coverage only.
     let (tokens, extraction_status) =
-        match extract_usage(invocation.usage_capture_path, invocation.log_path) {
+        match extract_usage(
+            invocation.usage_capture_path,
+            invocation.log_path,
+            invocation.resolved.agent.id(),
+        ) {
             ExtractedUsageStatus::Measured(usage) => (tokens_from_usage(usage), "measured"),
             ExtractedUsageStatus::NoUsageEmitted => {
                 (AccountingTokens::default(), "no-usage-emitted")
@@ -690,9 +753,9 @@ fn agent_has_accounting_extractor(agent: &str) -> bool {
 
 fn agent_usage_extractor(agent: &str) -> Option<AgentUsageExtractor> {
     match agent {
-        "codex" => Some(AgentUsageExtractor::CodexJson),
-        "pi" => Some(AgentUsageExtractor::PiJson),
-        "claude-code" => Some(AgentUsageExtractor::StructuredCapture),
+        "codex" => Some(AgentUsageExtractor::Codex),
+        "pi" => Some(AgentUsageExtractor::Pi),
+        "claude-code" => Some(AgentUsageExtractor::Claude),
         _ => None,
     }
 }
@@ -750,6 +813,8 @@ fn usage_capture_for_spawn(
     let extractor = agent_usage_extractor(resolved.agent.id())?;
     Some(AgentUsageCapture {
         extractor,
+        replace_usage_capture: resolved.agent.id() == "claude-code"
+            && agent_stdin_format(resolved) == AgentStdinFormat::ClaudeCodeStreamJson,
         path: capture_path?.to_path_buf(),
         invocation_id: accounting_invocation_id(task_id, state, resolved, visit),
         task_id: task_id.to_string(),
@@ -763,11 +828,16 @@ fn usage_capture_for_spawn(
 
 fn configure_agent_accounting_args(cmd: &mut std::process::Command, resolved: &ResolvedAgent) {
     match agent_usage_extractor(resolved.agent.id()) {
-        // §FS-rhei-cost-accounting.4: Agent usage is extracted from JSONL events.
-        Some(AgentUsageExtractor::CodexJson) => {
+        // §FS-rhei-cost-accounting.4: Ordinary Claude output is a typed JSON result.
+        Some(AgentUsageExtractor::Claude)
+            if agent_stdin_format(resolved) != AgentStdinFormat::ClaudeCodeStreamJson =>
+        {
+            cmd.args(["--output-format", "json"]);
+        }
+        Some(AgentUsageExtractor::Codex) => {
             cmd.arg("--json");
         }
-        Some(AgentUsageExtractor::PiJson) => {
+        Some(AgentUsageExtractor::Pi) => {
             cmd.args(["--mode", "json"]);
         }
         _ => {}
@@ -792,10 +862,15 @@ fn capture_agent_output_usage(
     if stream != rhei_tui::AgentStream::Stdout {
         return;
     }
-    let Some(usage) = extract_usage_from_output_line(capture.extractor, line) else {
-        return;
+    let usage = match extract_usage_from_output_line(capture.extractor, line) {
+        OutputUsage::Measured(usage) => usage,
+        OutputUsage::Ignored => return,
+        OutputUsage::Failed => {
+            let _ = append_extractor_failure_event(&capture.path);
+            return;
+        }
     };
-    if append_usage_capture_event(&capture.path, usage).is_err() {
+    if append_usage_capture_event(&capture.path, usage, capture.replace_usage_capture).is_err() {
         return;
     }
     if let ExtractedUsageStatus::Measured(aggregate) = extract_usage_from_capture(Some(&capture.path))
@@ -843,22 +918,91 @@ fn display_agent_output_line(
 fn extract_usage_from_output_line(
     extractor: AgentUsageExtractor,
     line: &str,
-) -> Option<ExtractedUsage> {
+) -> OutputUsage {
     match extractor {
-        AgentUsageExtractor::CodexJson => extract_codex_json_usage(line),
-        AgentUsageExtractor::PiJson => extract_pi_json_usage(line),
-        AgentUsageExtractor::StructuredCapture => None,
+        AgentUsageExtractor::Claude => match parse_claude_result_line(line) {
+            ClaudeResultLine::Result(ClaudeResult { usage: Some(usage), .. }) => {
+                OutputUsage::Measured(usage)
+            }
+            ClaudeResultLine::Result(ClaudeResult { usage: None, .. })
+            | ClaudeResultLine::Unrelated => OutputUsage::Ignored,
+            ClaudeResultLine::Malformed => OutputUsage::Failed,
+        },
+        AgentUsageExtractor::Codex => extract_codex_json_usage(line)
+            .map(OutputUsage::Measured)
+            .unwrap_or(OutputUsage::Ignored),
+        AgentUsageExtractor::Pi => extract_pi_json_usage(line)
+            .map(OutputUsage::Measured)
+            .unwrap_or(OutputUsage::Ignored),
     }
 }
 
 fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> AgentOutputLine {
     match extractor {
-        AgentUsageExtractor::CodexJson => display_codex_json_line(line)
+        AgentUsageExtractor::Claude => match parse_claude_result_line(line) {
+            ClaudeResultLine::Result(ClaudeResult { text: Some(text), .. }) => {
+                AgentOutputLine::Replace(text)
+            }
+            ClaudeResultLine::Result(ClaudeResult { text: None, .. }) => AgentOutputLine::Suppress,
+            ClaudeResultLine::Unrelated | ClaudeResultLine::Malformed => {
+                AgentOutputLine::Passthrough
+            }
+        },
+        AgentUsageExtractor::Codex => display_codex_json_line(line)
             .map(AgentOutputLine::Replace)
             .unwrap_or(AgentOutputLine::Passthrough),
-        AgentUsageExtractor::PiJson => display_pi_json_line(line),
-        AgentUsageExtractor::StructuredCapture => AgentOutputLine::Passthrough,
+        AgentUsageExtractor::Pi => display_pi_json_line(line),
     }
+}
+
+fn parse_claude_result_line(line: &str) -> ClaudeResultLine {
+    let value = match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(value) => value,
+        Err(_) => return ClaudeResultLine::Malformed,
+    };
+    let Some(object) = value.as_object() else {
+        return ClaudeResultLine::Unrelated;
+    };
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("result") {
+        return ClaudeResultLine::Unrelated;
+    }
+    let envelope = match serde_json::from_value::<ClaudeResultEnvelope>(value) {
+        Ok(envelope) if envelope.event_type == "result" => envelope,
+        _ => return ClaudeResultLine::Malformed,
+    };
+    let usage = envelope
+        .usage
+        .as_ref()
+        .and_then(claude_usage_from_usage)
+        .or_else(|| envelope.model_usage.as_ref().and_then(claude_usage_from_models));
+    ClaudeResultLine::Result(ClaudeResult { text: envelope.result, usage })
+}
+
+fn claude_usage_from_usage(usage: &ClaudeUsage) -> Option<ExtractedUsage> {
+    let extracted = ExtractedUsage {
+        input_total: usage.input_tokens,
+        input_cached_read: usage.cache_read_input_tokens,
+        input_cache_write: usage.cache_creation_input_tokens,
+        output_total: usage.output_tokens,
+        ..ExtractedUsage::default()
+    };
+    extracted.has_total().then_some(extracted)
+}
+
+fn claude_usage_from_models(
+    models: &BTreeMap<String, ClaudeModelUsage>,
+) -> Option<ExtractedUsage> {
+    let mut extracted = ExtractedUsage::default();
+    for usage in models.values() {
+        extracted.merge(ExtractedUsage {
+            input_total: usage.input_tokens,
+            input_cached_read: usage.cache_read_input_tokens,
+            input_cache_write: usage.cache_creation_input_tokens,
+            output_total: usage.output_tokens,
+            ..ExtractedUsage::default()
+        });
+    }
+    extracted.has_total().then_some(extracted)
 }
 
 fn extract_codex_json_usage(line: &str) -> Option<ExtractedUsage> {
@@ -1019,7 +1163,11 @@ fn format_plain_u64(value: u64) -> String {
     value.to_string()
 }
 
-fn append_usage_capture_event(path: &Path, usage: ExtractedUsage) -> std::io::Result<()> {
+fn append_usage_capture_event(
+    path: &Path,
+    usage: ExtractedUsage,
+    replace: bool,
+) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1049,14 +1197,44 @@ fn append_usage_capture_event(path: &Path, usage: ExtractedUsage) -> std::io::Re
         "schema": ACCOUNTING_USAGE_EVENT_SCHEMA,
         "usage": serde_json::Value::Object(usage_object),
     });
+    let mut options = fs::OpenOptions::new();
+    options.create(true).write(true);
+    if replace {
+        options.truncate(true);
+    } else {
+        options.append(true);
+    }
+    let mut file = options.open(path)?;
+    writeln!(file, "{}", event)
+}
+
+fn append_extractor_failure_event(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let event = serde_json::json!({
+        "schema": ACCOUNTING_USAGE_EVENT_SCHEMA,
+        "status": "extractor-failed",
+    });
     let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
     writeln!(file, "{}", event)
 }
 
-fn extract_usage(capture_path: Option<&Path>, log_path: Option<&Path>) -> ExtractedUsageStatus {
+fn extract_usage(
+    capture_path: Option<&Path>,
+    log_path: Option<&Path>,
+    agent: &str,
+) -> ExtractedUsageStatus {
     match extract_usage_from_capture(capture_path) {
         ExtractedUsageStatus::NoUsageEmitted => {
-            extract_usage_from_agent_log(log_path).unwrap_or(ExtractedUsageStatus::NoUsageEmitted)
+            // §FS-rhei-cost-accounting.4: Claude usage comes only from its
+            // typed result envelope, never from human-readable log text.
+            if agent == "claude-code" {
+                ExtractedUsageStatus::NoUsageEmitted
+            } else {
+                extract_usage_from_agent_log(log_path)
+                    .unwrap_or(ExtractedUsageStatus::NoUsageEmitted)
+            }
         }
         other => other,
     }
@@ -1075,6 +1253,7 @@ fn extract_usage_from_capture(capture_path: Option<&Path>) -> ExtractedUsageStat
     };
     let mut aggregate = ExtractedUsage::default();
     let mut saw = false;
+    let mut failed = false;
     for line in text.lines().map(str::trim) {
         if line.is_empty() {
             continue;
@@ -1083,10 +1262,21 @@ fn extract_usage_from_capture(capture_path: Option<&Path>) -> ExtractedUsageStat
             Ok(value) => value,
             Err(_) => return ExtractedUsageStatus::ExtractorFailed,
         };
+        if value.get("schema").and_then(serde_json::Value::as_str)
+            == Some(ACCOUNTING_USAGE_EVENT_SCHEMA)
+            && value.get("status").and_then(serde_json::Value::as_str)
+                == Some("extractor-failed")
+        {
+            failed = true;
+            continue;
+        }
         if let Some(usage) = usage_from_structured_event_value(&value) {
             aggregate.merge(usage);
             saw = true;
         }
+    }
+    if failed {
+        return ExtractedUsageStatus::ExtractorFailed;
     }
     if saw && aggregate.has_total() {
         ExtractedUsageStatus::Measured(aggregate)
