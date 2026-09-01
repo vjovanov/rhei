@@ -37,6 +37,12 @@ The suite's mock agents, programs, and callbacks are Python scripts, which is
 what lets one command run on all three platforms, so each `test` job installs a
 Python alongside the Rust toolchain.
 
+Subprocess-driving E2E and integration harnesses must ask Cargo to verify and,
+when needed, rebuild the `rhei-cli` binary from the current checkout before the
+first subprocess use in each harness process. A pre-existing profile binary is
+not evidence of freshness; successful verification may be shared by later uses
+in that process.
+
 **`lint`** runs on Linux only. It runs `grund config validate` and
 `grund check .`, then the repository `.pre-commit-config.yaml` against all
 files with the cargo hooks skipped — `test` has just run them on three
