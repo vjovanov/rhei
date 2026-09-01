@@ -215,7 +215,7 @@ mod run_descriptor_tests {
 
     /// A free replacement pathname does not decide liveness when the recorded
     /// process cannot be checked. §FS-rhei-run-headless.3
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn an_inconclusive_process_probe_with_a_free_lock_is_unknown() {
         let _registry = IsolatedRegistry::new();
@@ -264,6 +264,24 @@ mod run_descriptor_tests {
         );
     }
 
+    /// Matching short ids are not enough: the workspace copy must still name
+    /// the registry record's pid before any held lock can make it live.
+    // §FS-rhei-run-headless.3
+    #[test]
+    fn a_same_id_registry_entry_with_a_different_workspace_pid_is_gone() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let registry = descriptor("sameid", &workspace.path, "2026-08-22T10:00:00Z");
+        let mut current = registry.clone();
+        current.pid = registry.pid.wrapping_add(1).max(1);
+        publish_run_descriptor(&current);
+        let entry = run_registry_path(&registry.id).expect("registry path");
+        write_descriptor(&entry, &registry).expect("stale registry entry");
+        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+
+        assert_eq!(registry.liveness(), Liveness::Gone);
+    }
+
     #[test]
     fn a_workspace_that_is_gone_makes_its_entry_prunable() {
         let _registry = IsolatedRegistry::new();
@@ -300,16 +318,50 @@ mod run_descriptor_tests {
         assert_eq!(run.liveness(), Liveness::Ended, "and it is readable again afterwards");
     }
 
-    /// `flock` survives unlinking, so a matching live recorded process closes
-    /// the gap left by a missing lock pathname. §FS-rhei-run-headless.3
-    #[cfg(unix)]
+    /// `flock` survives unlinking. The exact recorded process and its stamped
+    /// lock inode close the gap left by the missing pathname.
+    // §FS-rhei-run-headless.3
+    #[cfg(target_os = "linux")]
     #[test]
-    fn a_missing_lock_file_with_a_live_recorded_process_is_live() {
+    fn a_process_that_owns_the_unlinked_recorded_lock_is_live() {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
         let run = descriptor("nolock", &workspace.path, "2026-08-22T10:00:00Z");
         publish_run_descriptor(&run);
+        let mut held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        write_run_lock_owner(&mut held, &run.id, run.pid).expect("record lock owner");
+        fs::remove_file(workspace.path.join(".rhei/run.lock")).expect("unlink held lock");
+
         assert_eq!(run.liveness(), Liveness::Live);
+    }
+
+    /// A matching stale descriptor pair, an allocated pid, and even ownership
+    /// of the stale inode do not identify a run after the pid's start identity
+    /// changes.
+    // §FS-rhei-run-headless.3
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_reused_live_pid_with_a_stale_lock_identity_has_ended() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let run = descriptor("reused", &workspace.path, "2026-08-22T10:00:00Z");
+        publish_run_descriptor(&run);
+        let mut held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let stale_owner = RunLockOwner {
+            version: 1,
+            id: run.id.clone(),
+            pid: run.pid,
+            workspace: run.workspace.clone(),
+            process_start_ticks: 0,
+        };
+        held.file.set_len(0).expect("clear owner");
+        serde_json::to_writer(&held.file, &stale_owner).expect("stale owner");
+        held.file.flush().expect("flush stale owner");
+        let lock_path = workspace.path.join(".rhei/run.lock");
+        fs::rename(&lock_path, workspace.path.join(".rhei/run.lock.stale")).expect("rename lock");
+        fs::write(&lock_path, []).expect("free replacement");
+
+        assert_eq!(run.liveness(), Liveness::Ended);
     }
 
     /// A listing is a read. `open_run_lock_file` creates the directory and the

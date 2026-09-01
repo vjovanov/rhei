@@ -161,7 +161,7 @@ fn acquire_launch_lock(workspace_root: &Path) -> MietteResult<HeldRunLock> {
         .open(&path)
         .map_err(|err| file_io_report(&path, "failed to open the headless launch lock", err))?;
     match file.try_lock_exclusive() {
-        Ok(()) => Ok(HeldRunLock { file }),
+        Ok(()) => Ok(HeldRunLock { file, workspace: workspace_root.to_path_buf() }),
         // Another launcher holds it — on Unix and on Windows alike.
         // §FS-rhei-run-headless.1.1
         Err(err) if lock_is_contended(&err) => Err(concurrent_launch_report(workspace_root)),

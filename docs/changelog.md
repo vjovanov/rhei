@@ -6,10 +6,12 @@
   longer names the inode the run holds.** Renaming or unlinking a held
   `.rhei/run.lock` and installing an unlocked replacement previously made both
   text and JSON listings report the machine idle even while the matching
-  non-terminal descriptors and recorded process were still live. On Unix,
-  liveness now consults that process when a free or missing lock pathname is
-  inconclusive; terminal and superseded descriptors still win, a dead process
-  with a genuinely free lock still ends, and an inconclusive process check is
+  non-terminal descriptors and recorded process still owned the displaced
+  lock. On Linux, liveness now verifies the process's stable start identity and
+  its ownership of that exact recorded run lock when a free or missing pathname
+  is inconclusive; mere pid reuse cannot resurrect a stale run. Registry and
+  workspace descriptors must also agree on both id and pid. Terminal and
+  superseded descriptors still win, and failed ownership inspection is
   reported as undecided. The run descriptor and command output schemas are
   unchanged. (PR #N)
 - **`rhei summary` prints a compact Markdown run summary, short enough to

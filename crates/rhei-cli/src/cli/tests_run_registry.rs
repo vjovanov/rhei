@@ -27,7 +27,7 @@ mod run_registry_tests {
     /// Replacing that pathname must not make a demonstrably live recorded run
     /// disappear from the registry sweep that feeds both `rhei runs` formats.
     // §FS-rhei-run-headless.3
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn a_live_run_stays_listed_when_its_held_lock_inode_is_replaced() {
         use std::os::unix::fs::MetadataExt;
@@ -37,7 +37,8 @@ mod run_registry_tests {
         let running = descriptor("inode1", &workspace.path, "2026-09-01T14:14:12Z");
         publish_run_descriptor(&running);
 
-        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let mut held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        write_run_lock_owner(&mut held, &running.id, running.pid).expect("record lock owner");
         let lock_path = workspace.path.join(".rhei/run.lock");
         let held_path = workspace.path.join(".rhei/run.lock.held-by-test");
         fs::rename(&lock_path, &held_path).expect("rename the held lock inode");

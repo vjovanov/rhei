@@ -59,6 +59,34 @@ impl RunIdentity {
     }
 }
 
+/// Stamp each opened lock inode with the stable Linux process identity that a
+/// later read-only liveness probe needs after the pathname is displaced.
+// §FS-rhei-run-headless.3
+#[cfg(target_os = "linux")]
+fn record_run_lock_ownership(
+    locks: &mut [HeldRunLock],
+    identity: &RunIdentity,
+) -> MietteResult<()> {
+    for lock in locks {
+        write_run_lock_owner(lock, &identity.id, std::process::id()).map_err(|reason| {
+            miette!(
+                help = "check that /proc is mounted and the workspace lock file is writable",
+                "could not record run-lock ownership for {}: {reason}",
+                lock.workspace.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn record_run_lock_ownership(
+    _locks: &mut [HeldRunLock],
+    _identity: &RunIdentity,
+) -> MietteResult<()> {
+    Ok(())
+}
+
 /// Take the run lock of every involved execution root.
 ///
 /// A **detached child** must not wait: its launcher is holding a handshake
@@ -174,12 +202,13 @@ fn run_command(
     let settings = load_merged_settings(&workspace_root)?;
     // §FS-rhei-run.2.6: one live run per rhei — lock every involved
     // execution root, not just the run's own.
-    let _run_locks =
+    let mut run_locks =
         if opts.dry_run() { Vec::new() } else { acquire_run_locks(&loaded, &workspace_root, &opts)? };
     // Stamped only now: a run that queued behind someone else's lock began
     // when it got the lock, not when it was typed, and `rhei runs` orders by
     // this. §FS-rhei-run.2.7
     let identity = RunIdentity::new();
+    record_run_lock_ownership(&mut run_locks, &identity)?;
     // §FS-rhei-run.3.1: detect subprocess commits that leave run-owned state dirty.
     let git_consistency = RunGitConsistencyGuard::capture(&workspace_root, input, !opts.dry_run());
 

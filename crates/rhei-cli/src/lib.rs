@@ -47,6 +47,7 @@ include!("cli/system_transition_triggers.rs");
 include!("cli/transition_result_files.rs");
 include!("cli/system_transition_execution.rs");
 include!("cli/run_descriptor.rs");
+include!("cli/run_lock_ownership.rs");
 include!("cli/run_registry.rs");
 include!("cli/headless_launcher.rs");
 include!("cli/control_client.rs");
