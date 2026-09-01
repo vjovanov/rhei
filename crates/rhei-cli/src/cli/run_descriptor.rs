@@ -148,10 +148,11 @@ pub(crate) struct RunDescriptor {
 
 impl RunDescriptor {
     /// Whether *this* run is still the live one on its workspace.
-    /// The workspace descriptor first proves identity and non-terminal status.
-    /// The run lock is then the primary process-independent probe, with the
-    /// recorded process closing only the gap where the held lock inode was
-    /// renamed or unlinked and its pathname no longer probes that lock.
+    /// The workspace descriptor first agrees on id, pid, and non-terminal
+    /// status. The run lock is then the primary process-independent probe. On
+    /// Linux, a stable process-start identity plus an exclusively locked file
+    /// descriptor carrying this run's ownership record can close only the gap
+    /// where the held inode was renamed or unlinked.
     ///
     /// Every step can also fail to answer, and a failure to answer is its own
     /// verdict: see [`Liveness`].
@@ -167,13 +168,13 @@ impl RunDescriptor {
             }
             DescriptorRead::Loaded(current) => current,
         };
-        if current.id != self.id {
+        if current.id != self.id || current.pid != self.pid {
             return Liveness::Gone;
         }
         if self.status.is_terminal() || current.status.is_terminal() {
             return Liveness::Ended;
         }
-        classify_lock_and_process(probe_run_lock(&self.workspace), self.pid)
+        classify_lock_and_process(probe_run_lock(&self.workspace), self)
     }
 
     /// A one-line human summary for `rhei runs` and `rhei stop`.
@@ -228,8 +229,8 @@ fn probe_run_lock(workspace_root: &Path) -> RunLockProbe {
     }
 }
 
-/// What the current lock pathname says, before the recorded process closes the
-/// gap between a pathname and a lock held on an older inode.
+/// What the current lock pathname says, before stable ownership evidence closes
+/// the gap between a pathname and a lock held on an older inode.
 enum RunLockProbe {
     Held,
     Free,
@@ -237,22 +238,23 @@ enum RunLockProbe {
     Unknown(String),
 }
 
-/// Reconcile the primary lock probe with the recorded process only where a
-/// renamed or unlinked lock inode makes the pathname inconclusive. Descriptor
-/// identity and terminal status have already taken precedence in `liveness`.
+/// Reconcile the primary lock probe with stable ownership of the displaced
+/// inode. Descriptor identity and terminal status have already taken
+/// precedence in `liveness`.
 // §FS-rhei-run-headless.3
-#[cfg(unix)]
-fn classify_lock_and_process(lock: RunLockProbe, pid: u32) -> Liveness {
+#[cfg(target_os = "linux")]
+fn classify_lock_and_process(lock: RunLockProbe, descriptor: &RunDescriptor) -> Liveness {
     match lock {
         RunLockProbe::Held => Liveness::Live,
         RunLockProbe::Unknown(reason) => Liveness::Unknown(reason),
-        RunLockProbe::Free => match probe_recorded_process(pid) {
-            ProcessProbe::Alive => Liveness::Live,
-            ProcessProbe::Gone => Liveness::Ended,
+        RunLockProbe::Free => match probe_recorded_lock_owner(descriptor) {
+            ProcessProbe::OwnsLock => Liveness::Live,
+            ProcessProbe::Gone | ProcessProbe::DoesNotOwnLock => Liveness::Ended,
             ProcessProbe::Unknown(reason) => Liveness::Unknown(reason),
         },
-        RunLockProbe::Missing(lock_reason) => match probe_recorded_process(pid) {
-            ProcessProbe::Alive => Liveness::Live,
+        RunLockProbe::Missing(lock_reason) => match probe_recorded_lock_owner(descriptor) {
+            ProcessProbe::OwnsLock => Liveness::Live,
+            ProcessProbe::DoesNotOwnLock => Liveness::Ended,
             ProcessProbe::Gone => Liveness::Unknown(lock_reason),
             ProcessProbe::Unknown(process_reason) => {
                 Liveness::Unknown(format!("{lock_reason}; {process_reason}"))
@@ -261,43 +263,17 @@ fn classify_lock_and_process(lock: RunLockProbe, pid: u32) -> Liveness {
     }
 }
 
-/// Platforms without the non-signalling process query used above retain the
-/// lock-only behavior. In particular, an acquirable mandatory lock remains a
-/// decided end and a missing pathname remains unknown.
-#[cfg(not(unix))]
-fn classify_lock_and_process(lock: RunLockProbe, _pid: u32) -> Liveness {
+/// Platforms without Linux's stable process and descriptor inspection retain
+/// the lock-only behavior. In particular, an acquirable lock remains a decided
+/// end and a missing pathname remains unknown.
+#[cfg(not(target_os = "linux"))]
+fn classify_lock_and_process(lock: RunLockProbe, _descriptor: &RunDescriptor) -> Liveness {
     match lock {
         RunLockProbe::Held => Liveness::Live,
         RunLockProbe::Free => Liveness::Ended,
         RunLockProbe::Missing(reason) | RunLockProbe::Unknown(reason) => {
             Liveness::Unknown(reason)
         }
-    }
-}
-
-#[cfg(unix)]
-enum ProcessProbe {
-    Alive,
-    Gone,
-    Unknown(String),
-}
-
-/// Ask whether the descriptor's pid exists without delivering a signal. A
-/// permission refusal still proves existence; every other failure except
-/// `ESRCH` is inconclusive and must not manufacture an end.
-// §FS-rhei-run-headless.3
-#[cfg(unix)]
-fn probe_recorded_process(pid: u32) -> ProcessProbe {
-    let Ok(pid) = i32::try_from(pid) else {
-        return ProcessProbe::Unknown(format!("recorded pid {pid} is outside the system pid range"));
-    };
-    if pid == 0 {
-        return ProcessProbe::Unknown("recorded pid 0 does not identify one process".to_string());
-    }
-    match signal::kill(Pid::from_raw(pid), None) {
-        Ok(()) | Err(nix::errno::Errno::EPERM) => ProcessProbe::Alive,
-        Err(nix::errno::Errno::ESRCH) => ProcessProbe::Gone,
-        Err(err) => ProcessProbe::Unknown(format!("recorded pid {pid} could not be checked: {err}")),
     }
 }
 
