@@ -14,7 +14,7 @@
   agent whose work was already done. `rhei run` on a laid Panta workflow now
   transitions a state as soon as its declared outputs land, with no workaround
   needed. Single-rhei plans are unaffected: there the two roots already
-  coincided. (PR #N)
+  coincided. (PR #139)
 - **Spec documents are measured under a size budget instead of being exempt
   from measurement.** `.agents/fissile.toml` kept `**/*.spec.md` in
   `[scan].exclude`, and §AR-source-file-size.1 put `.spec.md` outside the
