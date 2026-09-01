@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 /// Where a run is in its life. `finished` and `failed` are written by the
 /// process itself on the way out; a `SIGKILL`ed run is left saying `running`,
-/// which is why liveness is decided by the run lock and not by this field.
+/// which is why liveness is probed rather than decided by this field alone.
 // §FS-rhei-run-headless.2
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -148,14 +148,10 @@ pub(crate) struct RunDescriptor {
 
 impl RunDescriptor {
     /// Whether *this* run is still the live one on its workspace.
-    /// Two facts, and both are needed. The **run lock** says whether any run is
-    /// there at all: `flock` is released by the kernel on death, so it cannot be
-    /// fooled by pid reuse or by a status field a `SIGKILL` never got to update.
-    /// But a held lock says only that *someone* holds the workspace — so the
-    /// workspace's own descriptor, which each new run overwrites and which is
-    /// therefore authoritative, has to still name this run. Without that second
-    /// check a stale registry entry read as live the moment an unrelated run
-    /// started on the same workspace.
+    /// The workspace descriptor first proves identity and non-terminal status.
+    /// The run lock is then the primary process-independent probe, with the
+    /// recorded process closing only the gap where the held lock inode was
+    /// renamed or unlinked and its pathname no longer probes that lock.
     ///
     /// Every step can also fail to answer, and a failure to answer is its own
     /// verdict: see [`Liveness`].
@@ -177,7 +173,7 @@ impl RunDescriptor {
         if self.status.is_terminal() || current.status.is_terminal() {
             return Liveness::Ended;
         }
-        probe_run_lock(&self.workspace)
+        classify_lock_and_process(probe_run_lock(&self.workspace), self.pid)
     }
 
     /// A one-line human summary for `rhei runs` and `rhei stop`.
@@ -204,26 +200,104 @@ impl RunDescriptor {
 /// at this point in the sequence — the workspace descriptor still names this
 /// run — an absent file does not prove the holder is gone.
 // §FS-rhei-run-headless.3 §FS-rhei-run.2.6
-fn probe_run_lock(workspace_root: &Path) -> Liveness {
+fn probe_run_lock(workspace_root: &Path) -> RunLockProbe {
     let path = workspace_root.join(".rhei").join("run.lock");
     let file = match fs::OpenOptions::new().read(true).open(&path) {
         Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Liveness::Unknown(format!("{} does not exist", path.display()));
+            return RunLockProbe::Missing(format!("{} does not exist", path.display()));
         }
         Err(err) => {
-            return Liveness::Unknown(format!("{} could not be opened: {err}", path.display()));
+            return RunLockProbe::Unknown(format!(
+                "{} could not be opened: {err}",
+                path.display()
+            ));
         }
     };
     match file.try_lock_exclusive() {
         Ok(()) => {
             let _ = fs2::FileExt::unlock(&file);
-            Liveness::Ended
+            RunLockProbe::Free
         }
         // Contention is the whole point of the probe, and the platforms spell
         // it with different errnos. §FS-rhei-run-headless.3
-        Err(err) if lock_is_contended(&err) => Liveness::Live,
-        Err(err) => Liveness::Unknown(format!("{} could not be probed: {err}", path.display())),
+        Err(err) if lock_is_contended(&err) => RunLockProbe::Held,
+        Err(err) => {
+            RunLockProbe::Unknown(format!("{} could not be probed: {err}", path.display()))
+        }
+    }
+}
+
+/// What the current lock pathname says, before the recorded process closes the
+/// gap between a pathname and a lock held on an older inode.
+enum RunLockProbe {
+    Held,
+    Free,
+    Missing(String),
+    Unknown(String),
+}
+
+/// Reconcile the primary lock probe with the recorded process only where a
+/// renamed or unlinked lock inode makes the pathname inconclusive. Descriptor
+/// identity and terminal status have already taken precedence in `liveness`.
+// §FS-rhei-run-headless.3
+#[cfg(unix)]
+fn classify_lock_and_process(lock: RunLockProbe, pid: u32) -> Liveness {
+    match lock {
+        RunLockProbe::Held => Liveness::Live,
+        RunLockProbe::Unknown(reason) => Liveness::Unknown(reason),
+        RunLockProbe::Free => match probe_recorded_process(pid) {
+            ProcessProbe::Alive => Liveness::Live,
+            ProcessProbe::Gone => Liveness::Ended,
+            ProcessProbe::Unknown(reason) => Liveness::Unknown(reason),
+        },
+        RunLockProbe::Missing(lock_reason) => match probe_recorded_process(pid) {
+            ProcessProbe::Alive => Liveness::Live,
+            ProcessProbe::Gone => Liveness::Unknown(lock_reason),
+            ProcessProbe::Unknown(process_reason) => {
+                Liveness::Unknown(format!("{lock_reason}; {process_reason}"))
+            }
+        },
+    }
+}
+
+/// Platforms without the non-signalling process query used above retain the
+/// lock-only behavior. In particular, an acquirable mandatory lock remains a
+/// decided end and a missing pathname remains unknown.
+#[cfg(not(unix))]
+fn classify_lock_and_process(lock: RunLockProbe, _pid: u32) -> Liveness {
+    match lock {
+        RunLockProbe::Held => Liveness::Live,
+        RunLockProbe::Free => Liveness::Ended,
+        RunLockProbe::Missing(reason) | RunLockProbe::Unknown(reason) => {
+            Liveness::Unknown(reason)
+        }
+    }
+}
+
+#[cfg(unix)]
+enum ProcessProbe {
+    Alive,
+    Gone,
+    Unknown(String),
+}
+
+/// Ask whether the descriptor's pid exists without delivering a signal. A
+/// permission refusal still proves existence; every other failure except
+/// `ESRCH` is inconclusive and must not manufacture an end.
+// §FS-rhei-run-headless.3
+#[cfg(unix)]
+fn probe_recorded_process(pid: u32) -> ProcessProbe {
+    let Ok(pid) = i32::try_from(pid) else {
+        return ProcessProbe::Unknown(format!("recorded pid {pid} is outside the system pid range"));
+    };
+    if pid == 0 {
+        return ProcessProbe::Unknown("recorded pid 0 does not identify one process".to_string());
+    }
+    match signal::kill(Pid::from_raw(pid), None) {
+        Ok(()) | Err(nix::errno::Errno::EPERM) => ProcessProbe::Alive,
+        Err(nix::errno::Errno::ESRCH) => ProcessProbe::Gone,
+        Err(err) => ProcessProbe::Unknown(format!("recorded pid {pid} could not be checked: {err}")),
     }
 }
 

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **`rhei runs` keeps a live recorded run visible when its lock pathname no
+  longer names the inode the run holds.** Renaming or unlinking a held
+  `.rhei/run.lock` and installing an unlocked replacement previously made both
+  text and JSON listings report the machine idle even while the matching
+  non-terminal descriptors and recorded process were still live. On Unix,
+  liveness now consults that process when a free or missing lock pathname is
+  inconclusive; terminal and superseded descriptors still win, a dead process
+  with a genuinely free lock still ends, and an inconclusive process check is
+  reported as undecided. The run descriptor and command output schemas are
+  unchanged. (PR #N)
 - **`rhei summary` prints a compact Markdown run summary, short enough to
   paste into a pull request body.** Nothing rhei printed could say what the
   agents actually did: `rhei render --format github` renders the plan with all
