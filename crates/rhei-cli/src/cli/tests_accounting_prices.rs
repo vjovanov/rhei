@@ -149,3 +149,28 @@ fn selected_book_does_not_reprice_an_old_unpriced_invocation() {
     assert_eq!(summary.cost_micro, None);
     assert_eq!(summary.priced_cost_micro, None);
 }
+
+#[test]
+fn built_in_book_rejects_an_old_unpriced_record_in_another_currency() {
+    // §FS-rhei-cost-accounting.5.1: even an unpriced record supplies the
+    // durable currency that a later scalar rollup would otherwise mislabel.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let accounting_root = dir.path().join("runtime/accounting");
+    let mut old = accounting_test_record();
+    old.pricing = AccountingPricing {
+        status: "unpriced".to_string(),
+        currency: Some("CHF".to_string()),
+        amount_micro: None,
+        priced_amount_micro: None,
+        price_book_id: Some("old-chf-book".to_string()),
+    };
+    write_invocation_record(&accounting_root, &old).expect("write old invocation");
+
+    let error = validate_price_book_currency(&accounting_root, &builtin_price_book())
+        .expect_err("USD selection must reject the CHF record")
+        .to_string();
+
+    assert!(error.contains(accounting_root.to_string_lossy().as_ref()), "got: {error}");
+    assert!(error.contains("USD"), "got: {error}");
+    assert!(error.contains("CHF"), "got: {error}");
+}

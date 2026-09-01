@@ -254,6 +254,16 @@ rhei execution root. Invocation pricing records the selected book's id and
 currency. Omitting `--prices` retains the built-in book and its existing
 behavior, including its durable copy when accounting is recorded.
 
+Every currency-bearing durable invocation record in a participating accounting
+root, including an unpriced record, must use the selected book's currency.
+While holding all participating run locks, Rhei checks every root before it
+writes any selected book or starts a frontend, agent, callback, or nested run.
+If a record's currency differs, the run fails with the accounting root and both
+currencies in the diagnostic, and no participating root is changed. This check
+applies to caller-owned and built-in selection. Existing invocation records
+remain authoritative: Rhei neither reprices nor rewrites them, converts their
+amounts, or replaces their currency.
+
 Price entries match provider and model exactly. A selected book with no exact
 entry leaves the measured invocation explicitly unpriced; it never implies a
 zero price or falls back to the built-in book. The selection applies only to

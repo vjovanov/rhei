@@ -288,11 +288,19 @@ fn run_command(
         eprintln!("warning: {warning}");
     }
 
-    // The caller-owned book is durable everywhere this run can start an
-    // agent before the first such process is spawned. §FS-rhei-cost-accounting.5.1
-    if custom_price_book.is_some() && !opts.dry_run() {
-        for root in run_accounting_roots(&loaded, &workspace_root, &rhei_scope) {
-            write_price_book(&root.join("runtime/accounting"), opts.price_book())?;
+    if !opts.dry_run() {
+        let accounting_roots = run_accounting_roots(&loaded, &workspace_root, &rhei_scope);
+        // Every root is preflighted while all run locks are held and before
+        // any root is mutated or execution starts. §FS-rhei-cost-accounting.5.1
+        for root in &accounting_roots {
+            validate_price_book_currency(&root.join("runtime/accounting"), opts.price_book())?;
+        }
+        // The caller-owned book is durable everywhere this run can start an
+        // agent before the first such process is spawned. §FS-rhei-cost-accounting.5.1
+        if custom_price_book.is_some() {
+            for root in accounting_roots {
+                write_price_book(&root.join("runtime/accounting"), opts.price_book())?;
+            }
         }
     }
 

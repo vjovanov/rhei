@@ -60,6 +60,15 @@ fn write_price_book(dir: &Path) -> PathBuf {
 }
 
 fn write_measured_codex_settings(root: &Path, spawned_marker: Option<&Path>) {
+    write_measured_codex_settings_for_model(root, spawned_marker, "openai", "gpt-5.6-luna");
+}
+
+fn write_measured_codex_settings_for_model(
+    root: &Path,
+    spawned_marker: Option<&Path>,
+    provider: &str,
+    model: &str,
+) {
     let marker = spawned_marker
         .map(|path| {
             format!(
@@ -100,7 +109,7 @@ result('## Result\n\nMeasured invocation completed.\n')
     "codex": {{ "command": {}, "prompt_flag": "--prompt", "timeout": "10s" }}
   }},
   "models": {{
-    "luna": {{ "provider": "openai", "model": "gpt-5.6-luna", "default_agent": "codex" }}
+    "luna": {{ "provider": {provider:?}, "model": {model:?}, "default_agent": "codex" }}
   }}
 }}"#,
             fixture_command(&script)
@@ -237,4 +246,83 @@ fn invalid_selected_book_fails_before_the_agent_starts() {
     assert!(result.stderr.contains(&prices_arg), "path missing from:\n{}", result.stderr);
     assert!(!spawned.exists(), "the fake agent started before price validation");
     assert!(!dir.join("runtime/accounting/prices.json").exists());
+}
+
+/// A custom CHF run followed by the built-in USD selection fails on a later
+/// member root before an earlier root changes or its fake agent starts.
+// §FS-rhei-cost-accounting.5.1
+#[test]
+fn successive_run_rejects_mixed_currency_before_any_root_changes() {
+    let dir = unique_temp_dir("custom-prices-successive-currency");
+    let project = dir.join("project");
+    for member in ["alpha", "beta"] {
+        let root = project.join(member);
+        fs::create_dir_all(root.join("tasks")).expect("create member workspace");
+        fs::write(root.join("index.rhei.md"), format!("# Rhei: {member}\n"))
+            .expect("write member index");
+        fs::write(
+            root.join("tasks/work.md"),
+            "### Task 1: Measure this invocation\n**State:** work\n",
+        )
+        .expect("write member task");
+    }
+    fs::write(project.join("index.panta.md"), "# Panta: Priced Project\n")
+        .expect("write project manifest");
+    let machine = write_fixture_file(&dir, "states.yaml", PRICED_MACHINE);
+    let prices = write_price_book(&dir);
+    write_measured_codex_settings(&project, None);
+    let prices_arg = prices.to_string_lossy().into_owned();
+
+    let first = run_cli(
+        "run",
+        &project,
+        &machine,
+        &["--no-tui", "--no-callbacks", "--rhei", "beta", "--prices", &prices_arg],
+    );
+    assert_success(&first);
+    assert_selected_book_copy(&project);
+    assert_selected_book_copy(&project.join("beta"));
+    assert_selected_pricing(&project.join("beta"));
+    assert!(!project.join("alpha/runtime/accounting").exists());
+
+    let project_book_before = fs::read(project.join("runtime/accounting/prices.json"))
+        .expect("read project book before conflict");
+    let beta_book_before = fs::read(project.join("beta/runtime/accounting/prices.json"))
+        .expect("read beta book before conflict");
+    let beta_invocation_before = invocation_json(&project.join("beta"));
+    let spawned = dir.join("second-run-spawned.marker");
+    write_measured_codex_settings_for_model(
+        &project,
+        Some(&spawned),
+        "anthropic",
+        "claude-sonnet-4-6",
+    );
+
+    let second = run_cli("run", &project, &machine, &["--no-tui", "--no-callbacks"]);
+
+    assert!(
+        !second.status.success(),
+        "mixed currencies must reject the second run\nstdout:\n{}\nstderr:\n{}",
+        second.stdout,
+        second.stderr
+    );
+    assert!(second.stderr.contains("USD"), "selected currency missing from:\n{}", second.stderr);
+    assert!(second.stderr.contains("CHF"), "durable currency missing from:\n{}", second.stderr);
+    let beta_accounting = project.join("beta/runtime/accounting");
+    assert!(
+        second.stderr.contains(beta_accounting.to_string_lossy().as_ref()),
+        "conflicting root missing from:\n{}",
+        second.stderr
+    );
+    assert!(!spawned.exists(), "the second run started an agent before all-root preflight");
+    assert!(!project.join("alpha/runtime/accounting").exists());
+    assert_eq!(
+        fs::read(project.join("runtime/accounting/prices.json")).expect("read project book"),
+        project_book_before
+    );
+    assert_eq!(
+        fs::read(beta_accounting.join("prices.json")).expect("read beta book"),
+        beta_book_before
+    );
+    assert_eq!(invocation_json(&project.join("beta")), beta_invocation_before);
 }
