@@ -242,6 +242,26 @@ fn claude_result_json_rejects_unrelated_and_malformed_usage() {
 }
 
 #[test]
+fn claude_result_json_rejects_incomplete_envelopes() {
+    // §FS-rhei-cost-accounting.4: partial Claude envelopes cannot fabricate
+    // measured billing telemetry or suppress their raw diagnostic output.
+    for incomplete in [
+        r#"{"type":"result","usage":{"input_tokens":123}}"#,
+        r#"{"type":"result","result":"response","usage":{"input_tokens":123}}"#,
+        r#"{"type":"result","result":"response"}"#,
+    ] {
+        assert!(matches!(
+            extract_usage_from_output_line(AgentUsageExtractor::Claude, incomplete),
+            OutputUsage::Failed
+        ));
+        assert!(matches!(
+            display_output_line(AgentUsageExtractor::Claude, incomplete),
+            AgentOutputLine::Passthrough
+        ));
+    }
+}
+
+#[test]
 fn claude_result_stream_usage_keeps_latest_cumulative_capture() {
     // Claude's stream result events are cumulative across intervention turns.
     // §FS-rhei-cost-accounting.4
@@ -264,13 +284,13 @@ fn claude_result_stream_usage_keeps_latest_cumulative_capture() {
     capture_agent_output_usage(
         Some(&capture),
         rhei_tui::AgentStream::Stdout,
-        r#"{"type":"result","subtype":"success","result":"first","usage":{"input_tokens":10,"output_tokens":5}}"#,
+        r#"{"type":"result","subtype":"success","result":"first","usage":{"input_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":5}}"#,
         &sink,
     );
     capture_agent_output_usage(
         Some(&capture),
         rhei_tui::AgentStream::Stdout,
-        r#"{"type":"result","subtype":"success","result":"second","usage":{"input_tokens":20,"output_tokens":8}}"#,
+        r#"{"type":"result","subtype":"success","result":"second","usage":{"input_tokens":20,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":8}}"#,
         &sink,
     );
 
@@ -381,4 +401,99 @@ print(json.dumps({
     assert_eq!(summary.measured_invocation_count, 1);
     assert_eq!(summary.missing_invocation_count, 0);
     assert_eq!(summary.cost_micro, Some(2_148_300));
+}
+
+#[test]
+fn fake_claude_incomplete_json_is_extractor_failed_and_unmeasured() {
+    // §FS-rhei-cost-accounting.4: a malformed result envelope must remain
+    // unmeasured through subprocess capture, durable accounting, and rollup.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let command = python_fixture_command(
+        dir.path(),
+        "claude-incomplete-result-agent",
+        r#"import json
+
+print(json.dumps({
+    'type': 'result',
+    'usage': {'input_tokens': 123},
+}), flush=True)
+"#,
+    );
+    let mut profile = built_in_agents().remove("claude-code").expect("claude-code");
+    profile.command = command;
+    let resolved = ResolvedAgent {
+        agent: AgentConfig::from("claude-code"),
+        profile,
+        mode: None,
+        target: None,
+        model: Some("impl-fast".to_string()),
+        model_provider: Some("anthropic".to_string()),
+        model_name: Some("claude-sonnet-4-6".to_string()),
+        timeout_secs: Some(10),
+        autonomous_args: Vec::new(),
+    };
+    let plan = rhei_core::parse(
+        "# Rhei: Claude Accounting\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n",
+    )
+    .expect("parse plan");
+    let log_path = dir.path().join("agent.log");
+    let sink = Arc::new(RecordingSink::default());
+    let sink_trait: Arc<dyn rhei_tui::EventSink> = sink.clone();
+    let tooling = ResolvedTooling::default();
+    let outcome = spawn_and_wait_agent(
+        &resolved,
+        "prompt",
+        dir.path(),
+        dir.path(),
+        None,
+        &dir.path().join("plan.rhei.md"),
+        None,
+        "1",
+        "pending",
+        1,
+        &tooling,
+        &log_path,
+        dir.path(),
+        None,
+        0,
+        sink.clone(),
+        None,
+        &spawn_plan_for_test(&log_path),
+        None,
+    )
+    .expect("fake Claude agent runs");
+    assert!(outcome.status.success());
+
+    let usage = record_agent_accounting_invocation(AgentAccountingInvocation {
+        workspace_root: dir.path(),
+        task: &plan.tasks[0],
+        state: "pending",
+        resolved: &resolved,
+        visit: 1,
+        started_at: std::time::SystemTime::now(),
+        ended_at: std::time::SystemTime::now(),
+        slot: Some(0),
+        usage_capture_path: outcome.usage_capture_path.as_deref(),
+        log_path: Some(&log_path),
+        sink: &sink_trait,
+    })
+    .expect("record accounting")
+    .expect("Claude accounting record is present");
+    assert_eq!(usage.status, rhei_tui::UsageStatus::ExtractorFailed);
+    assert_eq!(usage.total.value, None);
+    assert_eq!(usage.input_total.value, None);
+    assert_eq!(usage.output_total.value, None);
+    assert_eq!(usage.cost_micro, None);
+
+    let summary = regenerate_accounting_indexes(dir.path(), &plan)
+        .expect("regenerate rollups")
+        .expect("run summary");
+    assert_eq!(summary.invocation_count, 1);
+    assert_eq!(summary.measured_invocation_count, 0);
+    assert_eq!(summary.missing_invocation_count, 1);
+    assert_eq!(summary.cost_micro, None);
+
+    let log = std::fs::read_to_string(&log_path).expect("read agent log");
+    assert!(log.contains("input_tokens"));
+    assert!(!log.trim().is_empty());
 }
