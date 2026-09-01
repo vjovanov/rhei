@@ -11,7 +11,7 @@
   explicitly unpriced, and `rhei cost` does not reprice old records. No price
   book is fetched over the network.
   [§FS-rhei-cost-accounting.5.1](functional-spec/rhei-cost-accounting.spec.md#51-price-book-selection)
-  (PR #N)
+  (PR #150)
 - **Subprocess tests no longer trust an existing `target` binary as proof that
   it matches the checkout.** The shared E2E and integration helper now asks
   Cargo to verify or rebuild `rhei-cli` once per test-harness process before
