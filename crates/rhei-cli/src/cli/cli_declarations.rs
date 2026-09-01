@@ -70,6 +70,7 @@ Execution:
   stop        Ask a run to stop, entering the same interruption path as Ctrl+C
   intervene   Send a message to a running agent's stdin during a live run
   cost        Inspect run token and cost accounting artifacts
+  summary     Print a compact Markdown run summary for a pull request body
   snapshot    Inspect, prune, or continue from session snapshots
   next        Transition the next ready task to the next state
   complete    Complete a task: transition to terminal state, write ledger/result,\n              link it from the task, and remove the assignee
@@ -399,6 +400,16 @@ enum Commands {
         /// Group run totals in text/JSON output
         #[arg(long, value_enum, default_value = "node")]
         by: CostGroup,
+    },
+    /// Print a compact Markdown run summary for a pull request body
+    // §FS-rhei-summary.1: the positional resolves exactly as `rhei cost`'s does.
+    Summary {
+        /// Path to the markdown plan file (.rhei.md) or workspace directory
+        #[arg(value_name = "RHEI_PLAN_OR_WORKSPACE", add = ArgValueCompleter::new(complete_rhei_plan_path))]
+        input: Option<PathBuf>,
+        /// Wrap the summary in a collapsed <details> block
+        #[arg(long)]
+        details: bool,
     },
     /// Render a self-contained HTML flow visualization of a plan or workspace
     Viz {

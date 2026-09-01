@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **`rhei summary` prints a compact Markdown run summary, short enough to
+  paste into a pull request body.** Nothing rhei printed could say what the
+  agents actually did: `rhei render --format github` renders the plan with all
+  its workspace boilerplate and task content, the per-run report is written
+  only when `rhei run` ends and links local log paths that cannot leave the
+  machine, and `rhei cost` gives the totals but no step list. The material was
+  already durable under `runtime/accounting/invocations/`; nothing rendered it.
+  `rhei summary [RHEI_PLAN_OR_WORKSPACE]` now writes three things to stdout: a
+  lead line naming the resolved state machine, the invocation count, the
+  distinct models, and the task tally — with `N in progress` appended, so a
+  mid-run summary says it is one; one numbered entry per invocation record in
+  `started_at` order, carrying the task, state, visit where a task has more
+  than one, agent, `provider/model`, duration, and token counts only where the
+  record measured them; and the aggregate accounting in the per-run report's
+  table shape, replaced by a single line when nothing was measured. `--details`
+  wraps the whole thing in one collapsed `<details>` block with the lead line
+  as its `<summary>`. It writes no file, spawns nothing, carries no local path,
+  and estimates nothing — a fact that was not recorded is omitted rather than
+  guessed. A freshly instantiated workspace with no accounting directory
+  summarizes to the lead line and exits 0. (PR #N)
 - **The built-in `claude-code` profile now produces measurable usage
   accounting.** Ordinary one-shot launches request Claude's typed JSON result,
   extract its input, cache, and output token dimensions, preserve the result

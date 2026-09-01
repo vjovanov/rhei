@@ -20,6 +20,7 @@ mod run_shell_program_tests;
 mod run_signals_tests;
 mod run_tests;
 mod snapshot_tests;
+mod summary_tests;
 mod supervised_delivery_tests;
 mod supervision_barrier_tests;
 mod supervision_next_tests;
