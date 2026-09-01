@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Subprocess tests no longer trust an existing `target` binary as proof that
+  it matches the checkout.** The shared E2E and integration helper now asks
+  Cargo to verify or rebuild `rhei-cli` once per test-harness process before
+  returning the executable path, so a stale binary cannot make a regression
+  test pass against code other than the current sources. (PR #N)
 - **`rhei runs` keeps a live recorded run visible when its lock pathname no
   longer names the inode the run holds.** Renaming or unlinking a held
   `.rhei/run.lock` and installing an unlocked replacement previously made both
