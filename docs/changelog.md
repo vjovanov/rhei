@@ -21,7 +21,7 @@
   as its `<summary>`. It writes no file, spawns nothing, carries no local path,
   and estimates nothing — a fact that was not recorded is omitted rather than
   guessed. A freshly instantiated workspace with no accounting directory
-  summarizes to the lead line and exits 0. (PR #N)
+  summarizes to the lead line and exits 0. (PR #145)
 - **The built-in `claude-code` profile now produces measurable usage
   accounting.** Ordinary one-shot launches request Claude's typed JSON result,
   extract its input, cache, and output token dimensions, preserve the result
