@@ -287,6 +287,7 @@ fn spawn_parallel_agent_work_item(
     let rhei_root_for_thread = workspace_root.to_path_buf();
     let worktree_root_for_thread = worktree_root.clone();
     let task_for_accounting = task.clone();
+    let price_book_for_thread = opts.price_book().clone();
     let task_id_for_panic = tid.clone();
     let state_for_panic = sname.clone();
     // The worker spawns this run's subprocess, so the run's shutdown guard —
@@ -299,6 +300,7 @@ fn spawn_parallel_agent_work_item(
             let resolved = resolved_for_thread;
             let result = spawn_and_wait_agent(
                 &resolved,
+                &price_book_for_thread,
                 &prompt,
                 &rhei_root_for_thread,
                 &working_dir,
@@ -348,6 +350,7 @@ fn spawn_parallel_agent_work_item(
                 slot: Some(slot),
                 usage_capture_path: usage_capture_path.map(PathBuf::as_path),
                 log_path: Some(&log_for_thread),
+                price_book: &price_book_for_thread,
                 sink: &sink_for_thread,
             });
             let (accounting_recorded, accounting_warning) = match accounting_result {

@@ -34,6 +34,9 @@ struct StandaloneExecutionFlags {
     /// Maximum number of agents to run concurrently (0 = unlimited)
     #[arg(long, default_value_t = 1, add = ArgValueCompleter::new(complete_parallel))]
     parallel: usize,
+    /// Price measured usage with a local rhei.accounting.prices.v1 book
+    #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_any_path))]
+    prices: Option<PathBuf>,
     /// Narrow to the named rhei (repeatable; one id per flag). A rhei id
     /// is its file stem or directory name; default is the whole project
     #[arg(long = "rhei", value_name = "RHEI_ID", add = ArgValueCompleter::new(complete_rhei_id))]
@@ -121,6 +124,7 @@ struct RunOptions {
     agent: AgentExecutionFlags,
     program: ProgramExecutionFlags,
     snapshot: SnapshotExecutionFlags,
+    price_book: PriceBook,
 }
 
 impl RunOptions {
@@ -138,6 +142,18 @@ impl RunOptions {
 
     fn parallel(&self) -> usize {
         self.standalone.parallel
+    }
+
+    fn prices_path(&self) -> Option<&Path> {
+        self.standalone.prices.as_deref()
+    }
+
+    fn price_book(&self) -> &PriceBook {
+        &self.price_book
+    }
+
+    fn select_price_book(&mut self, price_book: PriceBook) {
+        self.price_book = price_book;
     }
 
     /// Rhei ids this invocation is narrowed to; empty means the whole project.

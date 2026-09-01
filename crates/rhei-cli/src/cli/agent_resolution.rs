@@ -471,6 +471,7 @@ fn default_run_options() -> RunOptions {
             no_callbacks: false,
             continue_on_error: false,
             parallel: 1,
+            prices: None,
             tui: false,
             no_tui: false,
             dashboard: false,
@@ -479,5 +480,6 @@ fn default_run_options() -> RunOptions {
         agent: AgentExecutionFlags { no_agent: false, agent: None, agent_mode: None, model: None },
         program: ProgramExecutionFlags::default(),
         snapshot: SnapshotExecutionFlags::default(),
+        price_book: builtin_price_book(),
     }
 }

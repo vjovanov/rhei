@@ -1,8 +1,5 @@
 const ACCOUNTING_INVOCATION_SCHEMA: &str = "rhei.accounting.invocation.v1";
-const ACCOUNTING_PRICES_SCHEMA: &str = "rhei.accounting.prices.v1";
 const ACCOUNTING_USAGE_EVENT_SCHEMA: &str = "rhei.accounting.usage.v1";
-const PRICE_BOOK_ID: &str = "builtin-2026-05-20";
-const PRICE_UNIT_TOKENS: u64 = 1_000_000;
 static ACCOUNTING_INVOCATION_FILE_SEQUENCE: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
@@ -106,26 +103,6 @@ struct AccountingPricing {
     priced_amount_micro: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     price_book_id: Option<String>,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-struct PriceBook {
-    schema: &'static str,
-    price_book_id: &'static str,
-    currency: &'static str,
-    entries: Vec<PriceBookEntry>,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-struct PriceBookEntry {
-    provider: &'static str,
-    model: &'static str,
-    effective_at: &'static str,
-    unit: &'static str,
-    input_total_micro: u64,
-    input_cached_read_micro: u64,
-    input_cache_write_micro: u64,
-    output_total_micro: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -236,6 +213,7 @@ struct AgentUsageCapture {
     agent: String,
     provider: Option<String>,
     model: Option<String>,
+    price_book: PriceBook,
     slot: rhei_tui::Slot,
 }
 
@@ -257,6 +235,7 @@ struct AgentAccountingInvocation<'a> {
     slot: Option<rhei_tui::Slot>,
     usage_capture_path: Option<&'a Path>,
     log_path: Option<&'a Path>,
+    price_book: &'a PriceBook,
     sink: &'a Arc<dyn rhei_tui::EventSink>,
 }
 
@@ -278,7 +257,7 @@ fn record_agent_accounting_invocation(
 
     // §FS-rhei-cost-accounting.2: Accounting files live under runtime/accounting/.
     let accounting_root = invocation.workspace_root.join("runtime/accounting");
-    write_price_book(&accounting_root)?;
+    write_price_book(&accounting_root, invocation.price_book)?;
 
     // §FS-rhei-cost-accounting.11: Extraction failures affect coverage only.
     let (tokens, extraction_status) =
@@ -301,7 +280,8 @@ fn record_agent_accounting_invocation(
     let provider = invocation.resolved.model_provider.clone();
     let model =
         invocation.resolved.model_name.clone().or_else(|| invocation.resolved.model.clone());
-    let pricing = price_tokens(provider.as_deref(), model.as_deref(), &tokens);
+    let pricing =
+        price_tokens(invocation.price_book, provider.as_deref(), model.as_deref(), &tokens);
     let target_slug = resolved_agent_target_slug(invocation.resolved);
     let invocation_id = accounting_invocation_id(
         &invocation.task.id.to_string(),
@@ -672,9 +652,10 @@ fn usage_summary_from_extracted_usage(
     provider: Option<String>,
     model: Option<String>,
     usage: ExtractedUsage,
+    price_book: &PriceBook,
 ) -> rhei_tui::UsageSummary {
     let tokens = tokens_from_usage(usage);
-    let pricing = price_tokens(provider.as_deref(), model.as_deref(), &tokens);
+    let pricing = price_tokens(price_book, provider.as_deref(), model.as_deref(), &tokens);
     let pricing_status = match pricing.status.as_str() {
         "priced" => rhei_tui::PricingStatus::Priced,
         "partial-price" => rhei_tui::PricingStatus::PartialPrice,
@@ -800,6 +781,7 @@ fn usage_capture_for_spawn(
     state: &str,
     visit: u64,
     slot: rhei_tui::Slot,
+    price_book: &PriceBook,
 ) -> Option<AgentUsageCapture> {
     let extractor = agent_usage_extractor(resolved.agent.id())?;
     Some(AgentUsageCapture {
@@ -813,6 +795,7 @@ fn usage_capture_for_spawn(
         agent: resolved.agent.id().to_string(),
         provider: resolved.model_provider.clone(),
         model: resolved.model_name.clone().or_else(|| resolved.model.clone()),
+        price_book: price_book.clone(),
         slot,
     })
 }
@@ -873,6 +856,7 @@ fn capture_agent_output_usage(
             capture.provider.clone(),
             capture.model.clone(),
             aggregate,
+            &capture.price_book,
         );
         sink.emit(rhei_tui::RunEvent::UsageReported {
             slot: Some(capture.slot),
@@ -1469,6 +1453,7 @@ fn sum_optional_pair(left: Option<u64>, right: Option<u64>) -> Option<u64> {
 }
 
 fn price_tokens(
+    price_book: &PriceBook,
     provider: Option<&str>,
     model: Option<&str>,
     tokens: &AccountingTokens,
@@ -1497,20 +1482,20 @@ fn price_tokens(
     if priceable_measured == 0 {
         return AccountingPricing {
             status: "unpriced".to_string(),
-            currency: Some("USD".to_string()),
+            currency: Some(price_book.currency.clone()),
             amount_micro: None,
             priced_amount_micro: None,
-            price_book_id: Some(PRICE_BOOK_ID.to_string()),
+            price_book_id: Some(price_book.price_book_id.clone()),
         };
     }
 
-    let Some(entry) = price_entry(provider, model) else {
+    let Some(entry) = price_entry(price_book, provider, model) else {
         return AccountingPricing {
             status: "unpriced".to_string(),
-            currency: Some("USD".to_string()),
+            currency: Some(price_book.currency.clone()),
             amount_micro: None,
             priced_amount_micro: None,
-            price_book_id: Some(PRICE_BOOK_ID.to_string()),
+            price_book_id: Some(price_book.price_book_id.clone()),
         };
     };
     let mut amount = 0u64;
@@ -1526,49 +1511,31 @@ fn price_tokens(
     amount = amount.saturating_add(price_dimension(tokens.output.total.value, entry.output_total_micro));
     AccountingPricing {
         status: "priced".to_string(),
-        currency: Some("USD".to_string()),
+        currency: Some(price_book.currency.clone()),
         amount_micro: Some(amount),
         priced_amount_micro: Some(amount),
-        price_book_id: Some(PRICE_BOOK_ID.to_string()),
+        price_book_id: Some(price_book.price_book_id.clone()),
     }
 }
 
 fn price_dimension(tokens: Option<u64>, price_micro: u64) -> u64 {
     let Some(tokens) = tokens else { return 0 };
     // §FS-rhei-cost-accounting.5: Cost uses integer micro-unit arithmetic.
-    ((tokens as u128 * price_micro as u128) / PRICE_UNIT_TOKENS as u128) as u64
+    let amount = (tokens as u128 * price_micro as u128) / PRICE_UNIT_TOKENS as u128;
+    u64::try_from(amount).unwrap_or(u64::MAX)
 }
 
-fn price_entry(provider: Option<&str>, model: Option<&str>) -> Option<PriceBookEntry> {
+fn price_entry<'a>(
+    price_book: &'a PriceBook,
+    provider: Option<&str>,
+    model: Option<&str>,
+) -> Option<&'a PriceBookEntry> {
     let provider = provider?;
     let model = model?;
-    builtin_price_entries()
-        .into_iter()
+    price_book
+        .entries
+        .iter()
         .find(|entry| entry.provider == provider && entry.model == model)
-}
-
-fn builtin_price_entries() -> Vec<PriceBookEntry> {
-    vec![PriceBookEntry {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        effective_at: "2026-05-20T00:00:00Z",
-        unit: "1m_tokens",
-        input_total_micro: 3_000_000,
-        input_cached_read_micro: 300_000,
-        input_cache_write_micro: 3_750_000,
-        output_total_micro: 15_000_000,
-    }]
-}
-
-fn write_price_book(accounting_root: &Path) -> MietteResult<()> {
-    let path = accounting_root.join("prices.json");
-    let price_book = PriceBook {
-        schema: ACCOUNTING_PRICES_SCHEMA,
-        price_book_id: PRICE_BOOK_ID,
-        currency: "USD",
-        entries: builtin_price_entries(),
-    };
-    write_json_atomic(&path, &price_book)
 }
 
 fn write_invocation_record(

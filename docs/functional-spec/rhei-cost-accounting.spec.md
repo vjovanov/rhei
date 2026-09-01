@@ -235,6 +235,31 @@ only accepts structured capture events that identify the accounting schema.
 }
 ```
 
+### 5.1. Price-Book Selection
+
+`rhei run ... --prices <PATH>` selects a caller-owned local price book for
+that run. Rhei reads and validates the file before starting any agent. The
+book must use the `rhei.accounting.prices.v1` schema shown above, provide a
+non-empty `price_book_id` and currency, use `1m_tokens` for every entry, and
+provide non-empty provider, model, and effective timestamp values. Duplicate
+provider/model entries are rejected because pricing uses one exact match.
+Missing, unreadable, malformed, wrong-schema, and unsupported books fail the
+run with a diagnostic that names the supplied path. Selection never fetches a
+book over the network.
+
+The selected in-memory book is shared by sequential and parallel agent
+execution. Before any agent starts, Rhei atomically copies a caller-owned book
+to `runtime/accounting/prices.json` in the run root and every participating
+rhei execution root. Invocation pricing records the selected book's id and
+currency. Omitting `--prices` retains the built-in book and its existing
+behavior, including its durable copy when accounting is recorded.
+
+Price entries match provider and model exactly. A selected book with no exact
+entry leaves the measured invocation explicitly unpriced; it never implies a
+zero price or falls back to the built-in book. The selection applies only to
+invocations recorded by that run: `rhei cost` reads their durable pricing
+results and does not retroactively reprice older records.
+
 Rules:
 
 - Prices are integer micro-units of the configured currency.

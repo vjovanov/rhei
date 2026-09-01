@@ -32,6 +32,22 @@ fn run_lock_roots(loaded: &LoadedPlan, workspace_root: &Path) -> BTreeSet<PathBu
     roots
 }
 
+/// Accounting roots whose agents can participate in this invocation: the run
+/// root plus each in-scope ticket's owning rhei root. §FS-rhei-cost-accounting.5.1
+fn run_accounting_roots(
+    loaded: &LoadedPlan,
+    workspace_root: &Path,
+    rhei_scope: &RheiScope,
+) -> BTreeSet<PathBuf> {
+    let mut roots = BTreeSet::from([workspace_root.to_path_buf()]);
+    for (task_id, root) in &loaded.task_roots {
+        if task_in_rhei_scope(rhei_scope, task_id) {
+            roots.insert(root.clone());
+        }
+    }
+    roots
+}
+
 /// One run's identity: the id it is named by everywhere, and when it began.
 /// Computed once, as soon as the run holds its locks, so the run report, the
 /// descriptor, and `rhei attach <id>` all speak about the same run by the same
@@ -171,7 +187,7 @@ fn announce_run_lock_wait(root: &Path, json: bool) {
 fn run_command(
     input: &Path,
     state_machine_path: Option<&Path>,
-    opts: RunOptions,
+    mut opts: RunOptions,
 ) -> MietteResult<()> {
     // `--headless` re-executes this same command in a detached session and
     // returns its id; everything below then runs in the *child*. Checked first
@@ -199,6 +215,10 @@ fn run_command(
         ExecutionMachines::build(&resolved, input)?.with_state_machine_override(state_machine_path);
     let callback_paths = machines.default_callbacks.clone();
     let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let custom_price_book = opts.prices_path().map(Path::to_path_buf);
+    if let Some(path) = custom_price_book.as_deref() {
+        opts.select_price_book(load_price_book(path)?);
+    }
     let settings = load_merged_settings(&workspace_root)?;
     // §FS-rhei-run.2.6: one live run per rhei — lock every involved
     // execution root, not just the run's own.
@@ -266,6 +286,14 @@ fn run_command(
     report.warnings.dedup();
     for warning in &report.warnings {
         eprintln!("warning: {warning}");
+    }
+
+    // The caller-owned book is durable everywhere this run can start an
+    // agent before the first such process is spawned. §FS-rhei-cost-accounting.5.1
+    if custom_price_book.is_some() && !opts.dry_run() {
+        for root in run_accounting_roots(&loaded, &workspace_root, &rhei_scope) {
+            write_price_book(&root.join("runtime/accounting"), opts.price_book())?;
+        }
     }
 
     let roots = ReadySetRoots { workspace_root: &workspace_root, task_roots: &loaded.task_roots };

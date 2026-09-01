@@ -1,3 +1,4 @@
+mod accounting_prices_tests;
 mod completions_tests;
 mod error_guidance_tests;
 mod examples_tests;

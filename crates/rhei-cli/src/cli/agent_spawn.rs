@@ -162,6 +162,7 @@ fn drain_agent_output_reader(
 #[allow(clippy::too_many_arguments)]
 fn spawn_and_wait_agent(
     resolved: &ResolvedAgent,
+    price_book: &PriceBook,
     prompt: &str,
     rhei_root: &Path,
     checkout_root: &Path,
@@ -278,6 +279,7 @@ fn spawn_and_wait_agent(
         state_name,
         visit_count,
         slot,
+        price_book,
     );
 
     let mut cmd = build_agent_command(

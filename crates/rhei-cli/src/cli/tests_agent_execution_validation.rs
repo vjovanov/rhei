@@ -20,6 +20,7 @@
         let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
         let status = spawn_and_wait_agent(
             &resolved,
+            &builtin_price_book(),
             prompt,
             dir.path(),
             dir.path(),
@@ -194,6 +195,7 @@ for line in sys.stdin:
         let start = Instant::now();
         let status = spawn_and_wait_agent(
             &resolved,
+            &builtin_price_book(),
             "hello codex",
             dir.path(),
             dir.path(),
@@ -266,6 +268,7 @@ for line in sys.stdin:
 
         let status = spawn_and_wait_agent(
             &resolved,
+            &builtin_price_book(),
             "prompt",
             dir.path(),
             dir.path(),
@@ -329,6 +332,7 @@ for line in sys.stdin:
         let start = Instant::now();
         let status = spawn_and_wait_agent(
             &resolved,
+            &builtin_price_book(),
             "prompt",
             dir.path(),
             dir.path(),
