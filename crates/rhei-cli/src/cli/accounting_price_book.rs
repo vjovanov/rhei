@@ -119,3 +119,36 @@ fn write_price_book(accounting_root: &Path, price_book: &PriceBook) -> MietteRes
     let path = accounting_root.join("prices.json");
     write_json_atomic(&path, price_book)
 }
+
+/// Preserve one currency across the invocation records that a durable scalar
+/// rollup can combine. Called for every root before any of them is mutated.
+// §FS-rhei-cost-accounting.5.1
+fn validate_price_book_currency(
+    accounting_root: &Path,
+    price_book: &PriceBook,
+) -> MietteResult<()> {
+    let inspection = read_cost_inspection(accounting_root);
+    if let Some(error) = inspection.errors.first() {
+        return Err(miette!(
+            help = "repair or remove the unreadable invocation record before starting another run",
+            "cannot verify selected currency '{}' in accounting root '{}': {error}",
+            price_book.currency,
+            accounting_root.display()
+        ));
+    }
+    for (_, record) in inspection.invocations {
+        let Some(record_currency) = record.pricing.currency else {
+            continue;
+        };
+        if record_currency != price_book.currency {
+            return Err(miette!(
+                help = "reuse a price book with the durable currency or start from a new accounting root; existing invocations are not converted",
+                "selected price book currency '{}' conflicts with durable currency '{}' in accounting root '{}'",
+                price_book.currency,
+                record_currency,
+                accounting_root.display()
+            ));
+        }
+    }
+    Ok(())
+}
