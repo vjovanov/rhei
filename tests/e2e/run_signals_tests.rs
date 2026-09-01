@@ -856,12 +856,11 @@ fn ctrl_c_on_the_finished_tui_screen_still_writes_the_report() {
         }
     });
 
-    // The finished screen announces itself, which is the only reliable sign
-    // that the render thread is parked in `stay_until_quit` rather than still
-    // draining input from the live loop.
+    // The finished status is one rendered span. The adjacent `q to quit`
+    // words may be separated by terminal cursor-positioning sequences.
     poll_until("the TUI to park on its finished screen", TEST_PATIENCE, || {
         let seen = screen.lock().expect("screen buffer");
-        seen.windows(9).any(|w| w == b"q to quit")
+        seen.windows(9).any(|w| w == b"[finished")
     });
 
     writer.write_all(b"\x03").expect("send Ctrl+C to the TUI");
