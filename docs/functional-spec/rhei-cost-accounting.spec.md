@@ -373,6 +373,10 @@ When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 (no accounting records found)
 ```
 
+`rhei summary` reads the same artifacts for the other question — not what the
+run cost but what it did, one numbered line per invocation, as Markdown short
+enough to paste into a pull request ([§FS-rhei-summary](rhei-summary.spec.md#fs-rhei-summary-rhei-summary)).
+
 ## 9. Visualization
 
 The TUI header shows a compact run-level strip when accounting is available:
