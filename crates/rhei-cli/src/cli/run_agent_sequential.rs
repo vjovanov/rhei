@@ -249,6 +249,7 @@ fn run_sequential_agent_invocation(
 
     let spawn_result = spawn_and_wait_agent(
         resolved,
+        opts.price_book(),
         &prompt,
         &task_workspace_root,
         &checkout_root.path,
@@ -307,6 +308,7 @@ fn run_sequential_agent_invocation(
             .ok()
             .and_then(|outcome| outcome.usage_capture_path.as_deref()),
         log_path: Some(&log),
+        price_book: opts.price_book(),
         sink,
     }) {
         Ok(Some(_)) => {

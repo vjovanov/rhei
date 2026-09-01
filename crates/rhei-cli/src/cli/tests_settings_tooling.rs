@@ -1106,6 +1106,7 @@ states:
         };
         spawn_and_wait_agent(
             &log_resolved,
+            &builtin_price_book(),
             "prompt",
             runtime_dir.path(),
             runtime_dir.path(),

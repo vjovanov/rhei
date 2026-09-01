@@ -377,7 +377,6 @@ impl
             SnapshotExecutionFlags,
         ),
     ) -> Self {
-        Self { standalone, agent, program, snapshot }
+        Self { standalone, agent, program, snapshot, price_book: builtin_price_book() }
     }
 }
-

@@ -165,6 +165,7 @@ spawns.mkdir(parents=True, exist_ok=True)
 
         let status = spawn_and_wait_agent(
             &resolved,
+            &builtin_price_book(),
             "prompt",
             dir.path(),
             dir.path(),

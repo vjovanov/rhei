@@ -249,6 +249,8 @@ transitions: []
             "--continue-on-error",
             "--parallel",
             "4",
+            "--prices",
+            "prices.json",
             "--no-agent",
             "--agent",
             "codex",
@@ -264,6 +266,7 @@ transitions: []
                 assert!(standalone.no_callbacks);
                 assert!(standalone.continue_on_error);
                 assert_eq!(standalone.parallel, 4);
+                assert_eq!(standalone.prices, Some(PathBuf::from("prices.json")));
                 assert!(agent.no_agent);
                 assert_eq!(agent.agent.as_deref(), Some("codex"));
                 assert_eq!(agent.model.as_deref(), Some("o3"));
@@ -386,6 +389,9 @@ transitions: []
         assert!(help.contains("Standalone Execution:"));
         assert!(help.contains("--dry-run"));
         assert!(help.contains("--parallel"));
+        // §FS-rhei-run.2.1 §FS-rhei-cost-accounting.5.1: custom pricing is a
+        // public run option, not an accounting-only internal input.
+        assert!(help.contains("--prices <PATH>"));
         assert!(help.contains("Agent Execution:"));
         assert!(help.contains("--no-agent"));
         assert!(help.contains("--agent <AGENT>"));

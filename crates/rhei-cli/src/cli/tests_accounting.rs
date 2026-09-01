@@ -277,6 +277,7 @@ fn claude_result_stream_usage_keeps_latest_cumulative_capture() {
         agent: "claude-code".to_string(),
         provider: Some("anthropic".to_string()),
         model: Some("claude-sonnet-4-6".to_string()),
+        price_book: builtin_price_book(),
         slot: 0,
     };
     let sink: Arc<dyn rhei_tui::EventSink> = Arc::new(RecordingSink::default());
@@ -350,6 +351,7 @@ print(json.dumps({
     let tooling = ResolvedTooling::default();
     let outcome = spawn_and_wait_agent(
         &resolved,
+        &builtin_price_book(),
         "prompt",
         dir.path(),
         dir.path(),
@@ -390,6 +392,7 @@ print(json.dumps({
         slot: Some(0),
         usage_capture_path: outcome.usage_capture_path.as_deref(),
         log_path: Some(&log_path),
+        price_book: &builtin_price_book(),
         sink: &sink_trait,
     })
     .expect("record accounting")
@@ -449,6 +452,7 @@ print(json.dumps({
     let tooling = ResolvedTooling::default();
     let outcome = spawn_and_wait_agent(
         &resolved,
+        &builtin_price_book(),
         "prompt",
         dir.path(),
         dir.path(),
@@ -482,6 +486,7 @@ print(json.dumps({
         slot: Some(0),
         usage_capture_path: outcome.usage_capture_path.as_deref(),
         log_path: Some(&log_path),
+        price_book: &builtin_price_book(),
         sink: &sink_trait,
     })
     .expect("record accounting")

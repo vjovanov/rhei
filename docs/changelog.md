@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Measured agent runs can use a caller-supplied reproducible price book.**
+  `rhei run ... --prices <PATH>` validates a local
+  `rhei.accounting.prices.v1` book before starting agents, copies it into each
+  participating accounting root, and uses its exact provider/model matches,
+  currency, rates, and id for sequential and parallel invocation records.
+  Omitting the flag retains the built-in book; missing matches remain
+  explicitly unpriced, and `rhei cost` does not reprice old records. No price
+  book is fetched over the network.
+  [§FS-rhei-cost-accounting.5.1](functional-spec/rhei-cost-accounting.spec.md#51-price-book-selection)
+  (PR #N)
 - **Subprocess tests no longer trust an existing `target` binary as proof that
   it matches the checkout.** The shared E2E and integration helper now asks
   Cargo to verify or rebuild `rhei-cli` once per test-harness process before
