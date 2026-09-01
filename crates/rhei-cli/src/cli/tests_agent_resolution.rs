@@ -561,9 +561,9 @@
     }
 
     #[test]
-    fn output_reader_decodes_claude_result_for_log_and_live_output() {
-        // §FS-rhei-cost-accounting.4: the JSON envelope is internal; its result
-        // text remains the agent-visible output.
+    fn output_reader_decodes_multiline_claude_result_into_live_logical_lines() {
+        // §FS-rhei-cost-accounting.4 §FS-rhei-run-tui.1.2: the JSON envelope is
+        // internal; its result text remains measured, durable, line-oriented output.
         let dir = tempfile::tempdir().expect("tmpdir");
         let log_path = dir.path().join("agent.log");
         let capture_path = dir.path().join("usage.jsonl");
@@ -582,7 +582,7 @@
             model: Some("claude-sonnet-4-6".to_string()),
             slot: 3,
         };
-        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"plain Claude response","usage":{"input_tokens":12,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":7}}"#;
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"first\n\nsecond","usage":{"input_tokens":12,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":7}}"#;
 
         let handle = spawn_agent_output_reader(
             std::io::Cursor::new(format!("{result}\n").into_bytes()),
@@ -596,16 +596,25 @@
         drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout).expect("reader drains");
 
         let log = fs::read_to_string(&log_path).expect("read log");
-        assert_eq!(log, "plain Claude response\n");
+        assert_eq!(log, "first\n\nsecond\n");
         assert!(!log.contains("\"type\":\"result\""), "raw envelope leaked: {log}");
         let events = recorder.events.lock().expect("events");
+        let output = events
+            .iter()
+            .filter_map(|event| match event {
+                rhei_tui::RunEvent::AgentOutput {
+                    stream: rhei_tui::AgentStream::Stdout,
+                    line,
+                    ..
+                } => Some(line.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(output, ["first", "", "second"]);
         assert!(events.iter().any(|event| matches!(
             event,
-            rhei_tui::RunEvent::AgentOutput {
-                stream: rhei_tui::AgentStream::Stdout,
-                line,
-                ..
-            } if line == "plain Claude response"
+            rhei_tui::RunEvent::UsageReported { usage, .. }
+                if usage.input_total.value == Some(12) && usage.output_total.value == Some(7)
         )));
     }
 

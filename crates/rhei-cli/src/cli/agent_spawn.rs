@@ -85,13 +85,13 @@ where
 
             let raw_line = output_line(&buf);
             let display_line = display_agent_output_line(usage_capture.as_ref(), stream, &raw_line);
+            let is_claude_result = stream == rhei_tui::AgentStream::Stdout
+                && usage_capture
+                    .as_ref()
+                    .is_some_and(|capture| capture.extractor == AgentUsageExtractor::Claude)
+                && matches!(parse_claude_result_line(&raw_line), ClaudeResultLine::Result(_));
             with_agent_log(&log_file, |f| {
-                if stream == rhei_tui::AgentStream::Stdout
-                    && usage_capture
-                        .as_ref()
-                        .is_some_and(|capture| capture.extractor == AgentUsageExtractor::Claude)
-                    && matches!(parse_claude_result_line(&raw_line), ClaudeResultLine::Result(_))
-                {
+                if is_claude_result {
                     if let Some(line) = display_line.as_deref() {
                         f.write_all(line.as_bytes())?;
                         if buf.ends_with(b"\n") && !line.ends_with('\n') {
@@ -106,13 +106,15 @@ where
 
             capture_agent_output_usage(usage_capture.as_ref(), stream, &raw_line, &sink);
             if let Some(line) = display_line {
-                sink.emit(rhei_tui::RunEvent::AgentOutput {
-                    slot,
-                    task: task_id.clone(),
-                    stream,
-                    line,
-                    wall_clock: std::time::SystemTime::now(),
-                });
+                for line in agent_output_lines(line, is_claude_result) {
+                    sink.emit(rhei_tui::RunEvent::AgentOutput {
+                        slot,
+                        task: task_id.clone(),
+                        stream,
+                        line,
+                        wall_clock: std::time::SystemTime::now(),
+                    });
+                }
             }
         }
         Ok(())

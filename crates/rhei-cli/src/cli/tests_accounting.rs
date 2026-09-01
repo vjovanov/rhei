@@ -371,6 +371,13 @@ print(json.dumps({
     )
     .expect("fake Claude agent runs");
     assert!(outcome.status.success());
+    let log = std::fs::read_to_string(&log_path).expect("read Claude log");
+    assert!(log.contains("\nplain Claude response\n"));
+    assert!(!log.contains("\"type\": \"result\""), "raw envelope leaked: {log}");
+    assert!(sink.events.lock().expect("events").iter().any(|event| matches!(
+        event,
+        rhei_tui::RunEvent::AgentOutput { line, .. } if line == "plain Claude response"
+    )));
 
     let usage = record_agent_accounting_invocation(AgentAccountingInvocation {
         workspace_root: dir.path(),
