@@ -202,7 +202,7 @@ source-order task ids.
 
 `SlotAssigned.agent` identifies the resolved agent or target label when the invocation is agent-backed; it is `None` for program-backed work. `SlotReleased.exit_code` is the subprocess exit status when one is available, and `duration_ms` is the invocation duration in milliseconds.
 
-`AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript.
+`AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript; built-in structured result envelopes are decoded to their human-readable result text on both surfaces. [§FS-rhei-cost-accounting.4](rhei-cost-accounting.spec.md#4-extraction-flow)
 
 `UsageReported` is emitted after a `runtime/accounting/invocations/` record is
 durably written. It may arrive after `SlotReleased`; renderers update the
@@ -229,7 +229,7 @@ active. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-ac
 
 Agent-specific behavior belongs only to command construction and prompt delivery. Traffic interception is transport-agnostic once the child process has been spawned.
 
-The TUI keeps a bounded recent traffic buffer per active slot and may drop display events if the render channel is full. Dropped display events do not affect `runtime/logs/*`: the log writer remains the durable sink and receives every captured line unless the filesystem write itself fails. Long or control-sequence-heavy lines may be sanitized and truncated for rendering, but the log preserves the raw bytes captured from the subprocess stream.
+The TUI keeps a bounded recent traffic buffer per active slot and may drop display events if the render channel is full. Dropped display events do not affect `runtime/logs/*`: the log writer remains the durable sink and receives every captured line unless the filesystem write itself fails. Long or control-sequence-heavy lines may be sanitized and truncated for rendering. The log preserves every captured line, decoding a built-in structured result envelope to its human-readable result text before writing it.
 
 ### 1.3. Sink Implementations
 

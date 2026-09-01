@@ -223,6 +223,52 @@
     }
 
     #[test]
+    fn ordinary_builtin_claude_requests_typed_json_without_intervention_flags() {
+        // §FS-rhei-cost-accounting.4: ordinary Claude launches must emit typed usage JSON.
+        let profile = built_in_agents().remove("claude-code").expect("claude-code");
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("claude-code"),
+            profile,
+            mode: Some("yolo".to_string()),
+            target: None,
+            model: Some("impl-fast".to_string()),
+            model_provider: Some("anthropic".to_string()),
+            model_name: Some("claude-sonnet-4-6".to_string()),
+            timeout_secs: Some(60),
+            autonomous_args: Vec::new(),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+        let runtime_dir = tempfile::tempdir().expect("tmpdir");
+        let command = build_agent_command(
+            &resolved,
+            "do work",
+            Path::new("/tmp/workspace"),
+            Path::new("/tmp/workspace"),
+            None,
+            Path::new("/tmp/workspace"),
+            None,
+            "task-1",
+            "pending",
+            1,
+            1,
+            &tooling,
+            runtime_dir.path(),
+            None,
+        );
+        let args: Vec<String> =
+            command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+
+        assert_eq!(
+            args.windows(2).filter(|pair| *pair == ["--output-format", "json"]).count(),
+            1,
+            "ordinary Claude command must request JSON exactly once: {args:?}"
+        );
+        assert!(args.windows(2).any(|pair| pair == ["-p", "do work"]), "prompt flag: {args:?}");
+        assert!(!args.iter().any(|arg| arg == "--input-format"), "stream input leaked: {args:?}");
+        assert!(!args.iter().any(|arg| arg == "--verbose"), "stream verbose leaked: {args:?}");
+    }
+
+    #[test]
     fn claude_code_intervention_uses_stream_json_stdin_command() {
         let mut profile = built_in_agents().remove("claude-code").expect("claude-code");
         profile.intervene_stdin = true;
@@ -512,6 +558,55 @@
             rhei_tui::RunEvent::AgentOutput { line, .. } => assert_eq!(line, "partial"),
             other => panic!("expected AgentOutput, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn output_reader_decodes_claude_result_for_log_and_live_output() {
+        // §FS-rhei-cost-accounting.4: the JSON envelope is internal; its result
+        // text remains the agent-visible output.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let log_path = dir.path().join("agent.log");
+        let capture_path = dir.path().join("usage.jsonl");
+        let log_file = Arc::new(Mutex::new(fs::File::create(&log_path).expect("log file")));
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
+        let capture = AgentUsageCapture {
+            extractor: AgentUsageExtractor::Claude,
+            replace_usage_capture: false,
+            path: capture_path,
+            invocation_id: "task-live::pending::claude-code::visit-1".to_string(),
+            task_id: "task-live".to_string(),
+            state: "pending".to_string(),
+            agent: "claude-code".to_string(),
+            provider: Some("anthropic".to_string()),
+            model: Some("claude-sonnet-4-6".to_string()),
+            slot: 3,
+        };
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"plain Claude response","usage":{"input_tokens":12,"output_tokens":7}}"#;
+
+        let handle = spawn_agent_output_reader(
+            std::io::Cursor::new(format!("{result}\n").into_bytes()),
+            rhei_tui::AgentStream::Stdout,
+            log_file,
+            sink,
+            3,
+            "task-live".to_string(),
+            Some(capture),
+        );
+        drain_agent_output_reader(handle, rhei_tui::AgentStream::Stdout).expect("reader drains");
+
+        let log = fs::read_to_string(&log_path).expect("read log");
+        assert_eq!(log, "plain Claude response\n");
+        assert!(!log.contains("\"type\":\"result\""), "raw envelope leaked: {log}");
+        let events = recorder.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::AgentOutput {
+                stream: rhei_tui::AgentStream::Stdout,
+                line,
+                ..
+            } if line == "plain Claude response"
+        )));
     }
 
     #[test]

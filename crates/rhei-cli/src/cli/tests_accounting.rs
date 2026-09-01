@@ -164,3 +164,221 @@ fn accounting_extractor_accepts_structured_usage_event() {
         _ => panic!("structured usage event should be measured"),
     }
 }
+
+#[test]
+fn claude_result_json_extracts_typed_usage_dimensions() {
+    // §FS-rhei-cost-accounting.4: Claude result usage is normalized without
+    // treating unrelated JSON fields as billing telemetry.
+    let line = r#"{"type":"result","subtype":"success","is_error":false,"result":"useful response","usage":{"input_tokens":123,"cache_read_input_tokens":456,"cache_creation_input_tokens":78,"output_tokens":90}}"#;
+
+    let usage = match extract_usage_from_output_line(AgentUsageExtractor::Claude, line) {
+        OutputUsage::Measured(usage) => usage,
+        OutputUsage::Ignored => panic!("Claude result usage should be measured"),
+        OutputUsage::Failed => panic!("valid Claude result should not fail extraction"),
+    };
+    assert_eq!(usage.input_total, Some(123));
+    assert_eq!(usage.input_cached_read, Some(456));
+    assert_eq!(usage.input_cache_write, Some(78));
+    assert_eq!(usage.output_total, Some(90));
+    let tokens = tokens_from_usage(usage);
+    assert_eq!(tokens.total.value, Some(213));
+    assert_eq!(tokens.input.total.value, Some(123));
+    assert_eq!(tokens.input.cached_read.value, Some(456));
+    assert_eq!(tokens.input.cache_write.value, Some(78));
+    assert_eq!(tokens.output.total.value, Some(90));
+    assert!(matches!(
+        display_output_line(AgentUsageExtractor::Claude, line),
+        AgentOutputLine::Replace(text) if text == "useful response"
+    ));
+}
+
+#[test]
+fn claude_result_json_accepts_typed_model_usage_fallback() {
+    let line = r#"{"type":"result","subtype":"success","result":"response","modelUsage":{"claude-sonnet-4-6":{"inputTokens":100,"cacheReadInputTokens":20,"cacheCreationInputTokens":30,"outputTokens":40}}}"#;
+
+    let usage = match extract_usage_from_output_line(AgentUsageExtractor::Claude, line) {
+        OutputUsage::Measured(usage) => usage,
+        OutputUsage::Ignored => panic!("Claude model usage should be measured"),
+        OutputUsage::Failed => panic!("valid Claude model usage should not fail extraction"),
+    };
+    assert_eq!(usage.input_total, Some(100));
+    assert_eq!(usage.input_cached_read, Some(20));
+    assert_eq!(usage.input_cache_write, Some(30));
+    assert_eq!(usage.output_total, Some(40));
+}
+
+#[test]
+fn claude_result_json_rejects_unrelated_and_malformed_usage() {
+    let unrelated = r#"{"metrics":{"input_tokens":123,"output_tokens":456}}"#;
+    assert!(matches!(
+        extract_usage_from_output_line(AgentUsageExtractor::Claude, unrelated),
+        OutputUsage::Ignored
+    ));
+
+    let malformed = r#"{"type":"result","result":"response","usage":{"input_tokens":"not-a-number"}}"#;
+    assert!(matches!(
+        extract_usage_from_output_line(AgentUsageExtractor::Claude, malformed),
+        OutputUsage::Failed
+    ));
+    assert!(matches!(
+        extract_usage_from_output_line(AgentUsageExtractor::Claude, "not json"),
+        OutputUsage::Failed
+    ));
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let log_path = dir.path().join("agent.log");
+    std::fs::write(&log_path, "tokens used\n999\n").expect("write log");
+    assert!(matches!(
+        extract_usage(Some(&dir.path().join("missing.jsonl")), Some(&log_path), "claude-code"),
+        ExtractedUsageStatus::NoUsageEmitted
+    ));
+
+    let capture_path = dir.path().join("failed.jsonl");
+    append_extractor_failure_event(&capture_path).expect("write failure marker");
+    assert!(matches!(
+        extract_usage_from_capture(Some(&capture_path)),
+        ExtractedUsageStatus::ExtractorFailed
+    ));
+}
+
+#[test]
+fn claude_result_stream_usage_keeps_latest_cumulative_capture() {
+    // Claude's stream result events are cumulative across intervention turns.
+    // §FS-rhei-cost-accounting.4
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("usage.jsonl");
+    let capture = AgentUsageCapture {
+        extractor: AgentUsageExtractor::Claude,
+        replace_usage_capture: true,
+        path: path.clone(),
+        invocation_id: "1::work::claude-code::visit-1".to_string(),
+        task_id: "1".to_string(),
+        state: "work".to_string(),
+        agent: "claude-code".to_string(),
+        provider: Some("anthropic".to_string()),
+        model: Some("claude-sonnet-4-6".to_string()),
+        slot: 0,
+    };
+    let sink: Arc<dyn rhei_tui::EventSink> = Arc::new(RecordingSink::default());
+
+    capture_agent_output_usage(
+        Some(&capture),
+        rhei_tui::AgentStream::Stdout,
+        r#"{"type":"result","subtype":"success","result":"first","usage":{"input_tokens":10,"output_tokens":5}}"#,
+        &sink,
+    );
+    capture_agent_output_usage(
+        Some(&capture),
+        rhei_tui::AgentStream::Stdout,
+        r#"{"type":"result","subtype":"success","result":"second","usage":{"input_tokens":20,"output_tokens":8}}"#,
+        &sink,
+    );
+
+    match extract_usage_from_capture(Some(&path)) {
+        ExtractedUsageStatus::Measured(usage) => {
+            assert_eq!(usage.input_total, Some(20));
+            assert_eq!(usage.output_total, Some(8));
+        }
+        _ => panic!("latest Claude stream result should be measured"),
+    }
+}
+
+#[test]
+fn fake_claude_json_spawn_records_measured_rollup_and_cost() {
+    // §FS-rhei-cost-accounting.4 §FS-rhei-cost-accounting.6: exercise the
+    // subprocess output, invocation record, and derived run summary together.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let command = python_fixture_command(
+        dir.path(),
+        "claude-result-agent",
+        r#"import json
+
+print(json.dumps({
+    'type': 'result',
+    'subtype': 'success',
+    'is_error': False,
+    'result': 'plain Claude response',
+    'usage': {
+        'input_tokens': 123000,
+        'cache_read_input_tokens': 456000,
+        'cache_creation_input_tokens': 78000,
+        'output_tokens': 90000,
+    },
+}), flush=True)
+"#,
+    );
+    let mut profile = built_in_agents().remove("claude-code").expect("claude-code");
+    profile.command = command;
+    let resolved = ResolvedAgent {
+        agent: AgentConfig::from("claude-code"),
+        profile,
+        mode: None,
+        target: None,
+        model: Some("impl-fast".to_string()),
+        model_provider: Some("anthropic".to_string()),
+        model_name: Some("claude-sonnet-4-6".to_string()),
+        timeout_secs: Some(10),
+        autonomous_args: Vec::new(),
+    };
+    let plan = rhei_core::parse(
+        "# Rhei: Claude Accounting\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n",
+    )
+    .expect("parse plan");
+    let log_path = dir.path().join("agent.log");
+    let sink = Arc::new(RecordingSink::default());
+    let sink_trait: Arc<dyn rhei_tui::EventSink> = sink.clone();
+    let tooling = ResolvedTooling::default();
+    let outcome = spawn_and_wait_agent(
+        &resolved,
+        "prompt",
+        dir.path(),
+        dir.path(),
+        None,
+        &dir.path().join("plan.rhei.md"),
+        None,
+        "1",
+        "pending",
+        1,
+        &tooling,
+        &log_path,
+        dir.path(),
+        None,
+        0,
+        sink.clone(),
+        None,
+        &spawn_plan_for_test(&log_path),
+        None,
+    )
+    .expect("fake Claude agent runs");
+    assert!(outcome.status.success());
+
+    let usage = record_agent_accounting_invocation(AgentAccountingInvocation {
+        workspace_root: dir.path(),
+        task: &plan.tasks[0],
+        state: "pending",
+        resolved: &resolved,
+        visit: 1,
+        started_at: std::time::SystemTime::now(),
+        ended_at: std::time::SystemTime::now(),
+        slot: Some(0),
+        usage_capture_path: outcome.usage_capture_path.as_deref(),
+        log_path: Some(&log_path),
+        sink: &sink_trait,
+    })
+    .expect("record accounting")
+    .expect("Claude usage is present");
+    assert_eq!(usage.status, rhei_tui::UsageStatus::Measured);
+    assert_eq!(usage.input_total.value, Some(123000));
+    assert_eq!(usage.input_cached_read.value, Some(456000));
+    assert_eq!(usage.input_cache_write.value, Some(78000));
+    assert_eq!(usage.output_total.value, Some(90000));
+    assert_eq!(usage.cost_micro, Some(2_148_300));
+
+    let summary = regenerate_accounting_indexes(dir.path(), &plan)
+        .expect("regenerate rollups")
+        .expect("run summary");
+    assert_eq!(summary.invocation_count, 1);
+    assert_eq!(summary.measured_invocation_count, 1);
+    assert_eq!(summary.missing_invocation_count, 0);
+    assert_eq!(summary.cost_micro, Some(2_148_300));
+}
