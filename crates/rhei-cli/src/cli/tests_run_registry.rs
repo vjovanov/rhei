@@ -23,6 +23,35 @@ mod run_registry_tests {
         assert_eq!(ids(&sweep_run_registry().live), vec!["new222", "old111"]);
     }
 
+    /// A lock belongs to its opened inode, not the pathname used to open it.
+    /// Replacing that pathname must not make a demonstrably live recorded run
+    /// disappear from the registry sweep that feeds both `rhei runs` formats.
+    // §FS-rhei-run-headless.3
+    #[cfg(unix)]
+    #[test]
+    fn a_live_run_stays_listed_when_its_held_lock_inode_is_replaced() {
+        use std::os::unix::fs::MetadataExt;
+
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let running = descriptor("inode1", &workspace.path, "2026-09-01T14:14:12Z");
+        publish_run_descriptor(&running);
+
+        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let lock_path = workspace.path.join(".rhei/run.lock");
+        let held_path = workspace.path.join(".rhei/run.lock.held-by-test");
+        fs::rename(&lock_path, &held_path).expect("rename the held lock inode");
+        let held_inode = fs::metadata(&held_path).expect("held lock metadata").ino();
+        fs::write(&lock_path, []).expect("install an unlocked replacement");
+        let replacement_inode = fs::metadata(&lock_path).expect("replacement metadata").ino();
+        assert_ne!(held_inode, replacement_inode, "the pathname must name a new inode");
+
+        let sweep = sweep_run_registry();
+        assert_eq!(ids(&sweep.live), vec!["inode1"]);
+        assert!(sweep.ended.is_empty());
+        assert!(sweep.undecided.is_empty());
+    }
+
     /// The entry is what makes the id resolvable after the fact. Deleting it
     /// broke `rhei attach <id>` at exactly the moment the answer existed.
     // §FS-rhei-run-headless.2 §FS-rhei-run-headless.5.3
@@ -293,7 +322,10 @@ mod run_registry_tests {
         let entry = run_registry_path("gone09").expect("registry path");
         assert!(entry.is_file(), "the entry must exist for the test to mean anything");
 
-        assert!(read_run_registry().live.is_empty(), "nothing holds the lock");
+        assert!(
+            !ids(&read_run_registry().live).contains(&"gone09"),
+            "the superseded entry is not live"
+        );
         assert!(entry.is_file(), "a read must not delete what a listing would");
 
         sweep_run_registry();

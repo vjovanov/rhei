@@ -202,12 +202,21 @@ one. It lists **at most ten** and then says how many more there are: with a
 hundred retained entries, a full listing is not an answer to "which one did you
 mean?".
 
-**The run lock is the liveness oracle.** A registry entry whose workspace
-`.rhei/run.lock` can be acquired belongs to a run that is gone, whatever its
-`status` says: `flock` is released by the kernel on process death, so it cannot
-lie the way a recorded pid can after pid reuse. Probing it is a **read**: it
-creates neither the lock file nor the `.rhei` directory, because a listing must
-not write into every workspace it inspects.
+**The run lock is the primary liveness oracle, and the recorded process closes
+its pathname gap.** A refused `.rhei/run.lock` proves that a run holds the
+current lock file. An acquirable or missing pathname does not by itself prove
+that the recorded run ended: a lock belongs to the opened inode, and renaming
+or unlinking that inode can leave the live run holding it while the original
+pathname is absent or names an unlocked replacement. On systems where the
+recorded pid can be inspected without signalling it, a confirmed-live pid
+therefore keeps matching, non-terminal registry and workspace descriptors
+live; a confirmed-absent pid together with an acquirable lock is ended. A
+process query that cannot decide makes that otherwise-free case unknown. The
+process fallback never overrides a terminal status or a workspace descriptor
+that names another run, which keeps stale and superseded records from being
+resurrected. Probing is a **read**: it creates neither the lock file nor the
+`.rhei` directory, because a listing must not write into every workspace it
+inspects.
 
 **A refused lock is a held lock, on every platform.** The refusal is spelled
 with a different error per operating system — `EWOULDBLOCK` where the lock is a
@@ -229,11 +238,13 @@ and the next probe answers *ended*.
 **A probe has three answers, not two: live, ended, and *unknown*.** An entry
 this process could not read, a workspace descriptor it could not open, a lock it
 could not probe — none of those say anything about the run. A missing lock file
-is unknown rather than free, because `flock` survives unlinking. Only a
+is not a free lock, because `flock` survives unlinking; only a confirmed-live
+recorded process can turn that otherwise-unknown case into live. Only a
 *decided* end lets anything be pruned, and only the two conditions of §2 prune at
 all; an unknown entry is kept and reported (§6). Treating unknown as death let a
-momentary `chmod 000`, a full disk, or an exhausted descriptor table
-permanently unregister a run that was working the whole time.
+momentary `chmod 000`, a full disk, an exhausted descriptor table, or an
+inconclusive process query permanently unregister a run that was working the
+whole time.
 
 **Every consumer answers the third case, and none of them answers it "ended".**
 Resolution keeps it (above); `rhei runs` lists it separately (§6); `rhei stop`

@@ -66,6 +66,20 @@ mod run_descriptor_tests {
         }
     }
 
+    #[cfg(unix)]
+    fn exited_process_pid() -> u32 {
+        let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+            .arg("--help")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn short-lived process");
+        let pid = child.id();
+        assert!(child.wait().expect("wait for short-lived process").success());
+        pid
+    }
+
     /// A run that has recorded its own end, published into `workspace`.
     pub(super) fn publish_ended(id: &str, workspace: &Path, started_at: &str) {
         let mut ended = descriptor(id, workspace, started_at);
@@ -174,13 +188,18 @@ mod run_descriptor_tests {
         assert_eq!(kept.exit_code, None);
     }
 
-    /// A `SIGKILL`ed run leaves its descriptor saying `running`. The lock, not
-    /// that field, is what says it is gone. §FS-rhei-run-headless.3
+    /// A `SIGKILL`ed run leaves its descriptor saying `running`. A free lock
+    /// and a confirmed-absent recorded process still say it is gone.
+    // §FS-rhei-run-headless.3
     #[test]
-    fn liveness_follows_the_run_lock_not_the_recorded_status() {
+    fn a_dead_recorded_process_with_a_free_lock_has_ended() {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
-        let running = descriptor("dead01", &workspace.path, "2026-08-22T14:03:22Z");
+        let mut running = descriptor("dead01", &workspace.path, "2026-08-22T14:03:22Z");
+        #[cfg(unix)]
+        {
+            running.pid = exited_process_pid();
+        }
         publish_run_descriptor(&running);
         // The lock file has to exist before its absence stops being ambiguous.
         drop(try_acquire_run_lock(&workspace.path).expect("lock"));
@@ -192,6 +211,21 @@ mod run_descriptor_tests {
 
         let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
         assert_eq!(running.liveness(), Liveness::Live, "a held run lock is what makes a run live");
+    }
+
+    /// A free replacement pathname does not decide liveness when the recorded
+    /// process cannot be checked. §FS-rhei-run-headless.3
+    #[cfg(unix)]
+    #[test]
+    fn an_inconclusive_process_probe_with_a_free_lock_is_unknown() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let mut running = descriptor("badpid", &workspace.path, "2026-08-22T14:03:22Z");
+        running.pid = 0;
+        publish_run_descriptor(&running);
+        drop(try_acquire_run_lock(&workspace.path).expect("lock"));
+
+        assert!(matches!(running.liveness(), Liveness::Unknown(_)));
     }
 
     #[test]
@@ -249,7 +283,8 @@ mod run_descriptor_tests {
         use std::os::unix::fs::PermissionsExt;
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
-        let run = descriptor("locked1", &workspace.path, "2026-08-22T10:00:00Z");
+        let mut run = descriptor("locked1", &workspace.path, "2026-08-22T10:00:00Z");
+        run.pid = exited_process_pid();
         publish_run_descriptor(&run);
         drop(try_acquire_run_lock(&workspace.path).expect("lock"));
 
@@ -265,15 +300,16 @@ mod run_descriptor_tests {
         assert_eq!(run.liveness(), Liveness::Ended, "and it is readable again afterwards");
     }
 
-    /// `flock` survives unlinking, so a missing lock file does not prove the
-    /// holder is gone. §FS-rhei-run-headless.3
+    /// `flock` survives unlinking, so a matching live recorded process closes
+    /// the gap left by a missing lock pathname. §FS-rhei-run-headless.3
+    #[cfg(unix)]
     #[test]
-    fn a_missing_lock_file_is_unknown_rather_than_dead() {
+    fn a_missing_lock_file_with_a_live_recorded_process_is_live() {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
         let run = descriptor("nolock", &workspace.path, "2026-08-22T10:00:00Z");
         publish_run_descriptor(&run);
-        assert!(matches!(run.liveness(), Liveness::Unknown(_)));
+        assert_eq!(run.liveness(), Liveness::Live);
     }
 
     /// A listing is a read. `open_run_lock_file` creates the directory and the

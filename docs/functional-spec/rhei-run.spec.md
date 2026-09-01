@@ -114,9 +114,12 @@ not queue: it fails immediately with the diagnostic above, because its launcher
 is holding a startup handshake open and would otherwise report a timeout for
 what is really a lock refusal ([§FS-rhei-run-headless.1.1](rhei-run-headless.spec.md#11-startup-is-synchronous)).
 
-The lock is also what answers *"is this run still alive?"* for a run nobody is
-watching: `flock` is released by the kernel on process death, so a workspace
-whose lock can be taken has no live run, whatever a stale descriptor claims
+The lock is also the primary answer to *"is this run still alive?"* for a run
+nobody is watching. Because the lock belongs to an opened inode rather than its
+pathname, a matching non-terminal descriptor whose recorded process is
+confirmed alive stays live when the held inode is renamed or unlinked and the
+original pathname is missing or can be locked. Terminal and superseded
+descriptors still take precedence
 ([§FS-rhei-run-headless.3](rhei-run-headless.spec.md#3-run-identity-and-liveness)).
 
 ### 2.7. Run Identity
