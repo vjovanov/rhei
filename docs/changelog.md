@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`rhei run`'s completion condition resolves declared `outputs:` against the
+  owning rhei's execution root, not the run-level workspace root.** In a Panta
+  project whose member rhei sits below the directory `rhei run` was pointed
+  at, the two roots differ. The agent's `RHEI_ROOT` and the transition-time
+  check already used the owning rhei's root, so an agent that wrote its
+  declared output exactly where it was told still stalled: the completion
+  condition — both the post-exit check and the before-spawn skip check — kept
+  looking under the wrong root, warned `required outputs are missing` for a
+  file that existed, and spent the ticket's attempt budget re-spawning an
+  agent whose work was already done. `rhei run` on a laid Panta workflow now
+  transitions a state as soon as its declared outputs land, with no workaround
+  needed. Single-rhei plans are unaffected: there the two roots already
+  coincided. (PR #N)
 - **Spec documents are measured under a size budget instead of being exempt
   from measurement.** `.agents/fissile.toml` kept `**/*.spec.md` in
   `[scan].exclude`, and §AR-source-file-size.1 put `.spec.md` outside the

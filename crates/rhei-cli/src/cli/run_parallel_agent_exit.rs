@@ -45,6 +45,9 @@ fn handle_parallel_agent_exit(
     *progress.agents_spawned += 1;
     let target_id = parse_task_id(&task_id_str);
     let reloaded = load_plan(input)?;
+    // §FS-rhei-agents.3.2 condition (2): declared `outputs:` and the terminal
+    // result resolve against the owning rhei's root, not the run-level one.
+    let task_root = reloaded.task_root(&task_id_str, workspace_root);
     if accounting_recorded {
         if let Err(err) =
             regenerate_accounting_indexes(workspace_root, &reloaded.rhei)
@@ -76,7 +79,7 @@ fn handle_parallel_agent_exit(
         );
         let outputs_ok = status.success()
             && state_outputs_exist_for_resolved_invocation(
-                workspace_root,
+                &task_root,
                 task_for_snapshot,
                 &state_name,
                 &state_name,
@@ -86,7 +89,7 @@ fn handle_parallel_agent_exit(
                 &resolved,
             )
             && missing_terminal_result_output(
-                &reloaded.task_root(&task_id_str, workspace_root),
+                &task_root,
                 machine,
                 task_for_snapshot,
                 selected_to.as_deref(),
@@ -107,8 +110,7 @@ fn handle_parallel_agent_exit(
         if status.success() && !outputs_ok {
             missing_required_outputs =
                 collect_missing_required_outputs_for_resolved_invocation(
-                    workspace_root,
-                    &reloaded.task_root(&task_id_str, workspace_root),
+                    &task_root,
                     machine,
                     reloaded.rhei.metadata.as_ref(),
                     task_for_snapshot,
@@ -250,9 +252,7 @@ fn handle_parallel_agent_exit(
                         machine.states.get(state_name.as_str()).map(
                             |state_def| {
                                 task_has_pending_agent_invocations(
-                                    workspace_root,
-                                    &reloaded
-                                        .task_root(&task_id_str, workspace_root),
+                                    &task_root,
                                     task,
                                     &state_name,
                                     task.state.as_str(),
@@ -370,7 +370,7 @@ fn handle_parallel_agent_exit(
                         }
                         emit_exit_zero_warnings(
                             workspace_root,
-                            &reloaded.task_root(&task_id_str, workspace_root),
+                            &task_root,
                             machine,
                             reloaded.rhei.metadata.as_ref(),
                             task,

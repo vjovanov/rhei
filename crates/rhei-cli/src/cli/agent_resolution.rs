@@ -429,9 +429,11 @@ fn ensure_orchestrator_timeout(resolved: &ResolvedAgent, state_name: &str) -> Mi
     ))
 }
 
+// §FS-rhei-agents.3.2 condition (2): declared `outputs:` resolve against the
+// owning rhei's execution root, not the run-level workspace root.
 #[allow(clippy::too_many_arguments)]
 fn state_outputs_exist_for_resolved_invocation(
-    workspace_root: &Path,
+    artifact_root: &Path,
     task: &rhei_core::ast::Task,
     state_name: &str,
     current_state_raw: &str,
@@ -441,7 +443,7 @@ fn state_outputs_exist_for_resolved_invocation(
     resolved: &ResolvedAgent,
 ) -> bool {
     ensure_state_outputs_exist(
-        workspace_root,
+        artifact_root,
         &task.id.to_string(),
         state_name,
         state_def,

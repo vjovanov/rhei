@@ -484,7 +484,7 @@ fn run_callback_mode(
 #[allow(clippy::too_many_arguments)]
 fn emit_exit_zero_warnings(
     workspace_root: &Path,
-    result_root: &Path,
+    artifact_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
@@ -498,7 +498,7 @@ fn emit_exit_zero_warnings(
 ) {
     let missing = collect_missing_required_outputs(
         workspace_root,
-        result_root,
+        artifact_root,
         machine,
         metadata,
         task,
@@ -645,11 +645,16 @@ fn missing_terminal_result_output(
 /// `final: true` state the ticket's terminal result joins the list — once per
 /// fan-out identity, because that is how many result fragments the state was
 /// asked for.
+///
+/// `workspace_root` is only for re-resolving invocation settings; declared
+/// `outputs:` and the terminal result resolve against `artifact_root`, the
+/// owning rhei's execution root — the two must stay distinct rather than
+/// merged into one same-typed root. §FS-rhei-agents.3.2 condition (2)
 // §FS-rhei-agents.3.2.1 §FS-rhei-states.3.3: the warning names resolved paths.
 #[allow(clippy::too_many_arguments)]
 fn collect_missing_required_outputs(
     workspace_root: &Path,
-    result_root: &Path,
+    artifact_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
@@ -658,7 +663,7 @@ fn collect_missing_required_outputs(
 ) -> Vec<String> {
     let Some(state_def) = machine.states.get(state_name) else {
         return missing_terminal_result_output(
-            result_root,
+            artifact_root,
             machine,
             task,
             selected_to,
@@ -674,7 +679,7 @@ fn collect_missing_required_outputs(
         && (!state_def.all_targets.is_empty() || !state_def.all_models.is_empty());
     if state_def.outputs.is_empty() && !fans_out {
         return missing_terminal_result_output(
-            result_root,
+            artifact_root,
             machine,
             task,
             selected_to,
@@ -716,7 +721,7 @@ fn collect_missing_required_outputs(
     for (target, model, model_provider, model_name, agent, agent_mode) in contexts {
         for artifact in &state_def.outputs {
             let (relative, path) = resolve_artifact_path(
-                workspace_root,
+                artifact_root,
                 artifact,
                 &task.id.to_string(),
                 state_name,
@@ -741,7 +746,7 @@ fn collect_missing_required_outputs(
         }
         let identity = fanout_result_identity(Some(state_def), target, model);
         if let Some(entry) = missing_terminal_result_output(
-            result_root,
+            artifact_root,
             machine,
             task,
             selected_to,
@@ -760,10 +765,12 @@ fn collect_missing_required_outputs(
     missing
 }
 
+// The invocation is already resolved, so there is no settings re-load here —
+// unlike `collect_missing_required_outputs`, one root suffices.
+// §FS-rhei-agents.3.2 condition (2)
 #[allow(clippy::too_many_arguments)]
 fn collect_missing_required_outputs_for_resolved_invocation(
-    workspace_root: &Path,
-    result_root: &Path,
+    artifact_root: &Path,
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
@@ -774,7 +781,7 @@ fn collect_missing_required_outputs_for_resolved_invocation(
     let visit = render_visit_count(metadata, &task.id, state_name, task.state.as_str(), machine);
     let visit_count = Some(visit);
     let terminal_result = missing_terminal_result_output(
-        result_root,
+        artifact_root,
         machine,
         task,
         selected_to,
@@ -799,7 +806,7 @@ fn collect_missing_required_outputs_for_resolved_invocation(
     let mut missing = Vec::new();
     for artifact in &state_def.outputs {
         let (relative, path) = resolve_artifact_path(
-            workspace_root,
+            artifact_root,
             artifact,
             &task.id.to_string(),
             state_name,
