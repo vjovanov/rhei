@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Every declaration is listed in its folder's index.** `grund check` warned
+  that ten declarations were absent from their index README and that the warning
+  becomes an error in grund 0.13.0; the entries are added now so the gate stays
+  green across that release rather than failing every commit on the day it lands.
+  (PR #162)
+
 - **Main now carries a `-dev` version, so a build from main can no longer be
   mistaken for the release it is ahead of.** Between releases the checked-in
   version stayed at the last tag, and `rhei --version` on a binary built from
