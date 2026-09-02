@@ -42,6 +42,7 @@ mod terminal_result_stall_tests;
 mod terminal_result_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;
+mod waiting_on_person_tests;
 
 // Shared with the `integration_markdown_plans` harness, which cannot see this
 // module tree and `include!`s the same file.

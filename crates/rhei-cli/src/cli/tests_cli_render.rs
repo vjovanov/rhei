@@ -238,6 +238,83 @@ transitions: []
         assert_eq!(json["states"][0]["all_models"], serde_json::json!(["gpt-5"]));
     }
 
+    /// The machine that reproduces the ticket: one poll waiting on a person,
+    /// one waiting on CI. §FS-rhei-states.2.5
+    fn poll_waiting_on_machine() -> rhei_validator::StateMachine {
+        let yaml = r#"
+name: approvals
+version: 1
+states:
+  plan-approval:
+    description: Wait for the author to answer.
+    program: "./check-reply.sh"
+    poll:
+      interval: 10m
+      max_attempts: 60
+      waiting_on: author
+    initial: true
+  ci-watch:
+    description: Watch CI.
+    program: "./check-ci.sh"
+    poll:
+      interval: 2m
+      max_attempts: 30
+  done:
+    description: finished
+    final: true
+transitions:
+  - from: plan-approval
+    to: plan-approval
+  - from: plan-approval
+    to: ci-watch
+  - from: ci-watch
+    to: ci-watch
+  - from: ci-watch
+    to: done
+"#;
+        rhei_validator::StateMachine::from_yaml_str(yaml).expect("load")
+    }
+
+    /// The `Poll:` line carries the label, and only for the state that
+    /// declares one — a CI watch prints exactly what it printed before.
+    /// §FS-rhei-states-cmd.4
+    #[test]
+    fn render_state_machine_text_names_the_person_a_poll_waits_on() {
+        let rendered = render_state_machine_text(&poll_waiting_on_machine());
+
+        assert!(
+            rendered.contains("Poll: interval=10m, max_attempts=60, waiting_on=author"),
+            "missing person-waiting poll line in:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("Poll: interval=2m, max_attempts=30\n"),
+            "machine-backoff poll line changed in:\n{rendered}"
+        );
+    }
+
+    /// Presence is the meaning, so the field is omitted rather than `null` on a
+    /// poll that waits on a machine. §FS-rhei-states-cmd.5
+    #[test]
+    fn render_state_machine_json_carries_waiting_on_only_where_declared() {
+        let rendered = render_state_machine_json(&poll_waiting_on_machine()).expect("render JSON");
+        let json: serde_json::Value = serde_json::from_str(&rendered).expect("parse JSON");
+        let state = |name: &str| {
+            json["states"]
+                .as_array()
+                .expect("states array")
+                .iter()
+                .find(|s| s["name"] == name)
+                .expect("state present")
+                .clone()
+        };
+
+        assert_eq!(state("plan-approval")["poll"]["waiting_on"], "author");
+        assert_eq!(
+            state("ci-watch")["poll"],
+            serde_json::json!({ "interval": "2m", "max_attempts": 30 })
+        );
+    }
+
     #[test]
     fn parses_run_command_with_separated_flag_groups() {
         let cli = Cli::try_parse_from([

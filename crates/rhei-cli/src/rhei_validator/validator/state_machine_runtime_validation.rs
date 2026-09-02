@@ -36,7 +36,8 @@ impl StateMachine {
     }
 
     /// Validate the per-state `poll:` block: well-formed `interval` and
-    /// `max_attempts`, mutually exclusive with `visits`, forbidden on
+    /// `max_attempts`, a non-blank `waiting_on` when one is declared
+    /// (§FS-rhei-states.2.5), mutually exclusive with `visits`, forbidden on
     /// final/gating states, and at least one self-loop transition is
     /// declared so the retry branch is reachable.
     fn validate_poll_configuration(&self) -> Result<(), StateMachineLoadError> {
@@ -52,6 +53,15 @@ impl StateMachine {
                 return Err(StateMachineLoadError::Invalid(format!(
                     "state '{state_name}' has poll.max_attempts {} (must be >= 1)",
                     poll.max_attempts
+                )));
+            }
+            // A poll that says it waits on someone must say on whom: a blank
+            // label declares the person wait and then names nobody, which is
+            // the one shape every reporting surface has nothing to print for.
+            // §FS-rhei-states.1.3 §FS-rhei-states.2.5
+            if poll.waiting_on.as_ref().is_some_and(|label| label.trim().is_empty()) {
+                return Err(StateMachineLoadError::Invalid(format!(
+                    "state '{state_name}' has an empty poll.waiting_on; name the person or role the poll waits on (e.g. 'author'), or omit the field"
                 )));
             }
             if state.terminal {

@@ -158,3 +158,79 @@ transitions:
         let err = StateMachine::from_yaml_str(&yaml).expect_err("snapshot inherit conflict");
         assert!(err.to_string().contains("snapshot.inherit"));
     }
+
+    /// A poll may declare the person it waits on; the label survives the load
+    /// and reads back trimmed. §FS-rhei-states.2.5
+    #[test]
+    fn accepts_poll_waiting_on_a_person() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait for the author
+    program: "./check.sh"
+    poll:
+      interval: 10m
+      max_attempts: 60
+      waiting_on: "  author  "
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75
+  - from: ci-wait
+    to: done
+    exit_code: 0"#,
+        );
+        let sm = StateMachine::from_yaml_str(&yaml).expect("valid person-waiting poll");
+        let def = sm.states.get("ci-wait").expect("state present");
+        assert_eq!(def.waiting_on_person(), Some("author"));
+    }
+
+    /// Absence is the machine-backoff reading, so an ordinary poll answers
+    /// `None` and every surface keeps treating it as live work.
+    /// §FS-rhei-states.2.5
+    #[test]
+    fn poll_without_waiting_on_waits_on_no_person() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait for CI
+    program: "./check.sh"
+    poll:
+      interval: 5m
+      max_attempts: 12
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75
+  - from: ci-wait
+    to: done
+    exit_code: 0"#,
+        );
+        let sm = StateMachine::from_yaml_str(&yaml).expect("valid poll state");
+        assert_eq!(sm.states.get("ci-wait").and_then(|def| def.waiting_on_person()), None);
+    }
+
+    /// A blank label declares the person wait and then names nobody, which is
+    /// the one shape no surface can print. §FS-rhei-states.1.3
+    #[test]
+    fn rejects_poll_with_blank_waiting_on() {
+        let yaml = poll_machine(
+            r#"  ci-wait:
+    description: Wait
+    program: "./check.sh"
+    poll:
+      interval: 1m
+      max_attempts: 3
+      waiting_on: "   "
+  done: { description: Done, final: true }
+transitions:
+  - from: ci-wait
+    to: ci-wait
+    exit_code: 75"#,
+        );
+        let err = StateMachine::from_yaml_str(&yaml).expect_err("blank waiting_on");
+        assert!(
+            err.to_string().contains("empty poll.waiting_on"),
+            "unexpected error: {err}"
+        );
+    }

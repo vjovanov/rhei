@@ -115,6 +115,22 @@ fn empty_rhei_heading(loaded: &LoadedPlan, id: &str) -> String {
     }
 }
 
+/// The person a ticket is waiting on, when its current state is a poll that
+/// declares one.
+///
+/// `list` is the surface an operator checks first, and a self-resuming poll
+/// that waits for a reply is otherwise indistinguishable there from one
+/// watching a build — the same row, the same state, no reading of whose turn
+/// it is. §FS-rhei-states.2.5 §FS-rhei-list.4.1
+fn task_waiting_on_person<'a>(
+    task: &rhei_core::ast::Task,
+    machines: &'a rhei_validator::MachineSet,
+) -> Option<&'a str> {
+    let machine = machines.for_task(&task.id);
+    let state = normalized_state_name(task.state.as_str(), machine);
+    machine.states.get(&state)?.waiting_on_person()
+}
+
 /// Execute the `list` subcommand: load a plan and print tasks matching the
 /// provided filters. Modeled after `bd list` from beads, with a filter set
 /// adapted to Rhei's data model (no priority/labels/timestamps).
@@ -348,7 +364,7 @@ fn list_command(
         let payload: Vec<serde_json::Value> = matches
             .iter()
             .map(|(task, parent_id)| {
-                serde_json::json!({
+                let mut entry = serde_json::json!({
                     "id": task.id.to_string(),
                     "kind": task.kind,
                     "title": task.title,
@@ -359,7 +375,15 @@ fn list_command(
                     // Depth within the owning rhei: the Panta qualification
                     // segment is routing, not plan structure. §FS-rhei-list.4.2
                     "depth": task.profile_level(),
-                })
+                });
+                // Additive and present only where it means something: the
+                // field's presence is the declaration, so a plan using no
+                // person-waiting poll emits the object it always did.
+                // §FS-rhei-list.4.2
+                if let Some(label) = task_waiting_on_person(task, &machines) {
+                    entry["waiting_on"] = serde_json::Value::String(label.to_string());
+                }
+                entry
             })
             .collect();
         let rendered = serde_json::to_string_pretty(&payload)
@@ -391,6 +415,11 @@ fn list_command(
             task.title,
             task.state
         );
+        // Directly after the state, because it qualifies the state; priors and
+        // the assignee are properties of the ticket. §FS-rhei-list.4.1
+        if let Some(label) = task_waiting_on_person(task, &machines) {
+            line.push_str(&format!(" (waiting on {label})"));
+        }
         if !task.prior.is_empty() {
             let priors: Vec<String> = task.prior.iter().map(TaskId::to_string).collect();
             line.push_str(&format!(" (prior: {})", priors.join(", ")));

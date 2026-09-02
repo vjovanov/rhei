@@ -180,6 +180,24 @@ pub struct PollConfig {
     /// Upper bound on total attempts for this state within one task
     /// lifetime. Must be `>= 1`.
     pub max_attempts: u32,
+    /// When present, declares that this poll waits on a **person** and names
+    /// who in a short free-form label (`author`, `reviewer`). Absent means the
+    /// poll waits on a machine and reads as ordinary backoff.
+    ///
+    /// Presence is the declaration, so the field is omitted rather than
+    /// serialized as `null`: JSON for a machine that does not authorize one is
+    /// byte-for-byte what it was. §FS-rhei-states.2.5
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_on: Option<String>,
+}
+
+impl PollConfig {
+    /// The person this poll waits on, trimmed, or `None` for a machine-backoff
+    /// poll. Every surface reads the label through here so one poll reads the
+    /// same way everywhere. §FS-rhei-states.2.5
+    pub fn waiting_on(&self) -> Option<&str> {
+        self.waiting_on.as_deref().map(str::trim).filter(|label| !label.is_empty())
+    }
 }
 
 /// Per-state snapshot declaration.
@@ -510,6 +528,15 @@ impl StateDef {
     // §FS-rhei-supervision.1.1
     pub fn execute_on(&self) -> Option<ExecuteOn> {
         self.execute_on.as_deref().and_then(ExecuteOn::parse)
+    }
+
+    /// The person this state waits on, when it is a poll that declares one.
+    ///
+    /// The single question every reporting surface asks of a state — is this a
+    /// person's turn, and whose? — so that `states`, `list`, the run report and
+    /// the visual surfaces cannot answer it differently. §FS-rhei-states.2.5
+    pub fn waiting_on_person(&self) -> Option<&str> {
+        self.poll.as_ref().and_then(PollConfig::waiting_on)
     }
 
     /// Whether this state names an executor: an `agent`, a `target`, or a
