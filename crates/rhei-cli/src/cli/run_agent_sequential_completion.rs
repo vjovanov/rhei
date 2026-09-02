@@ -28,6 +28,9 @@ struct SequentialAgentCompletion<'a> {
     /// The supervisor's subtree as this spawn found it, for a supervising
     /// state; `None` for every other. §FS-rhei-supervision.3.6
     subtree_before: Option<SubtreeShape>,
+    /// Where this spawn recorded itself, so a withheld release edge can give
+    /// back the attempt it was charged. §FS-rhei-agents.3.2.3
+    spawn_record: PathBuf,
     result: MietteResult<AgentSpawnOutcome>,
 }
 
@@ -60,6 +63,7 @@ fn handle_sequential_agent_completion(
         visit_count,
         retry_outlook,
         subtree_before,
+        spawn_record,
         result: spawn_result,
     } = completion;
     let task_id_str = &task_id_str;
@@ -315,13 +319,14 @@ fn handle_sequential_agent_completion(
                         };
                     // §FS-rhei-supervision.3.6: a visit that released nothing
                     // must not spend the self-loop that releases the subtree.
-                    let empty_visit = empty_supervising_visit(FinishedVisit {
+                    let empty_visit = withhold_empty_supervising_visit(FinishedVisit {
                         workspace_root,
                         plan: &reloaded,
                         machines: &machines.set,
                         task_id: &target_id,
                         state: state_before,
                         before: subtree_before.as_ref(),
+                        spawn_record: &spawn_record,
                     });
                     let advance = match empty_visit {
                         Some(_) => Ok(None),

@@ -28,6 +28,7 @@ mod supervised_delivery_tests;
 mod supervision_barrier_tests;
 mod supervision_empty_visit_tests;
 mod supervision_next_tests;
+mod supervision_release_rule_tests;
 mod supervision_surfaces_tests;
 mod supervision_tests;
 mod template_example_sync_tests;

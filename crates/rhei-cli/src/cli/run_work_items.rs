@@ -62,6 +62,9 @@ struct ParallelAgentCompletion {
     /// The supervisor's subtree as this spawn found it, for a supervising
     /// state; `None` for every other. §FS-rhei-supervision.3.6
     subtree_before: Option<SubtreeShape>,
+    /// Where this spawn recorded itself, so a withheld release edge can give
+    /// back the attempt it was charged. §FS-rhei-agents.3.2.3
+    spawn_record: PathBuf,
     result: MietteResult<AgentSpawnOutcome>,
     accounting_recorded: bool,
     accounting_warning: Option<String>,
@@ -86,6 +89,9 @@ struct ParallelAgentExit {
     /// The supervisor's subtree as this spawn found it, for a supervising
     /// state; `None` for every other. §FS-rhei-supervision.3.6
     subtree_before: Option<SubtreeShape>,
+    /// Where this spawn recorded itself, so a withheld release edge can give
+    /// back the attempt it was charged. §FS-rhei-agents.3.2.3
+    spawn_record: PathBuf,
     accounting_recorded: bool,
     outcome: AgentSpawnOutcome,
 }

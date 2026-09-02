@@ -944,6 +944,15 @@ shutdown ended it, no transition fired, and the next `rhei run` re-executes it
 yet had one attempt of its own. It still gets its own attempt log and its own
 spawn record — a transcript cut short is worth as much as any other.
 
+A visit whose **release edge the engine withheld** does not spend it either.
+A supervising visit that released nothing exited `0` and met its completion
+condition; [§FS-rhei-supervision.3.6](rhei-supervision.spec.md#36-empty-visits) takes its self-loop away rather than
+the worker failing to earn it, so the attempt charged for it is given back and
+the spawn record says the edge was withheld. The reasoning is the
+interruption's — the engine ended the visit, not the worker — with one thing
+more: a held supervisor bars its whole subtree, so a budget spent there would
+not halt one ticket but leave the workspace recoverable only by `rhei reset`.
+
 A budget below `1` is raised to `1`: every visit gets at least the invocation
 that makes it a visit.
 

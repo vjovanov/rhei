@@ -35,6 +35,7 @@ fn handle_parallel_agent_exit(
         visit_count,
         retry_outlook,
         subtree_before,
+        spawn_record,
         accounting_recorded,
         outcome,
     } = exit;
@@ -297,13 +298,14 @@ fn handle_parallel_agent_exit(
             }
             // §FS-rhei-supervision.3.6: a visit that released nothing must
             // not spend the self-loop that releases the subtree.
-            let empty_visit = empty_supervising_visit(FinishedVisit {
+            let empty_visit = withhold_empty_supervising_visit(FinishedVisit {
                 workspace_root,
                 plan: &reloaded,
                 machines: &machines.set,
                 task_id: &target_id,
                 state: &state_name,
                 before: subtree_before.as_ref(),
+                spawn_record: &spawn_record,
             });
             if let Some(warning) = &empty_visit {
                 run_warn!("{}", warning);

@@ -10,12 +10,17 @@
   arrive, and every rerun invoked nothing while advising a rerun. `rhei run`
   now withholds that self-loop and holds the state exactly as it holds a failed
   visit: no transition, `phase: held`, checkpoints preserved, the visit
-  unspent, and a warning naming the descendants left with nowhere to go — so a
-  rerun spawns the same visit again, within its ordinary attempt budget. A
-  visit that moved a descendant, or left one schedulable, gated on a human,
-  polling, or waiting on work outside the subtree, releases as before, and
-  conditioned exits are untouched. A supervisor a previous release already
-  stranded now gets a halt row that says so instead of "rerun to pick it up".
+  unspent, and a warning naming the descendants left with nowhere to go, the
+  files they wait for, and the one action that answers it. Because the engine
+  withheld the edge rather than the worker failing to earn it, the visit's
+  attempt budget is not charged, so every later `rhei run` visits the
+  supervisor again and writing the missing file is enough to recover — no
+  `rhei reset`. Within a run the ticket is re-visited only after something else
+  advanced. A visit that moved a descendant, or left one able to move, releases
+  as before, and conditioned exits are untouched; "able to move" now requires
+  the descendant's declared `inputs:` in every case but a `gating:` state,
+  which a human moves regardless. A supervisor a previous release already
+  stranded gets a halt row that says so instead of "rerun to pick it up".
   [§FS-rhei-supervision.3.6](functional-spec/rhei-supervision.spec.md#36-empty-visits)
   (PR #N)
 - **`rhei init` integration and end-to-end tests now contain repository

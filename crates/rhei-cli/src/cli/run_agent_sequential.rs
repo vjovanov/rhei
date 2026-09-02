@@ -347,6 +347,7 @@ fn run_sequential_agent_invocation(
             // §FS-rhei-supervision.3.6: what the visit is about to be judged
             // against, read before it can change anything.
             subtree_before: subtree_shape_before_visit(task, &machines.set, current_state),
+            spawn_record: plan.record.clone(),
             result: spawn_result,
         },
         progress,
