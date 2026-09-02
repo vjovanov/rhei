@@ -54,8 +54,9 @@ fn a_poll_waiting_on_a_person_reads_as_a_pause_in_the_terminal() {
     assert_eq!(theme::category(&machine, "ci-watch"), theme::Category::Active);
 }
 
-/// The pause color says the ticket is somebody's turn; the inspector's flags
-/// line is where the terminal says whose. §FS-rhei-viz.4
+/// The pause color says the ticket is somebody's turn; the flags line is where
+/// the terminal says whose — in the task inspector (§FS-rhei-viz.4) and in the
+/// state detail, which adds only its counted budget (§FS-rhei-viz.6).
 #[test]
 fn the_inspector_flags_name_the_person_a_poll_waits_on() {
     let mut state = state_with_plan();
@@ -63,6 +64,8 @@ fn the_inspector_flags_name_the_person_a_poll_waits_on() {
     let task = state.plan.tasks[0].clone();
     assert_eq!(task.state, "in-progress", "the fixture's first task sits in the second state");
     assert!(super::views::task_flags(&state, &task).contains("waiting on author"));
+    let detail = super::views::machine_state_flags(&state.plan.machine.states[1], true);
+    assert!(detail.contains(&"waiting on author".to_string()), "{detail:?}");
 }
 
 fn demo_model() -> VizModel {
