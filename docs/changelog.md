@@ -16,7 +16,7 @@
   absent unless they can be derived without guessing.
   [§FS-rhei-cost-accounting.3.4](functional-spec/rhei-cost-accounting.spec.md#34-timing-and-agent-cli-session)
   [§FS-rhei-cost-accounting.8.1](functional-spec/rhei-cost-accounting.spec.md#81-published-accounting-schemas)
-  (PR #N)
+  (PR #154)
 - **Measured agent runs can use a caller-supplied reproducible price book.**
   `rhei run ... --prices <PATH>` validates a local
   `rhei.accounting.prices.v1` book before starting agents, copies it into each
