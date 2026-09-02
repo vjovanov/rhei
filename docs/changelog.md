@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **A poll state can now declare that it waits on a person, so a run parked on
+  an author's reply stops reading as work in flight.** A poll and a gate are
+  the two ways a Rhei workflow waits, and a workflow waiting for a reply could
+  be neither: a gate must be moved by hand, and the reply arrives on its own,
+  so the state had to resume itself — which made it a poll, indistinguishable
+  from a CI watch on every surface. One approval poll held a concurrency slot
+  for six and a half hours across 28 attempts that spent no model tokens,
+  looking exactly like a running agent. `poll:` now takes an optional
+  `waiting_on: <label>`, whose presence declares the wait as a person's turn
+  and whose value names who. `rhei states` appends `waiting_on=<label>` to the
+  `Poll:` line and carries it in `--json`; `rhei list` marks the row
+  `(waiting on <label>)` and carries the same field additively in `--json`; the
+  end-of-run summary and report put the ticket under **Waiting** with a calm
+  marker instead of Attention, keep it out of `could not advance`, and give the
+  ledger the label as its reason; and viz, the TUI, and the dashboard classify
+  it as a pause rather than active work. Scheduling is untouched — same
+  interval, same slot release, same attempt budget, same exit statuses — and
+  everything is absent for a poll that does not declare the field, so existing
+  machines read exactly as they did.
+  [§FS-rhei-states.2.5](functional-spec/rhei-states.spec.md#25-waiting-on-a-person)
+  (PR #N)
 - **A supervising visit that released nothing no longer strands the run.** An
   agent visit in an `execute_on:` state that exited `0` without moving its
   subtree or leaving it able to move used to fire the self-loop anyway, which

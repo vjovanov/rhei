@@ -529,6 +529,7 @@ pub fn flatten_machine(machine: &StateMachine) -> Machine {
                 initial: initials.contains(name),
                 terminal: def.terminal,
                 gating: def.gating,
+                waiting_on: def.waiting_on_person().map(str::to_string),
                 process: state_process_kind(def),
                 transitions,
                 inputs: to_artifacts(&def.inputs),
@@ -650,7 +651,12 @@ pub fn category(machine: &StateMachine, state: &str) -> Category {
     if state == "blocked" {
         return Category::Blocked;
     }
-    if def.map(|d| d.gating).unwrap_or(false) || state == "human-review" {
+    // A person wait shares the gate row rather than earning an eighth category:
+    // same thing to the eye, differing only in who moves it on.
+    // §FS-rhei-viz.1.1 §FS-rhei-states.2.5
+    if def.map(|d| d.gating || d.waiting_on_person().is_some()).unwrap_or(false)
+        || state == "human-review"
+    {
         return Category::Gate;
     }
     if def.map(|d| d.terminal).unwrap_or(false) {
@@ -725,6 +731,56 @@ mod tests {
         assert_eq!(model.tasks[1].id, "api.cache");
         assert_eq!(model.tasks[1].depth, 1);
         assert_eq!(model.tasks[1].parent.as_deref(), Some("api"));
+    }
+
+    /// The two polls the ticket contrasts, classified: the one waiting on a
+    /// person reads as a pause, the one watching CI stays active — and the
+    /// label crosses the wire so the browser and the terminal can agree.
+    // §FS-rhei-viz.1.1 §FS-rhei-states.2.5
+    #[test]
+    fn a_poll_waiting_on_a_person_is_a_pause_not_active_work() {
+        let machine = StateMachine::from_yaml_str(
+            r#"
+name: approvals
+version: 1.0
+states:
+  plan-approval:
+    description: Wait for the author
+    program: "./check-reply.sh"
+    poll:
+      interval: 10m
+      max_attempts: 60
+      waiting_on: author
+  ci-watch:
+    description: Watch CI
+    program: "./check-ci.sh"
+    poll:
+      interval: 2m
+      max_attempts: 30
+  completed:
+    final: true
+transitions:
+  - from: plan-approval
+    to: plan-approval
+  - from: plan-approval
+    to: ci-watch
+  - from: ci-watch
+    to: ci-watch
+  - from: ci-watch
+    to: completed
+"#,
+        )
+        .expect("states load");
+
+        assert_eq!(category(&machine, "plan-approval"), Category::Gate);
+        assert_eq!(category(&machine, "ci-watch"), Category::Active);
+
+        let wire = flatten_machine(&machine);
+        let state = |name: &str| {
+            wire.states.iter().find(|s| s.name == name).expect("state present").clone()
+        };
+        assert_eq!(state("plan-approval").waiting_on.as_deref(), Some("author"));
+        assert_eq!(state("ci-watch").waiting_on, None);
     }
 
     #[test]

@@ -6,6 +6,8 @@
 
 // §AR-source-file-size.3 §FS-rhei-states.2.5
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use super::*;
 
 /// Two polls with the same shape and different waits: one on the author, one
@@ -134,5 +136,51 @@ fn list_json_carries_waiting_on_only_for_the_person_wait() {
         task("plan.2").get("waiting_on"),
         None,
         "a ticket that is not person-waiting carries no such field"
+    );
+}
+
+/// The reason the ticket was filed: a run whose only unfinished work is an
+/// approval poll must read as parked, not as work in flight. The deadline is
+/// put a day out so the scan refuses the ticket the way it does between
+/// attempts, and the prediction is asked for rather than the sleep.
+// §FS-rhei-run-report.3.1 §FS-rhei-run.4
+#[test]
+fn a_run_parked_on_a_person_names_the_wait_and_asks_for_nothing() {
+    let deadline = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time should be after unix epoch")
+        .as_secs()
+        + 86_400;
+    let plan = format!(
+        r#"# Rhei: Approvals
+
+---
+metadata:
+  tasks:
+    1:
+      pollNextAttemptAt:
+        plan-approval: {deadline}
+---
+
+## Tasks
+
+### Task 1: Get the plan approved
+**State:** plan-approval
+"#
+    );
+
+    let dir = unique_temp_dir("waiting-on-run-parked");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", &plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", APPROVAL_MACHINE);
+
+    let predicted = run_cli("run", &plan_path, &machine_path, &["--dry-run"]);
+    assert_success(&predicted);
+    assert!(
+        predicted.stdout.contains(
+            "Task plan.1 (plan-approval): waiting on author \u{2014} nothing to do on \
+             Task plan.1; the poll resumes itself when author answers"
+        ),
+        "the wait is not named in:\n{}",
+        predicted.stdout
     );
 }

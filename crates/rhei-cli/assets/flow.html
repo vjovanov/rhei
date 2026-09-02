@@ -380,6 +380,9 @@ function category(plan, state){
   if (state==="failed") return "failed";
   if (state==="blocked") return "blocked";
   if (ms && ms.gating) return "gate";
+  // A poll waiting on a person reads as the gate does: somebody's turn,
+  // nobody's to hurry. §FS-rhei-viz.1.1
+  if (ms && ms.waiting_on) return "gate";
   if (state==="human-review") return "gate";
   if (ms && ms.terminal) return state==="completed"?"done":"retired";
   if (state==="cancelled"||state==="archived") return "retired";

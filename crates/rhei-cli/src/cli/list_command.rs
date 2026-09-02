@@ -376,8 +376,7 @@ fn list_command(
                     // segment is routing, not plan structure. §FS-rhei-list.4.2
                     "depth": task.profile_level(),
                 });
-                // Additive and present only where it means something: the
-                // field's presence is the declaration, so a plan using no
+                // Present only where it means something, so a plan using no
                 // person-waiting poll emits the object it always did.
                 // §FS-rhei-list.4.2
                 if let Some(label) = task_waiting_on_person(task, &machines) {

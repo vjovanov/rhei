@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use super::input::{handle_key_event, InputAction};
 use super::state::{CostGroup, FlowFocus, UiState, UsageRecord, View};
 use super::text::{sanitize_terminal_text, truncate_chars};
+use super::theme;
 use super::{leave_finished_screen, message_goes_to_stderr};
 use crate::rhei_tui::dashboard::InterveneSink;
 use crate::rhei_tui::event::{
@@ -24,6 +25,7 @@ fn machine_state(name: &str, gating: bool, transitions: Vec<&str>) -> MachineSta
         initial: name == "draft",
         terminal: matches!(name, "completed" | "done" | "cancelled"),
         gating,
+        waiting_on: None,
         process: None,
         transitions: transitions
             .into_iter()
@@ -34,6 +36,22 @@ fn machine_state(name: &str, gating: bool, transitions: Vec<&str>) -> MachineSta
         template_context: Default::default(),
         template_contexts: vec![],
     }
+}
+
+/// The terminal reads the same classification off the flattened machine as the
+/// browser and `rhei viz` do — a person-waiting poll is a pause, a CI watch is
+/// still active. §FS-rhei-viz.1.1 §FS-rhei-states.2.5
+#[test]
+fn a_poll_waiting_on_a_person_reads_as_a_pause_in_the_terminal() {
+    let mut approval = machine_state("plan-approval", false, vec!["plan-approval", "ci-watch"]);
+    approval.waiting_on = Some("author".to_string());
+    let machine = Machine {
+        name: "approvals".into(),
+        states: vec![approval, machine_state("ci-watch", false, vec!["ci-watch"])],
+    };
+
+    assert_eq!(theme::category(&machine, "plan-approval"), theme::Category::Gate);
+    assert_eq!(theme::category(&machine, "ci-watch"), theme::Category::Active);
 }
 
 fn demo_model() -> VizModel {

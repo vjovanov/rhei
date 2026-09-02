@@ -30,6 +30,13 @@ enum HaltCause {
     /// survived the move and nothing beneath it runs until a human moves it on.
     // §FS-rhei-supervision.3.1
     GateHoldingSubtree { open: String },
+    /// A poll state that declares the person it waits on. Nothing about it is
+    /// stuck and nothing is anyone's to do: the poll resumes itself when the
+    /// answer lands. Without this the ticket's only reading was work in
+    /// flight, which is what let one approval wait occupy a concurrency slot
+    /// for hours looking exactly like a running agent.
+    // §FS-rhei-states.2.5 §FS-rhei-run-report.3.1
+    WaitingOnPerson { label: String },
     /// A supervising ancestor is owed a visit or is working, so nothing beneath
     /// it is dispatched. Named so a held subtree is never read as a stall.
     // §FS-rhei-supervision.3.4
@@ -165,6 +172,14 @@ impl HaltCause {
                 format!(
                     "a released supervisor is woken only by a descendant that moves: unblock \
                      one of the tickets above and rerun, or `rhei reset` to start Task {id} over"
+                ),
+            ),
+            // §FS-rhei-states.2.5: the label, and the fact that waiting is all
+            // there is to do — the poll comes back on its own.
+            HaltCause::WaitingOnPerson { label } => (
+                format!("waiting on {label}"),
+                format!(
+                    "nothing to do on Task {id}; the poll resumes itself when {label} answers"
                 ),
             ),
             HaltCause::Claimed { assignee } => (
@@ -347,6 +362,11 @@ fn classify_halt(
     }
     if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
         return HaltCause::Gate;
+    }
+    // Beside the gate, and for the same reason: the ticket is somebody's turn.
+    // It differs only in who moves it on. §FS-rhei-states.2.5
+    if let Some(label) = machine.states.get(&state).and_then(|def| def.waiting_on_person()) {
+        return HaltCause::WaitingOnPerson { label: label.to_string() };
     }
     // A claim outranks a prior: releasing it is the one action that unblocks
     // the scheduler, and a claimed ticket is skipped before priors are read.
