@@ -305,7 +305,7 @@ fn handle_parallel_agent_exit(
                 task_id: &target_id,
                 state: &state_name,
                 before: subtree_before.as_ref(),
-                spawn_record: &spawn_record,
+                spawn_record: Some(&spawn_record),
             });
             if let Some(warning) = &empty_visit {
                 run_warn!("{}", warning);

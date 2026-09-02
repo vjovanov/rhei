@@ -268,3 +268,53 @@ structure:
         spawn_log(&dir)
     );
 }
+
+/// Every ticket the hold names carries a reason, and a prior is one of them. A
+/// descendant whose own `inputs:` are all on disk is blocked by nothing the
+/// closing "unblock what they wait for" can be read against unless the run says
+/// what it is — so it names the `**Prior:**` rule 3 blamed, in the shape every
+/// other blocked-on row uses.
+// §FS-rhei-supervision.3.6 §FS-rhei-run-report.3.1
+#[test]
+fn a_descendant_blocked_only_by_a_prior_is_named_with_that_prior() {
+    const PRIOR_BLOCKED_PLAN: &str = r#"# Rhei: Blocked behind a sibling
+
+---
+structure:
+  maxLevels: 3
+---
+
+## Tasks
+
+### Task 1: Supervise
+**State:** supervising
+
+#### Task 1.1: Review
+**State:** review
+
+#### Task 1.2: Wait
+**State:** waiting
+**Prior:** Task 1.1
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision_with_agent(
+        "supervision-prior-blocked-descendant",
+        PRIOR_BLOCKED_PLAN,
+        rule_three_machine(),
+        SILENT_AGENT,
+    );
+    // Task 1.2 has everything it declares; only its sibling stands in its way.
+    let brief = dir.join("runtime/supervise/plan.1.2.md");
+    fs::create_dir_all(brief.parent().expect("brief dir")).expect("create brief dir");
+    fs::write(&brief, "Poll for it.\n").expect("write brief");
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(
+        combined.contains("Task plan.1.1 (review) waits on brief"),
+        "the descendant missing a file is named with the file; got:\n{combined}"
+    );
+    assert!(
+        combined.contains("Task plan.1.2 (waiting) waits on Task plan.1.1 (review)"),
+        "and the one missing none is named with the prior that blocks it; got:\n{combined}"
+    );
+}

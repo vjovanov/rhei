@@ -326,7 +326,7 @@ fn handle_sequential_agent_completion(
                         task_id: &target_id,
                         state: state_before,
                         before: subtree_before.as_ref(),
-                        spawn_record: &spawn_record,
+                        spawn_record: Some(&spawn_record),
                     });
                     let advance = match empty_visit {
                         Some(_) => Ok(None),
