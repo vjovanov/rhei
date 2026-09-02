@@ -152,6 +152,20 @@ basin loads after every discovered rhei ([§FS-rhei-panta.4](rhei-panta.spec.md#
 headings or visual de-emphasis are applied; rhei-level grouping is deferred
 ([§FS-rhei-panta.3](rhei-panta.spec.md#3-one-unified-view)).
 
+A ticket whose current state is a **person-waiting poll** — a state whose
+`poll` block declares `waiting_on` ([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)) — carries a
+`(waiting on <label>)` suffix directly after its state, so the one listing an
+operator checks first distinguishes a ticket waiting on a human being from one
+being worked:
+
+```text
+Task fix.approval: Get the plan approved [plan-approval] (waiting on author)
+```
+
+The suffix qualifies the state, so it precedes `(prior: …)` and `@<assignee>`,
+which are properties of the ticket. It is absent for every other state,
+including a poll that waits on a machine.
+
 The `(prior: …)` suffix is omitted when the task has no prerequisites; the
 `@<assignee>` suffix is omitted when the task is unclaimed.
 
@@ -200,6 +214,13 @@ Fields are stable: `id`, `kind`, `title`, `state` (raw, as authored), `assignee`
 (string or `null`), `prior` (array of id strings), `parent` (string or `null`),
 `depth` (1-based depth within the owning rhei — a top-level ticket is `1`; the
 Panta qualification segment does not count).
+
+One additive field, `waiting_on`, is present **only** on a ticket whose current
+state is a person-waiting poll, carrying that state's `poll.waiting_on` label
+([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)). It is omitted rather than `null` elsewhere, for the
+same reason it is omitted on the state machine itself: its presence is the
+declaration, and a plan that uses no such state emits exactly the object it
+emitted before.
 
 ## Relationship to Other Commands
 

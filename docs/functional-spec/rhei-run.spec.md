@@ -609,6 +609,15 @@ If, at the end of a pass, every remaining non-terminal task is either in a gatin
 
 Once `stateVisits.<state-name>` reaches `poll.max_attempts`, the engine refuses to select a self-loop transition and picks the first matching non-self-loop instead. If no non-self-loop transition matches, the run halts that task with a "polling exhausted with no matching non-self-loop transition" error — `--continue-on-error` applies as with any other task failure. A non-self-loop exit at any attempt clears both `pollNextAttemptAt.<state-name>` and `stateVisits.<state-name>`.
 
+A poll that declares `waiting_on` ([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)) is scheduled by every
+rule above, unchanged: same attempts, same slot release, same sleep to the
+earliest `pollNextAttemptAt`, same exhaustion edge, and the same contribution
+to whether the run ends non-zero (§4) — a poll inside its backoff window
+already counted as deliberate waiting there. What the field adds is how the run
+*reports* the ticket: it is named as waiting on that person rather than left to
+read as work in flight ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout), [§FS-rhei-run-report.4](rhei-run-report.spec.md#4-transition-ledger)). Under
+`--rhei`, the no-advancement line names it the same way.
+
 `snapshot.inherit` is rejected on polling states in v1. Snapshot emit,
 including auto-emit, is suppressed for self-loop attempts and runs only on a
 terminal non-self-loop exit when the state is otherwise snapshot-capable.

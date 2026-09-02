@@ -85,7 +85,7 @@ can start in different states within the same state machine.
 | `personality` | string | No | State-specific role framing printed by `rhei next` for that state |
 | `gating` | boolean | No | When `true`, autonomous commands (`rhei next`, `rhei complete`, engine-triggered transitions) must not transition out of this state. Only explicit human-initiated transitions are allowed. |
 | `concurrent` | boolean | No | When `true`, `rhei run` may work multiple ready tasks in this state simultaneously (up to `--parallel`). When `false` (the default), at most one ready task per pass is scheduled for this state and the rest are deferred to a later pass. This is a scheduling hint only — state entry, exit, and transition semantics are unchanged. Fanout invocations from a single task (`all_targets` / `all_models`) are not affected by this flag. |
-| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
+| `poll` | object | No | Marks this state as a time-triggered *polling* state. Contains `interval` (duration string, e.g. `5m`) and `max_attempts` (integer ≥ 1). On each attempt the state's `agent` or `program` runs once and the engine evaluates transitions normally; a self-loop (`from: X, to: X`) is interpreted as "not done yet, retry after `interval`". Between attempts the `--parallel` slot is released and the task is not ready again until the interval elapses. After `max_attempts` attempts the engine will not take a self-loop and instead selects a matching exhaustion transition (typically `condition: pollAttempts >= pollMaxAttempts`); if none matches, the task fails. May also carry `waiting_on` (a short label naming the person or role the poll waits for), which declares the wait as a *person* wait rather than machine backoff. Mutually exclusive with `visits`. See [Polling States](#2-polling-states) below and [Run Specification — Polling States](rhei-run.spec.md#51-polling-states). |
 | `visits` | integer | No | Maximum number of visits permitted for this state before the workflow must take a non-loop exit |
 | `execute_on` | enum | No | Marks this state as a *supervising* state: `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`. A non-leaf task in it is woken at checkpoints of its subtree — the scope picks whose moves it hears (its direct children, or any descendant), the event picks which (a terminal entry, or every transition) — and holds the subtree between visits. Requires a self-loop transition as the release edge. See [Supervision Specification](rhei-supervision.spec.md). |
 | `target` | string | No | Inline execution target selector for one run of the state. Preferred over the legacy `model` + `agent` split for new workflows. A task may override this per work item with `**Model:**` or `**Target:**` unless `target_locked` is set; see [Plan Language — Task Execution Overrides](rhei-plan-language.spec.md#311-task-execution-overrides). |
@@ -195,6 +195,7 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
 - `state.mcp_servers` and `state.skills` on a state with `program:` set are a validation error (programs execute deterministically and do not consume tool surfaces).
 - `state.mcp_servers: []` and `state.skills: []` are valid and mean "clear the inherited `defaults` tooling for this state" — not "ignore the field".
 - `state.poll`, when present, must be an object with `interval` (a valid duration string, e.g. `30s`, `5m`, `1h`) and `max_attempts` (an integer ≥ `1`).
+- `state.poll.waiting_on`, when present, must be a string that is not empty after trimming. It is optional; a blank value is a validation error rather than an absent field, because a poll that says it waits on someone must say on whom.
 - `state.poll` on a `final: true` state is a validation error (terminal states have no work to execute).
 - `state.poll` on a `gating: true` state is a validation error (gating states require human action; polling executes autonomously).
 - `state.poll` combined with `state.visits` is a validation error. `poll.max_attempts` replaces the `visits` cap for the poll state and populates the same `stateVisits` counter.
@@ -259,12 +260,21 @@ states:
     poll:
       interval: 5m
       max_attempts: 12
+
+  plan-approval:
+    description: Wait for the author to answer on the issue.
+    program: ".rhei/check-reply.sh"
+    poll:
+      interval: 10m
+      max_attempts: 60
+      waiting_on: author
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `interval` | duration string | Yes | Minimum wall-clock wait between attempts (e.g., `30s`, `5m`, `1h`). The `--parallel` slot is released during the wait. |
 | `max_attempts` | integer | Yes | Upper bound on total attempts for this state within one task lifetime. Must be ≥ `1`. |
+| `waiting_on` | string | No | Declares that this poll waits on a **person**, and names who in a short free-form label (`author`, `reviewer`, `security-team`). Absent means the poll waits on a machine and reads as ordinary backoff. See [Waiting on a Person](#25-waiting-on-a-person). |
 
 ### 2.2. Semantics
 
@@ -296,6 +306,38 @@ Both names are available only on transitions whose `from` state declares
 - **`all_targets` / `all_models`.** Fanout composes: each per-target or per-model execution tracks its own `stateVisits.<state-name>` entry (same scoping as `visits`). Slot release applies per fanout invocation.
 - **`concurrent`.** Independent: a `concurrent: true` poll state may have multiple tasks in flight simultaneously, each with its own `pollNextAttemptAt`.
 - **`agent_timeout` / `program_timeout`.** Bound one attempt's duration; they do not bound the total polling wall-clock time. Combine with `max_attempts` to bound the total.
+
+### 2.5. Waiting on a Person
+
+`poll.waiting_on` answers a question the cadence cannot: *whose* answer ends
+this wait. A poll that watches CI and a poll that waits for an author's reply
+have the same shape and the same self-resuming schedule, yet only one of them
+is a person's turn — and a surface that cannot tell them apart shows a run
+waiting on a human being as live work.
+
+- **Presence is the declaration.** A `poll` block that carries `waiting_on` is a
+  *person-waiting* poll; one that does not is machine backoff. There is no
+  second field and no enum: absence is the existing reading, so every machine
+  authored before this field keeps it.
+- **The value is a label, not an identity.** It is short free-form text naming
+  who is being waited on for a reader — `author`, `reviewer`, a team name. Rhei
+  never resolves it to an account, notifies it, or authorizes against it.
+- **Scheduling is unchanged.** The state still self-resumes on its own
+  `interval`, still releases its `--parallel` slot between attempts, still
+  counts attempts against `max_attempts`, and still leaves the state by an
+  ordinary transition. A person-waiting poll is not a `gating` state: the
+  distinction is exactly that a gate must be moved by hand and this one moves
+  itself when the answer lands. `poll` on a `gating` state stays a validation
+  error.
+- **Classification is what changes.** The label propagates to the surfaces that
+  report what a run is doing, so a self-resuming person wait is legible as one:
+  `rhei states` ([§FS-rhei-states-cmd.4](rhei-states-cmd.spec.md#4-text-output), [§FS-rhei-states-cmd.5](rhei-states-cmd.spec.md#5-json-output)), `rhei list`
+  ([§FS-rhei-list.4](rhei-list.spec.md#4-output)), the end-of-run summary and report
+  ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout), [§FS-rhei-run-report.4](rhei-run-report.spec.md#4-transition-ledger)), and the visual surfaces
+  ([§FS-rhei-viz.1.1](rhei-viz.spec.md#11-state-category-and-glyph)).
+- **Nothing about exit status moves.** Whether a run ends non-zero is still the
+  judgment in [§FS-rhei-run.4](rhei-run.spec.md#4-dry-run), unchanged: a person-waiting poll is a poll, and a
+  poll inside its backoff window already counted as deliberate waiting there.
 
 ## 3. Artifact Contracts
 
