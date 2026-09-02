@@ -3,7 +3,7 @@
   "$id": "rhei.accounting.invocation.v1",
   "title": "Rhei accounting invocation record v1",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": [
     "schema",
     "invocation_id",
@@ -50,7 +50,7 @@
   "$defs": {
     "cli_session": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["id"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
@@ -59,18 +59,21 @@
     },
     "measured_dimension": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["value", "source"],
       "properties": {
         "value": { "type": "integer", "minimum": 0 },
-        "source": { "type": "string", "minLength": 1 }
+        "source": { "type": "string", "minLength": 1 },
+        "status": false
       }
     },
     "unavailable_dimension": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["status"],
       "properties": {
+        "value": false,
+        "source": false,
         "status": { "enum": ["unsupported", "omitted", "unknown"] }
       }
     },
@@ -82,7 +85,7 @@
     },
     "token_side": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["total", "cached_read", "cache_write"],
       "properties": {
         "total": { "$ref": "#/$defs/dimension" },
@@ -92,7 +95,7 @@
     },
     "tokens": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["total", "input", "output"],
       "properties": {
         "total": { "$ref": "#/$defs/dimension" },
@@ -104,7 +107,7 @@
       "oneOf": [
         {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": ["status", "currency", "amount_micro", "priced_amount_micro", "price_book_id"],
           "properties": {
             "status": { "const": "priced" },
@@ -116,31 +119,38 @@
         },
         {
           "type": "object",
-          "additionalProperties": false,
-          "required": ["status", "currency", "priced_amount_micro", "price_book_id"],
+          "additionalProperties": true,
+          "required": ["status", "currency", "price_book_id"],
           "properties": {
             "status": { "const": "partial-price" },
             "currency": { "type": "string" },
+            "amount_micro": false,
             "priced_amount_micro": { "type": "integer", "minimum": 0 },
             "price_book_id": { "type": "string" }
           }
         },
         {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": ["status", "currency", "price_book_id"],
           "properties": {
             "status": { "const": "unpriced" },
             "currency": { "type": "string" },
+            "amount_micro": false,
+            "priced_amount_micro": false,
             "price_book_id": { "type": "string" }
           }
         },
         {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "required": ["status"],
           "properties": {
-            "status": { "const": "not-applicable" }
+            "status": { "const": "not-applicable" },
+            "currency": false,
+            "amount_micro": false,
+            "priced_amount_micro": false,
+            "price_book_id": false
           }
         }
       ]

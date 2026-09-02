@@ -3,7 +3,7 @@
   "$id": "rhei.accounting.summary.v1",
   "title": "Rhei accounting run summary v1",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["schema", "summary"],
   "properties": {
     "schema": { "const": "rhei.accounting.summary.v1" },
@@ -12,7 +12,7 @@
   "$defs": {
     "dimension_summary": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["value", "status", "missing_count", "measured_count"],
       "properties": {
         "value": { "type": ["integer", "null"], "minimum": 0 },
@@ -23,7 +23,7 @@
     },
     "summary": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "total",
         "input_total",
