@@ -85,8 +85,14 @@ fn render_state_machine_text(machine: &rhei_validator::StateMachine) -> String {
                 out.push_str(&format!("      Executes on: {}\n", executes_on_phrase(execute_on)));
             }
             if let Some(poll) = def.poll.as_ref() {
+                // §FS-rhei-states-cmd.4: appended only when authored, so a
+                // machine-backoff poll prints the line it printed before.
+                let waits_on = poll
+                    .waiting_on()
+                    .map(|label| format!(", waiting_on={label}"))
+                    .unwrap_or_default();
                 out.push_str(&format!(
-                    "      Poll: interval={}, max_attempts={}\n",
+                    "      Poll: interval={}, max_attempts={}{waits_on}\n",
                     poll.interval, poll.max_attempts
                 ));
             }
