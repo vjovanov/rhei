@@ -5,13 +5,14 @@
   "oneOf": [
     {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["schema", "usage"],
       "properties": {
         "schema": { "const": "rhei.accounting.usage.v1" },
+        "status": false,
         "usage": {
           "type": "object",
-          "additionalProperties": false,
+          "additionalProperties": true,
           "minProperties": 1,
           "properties": {
             "total_tokens": { "type": "integer", "minimum": 0 },
@@ -27,11 +28,12 @@
     },
     {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["schema", "status"],
       "properties": {
         "schema": { "const": "rhei.accounting.usage.v1" },
-        "status": { "const": "extractor-failed" }
+        "status": { "const": "extractor-failed" },
+        "usage": false
       }
     }
   ]

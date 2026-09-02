@@ -3,7 +3,7 @@
   "$id": "rhei.accounting.task.v1",
   "title": "Rhei accounting task rollup v1",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["schema", "task_id", "direct", "subtree"],
   "properties": {
     "schema": { "const": "rhei.accounting.task.v1" },
@@ -24,7 +24,7 @@
   "$defs": {
     "dimension_summary": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["value", "status", "missing_count", "measured_count"],
       "properties": {
         "value": { "type": ["integer", "null"], "minimum": 0 },
@@ -35,7 +35,7 @@
     },
     "summary": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "total",
         "input_total",

@@ -109,7 +109,7 @@ Each supported agent spawn writes one JSON object:
   "pricing": {
     "status": "priced",
     "currency": "USD",
-    "amount_micro": 18342,
+    "amount_micro": 18342, "priced_amount_micro": 18342,
     "price_book_id": "builtin-2026-05-20"
   }
 }
@@ -314,9 +314,11 @@ Pricing status:
 | `unpriced` | Tokens were measured, but none of the measured billable dimensions had prices. |
 | `not-applicable` | No measured tokens were available to price. |
 
-Missing prices must not be treated as zero-cost. For `partial-price`,
-`priced_amount_micro` may be written as a lower-bound amount. `amount_micro` is
-written only when status is `priced`.
+Missing prices must not be treated as zero-cost. A `priced` result always
+writes equal `amount_micro` and `priced_amount_micro` values. A
+`partial-price` result may write `priced_amount_micro` as a lower-bound amount,
+but never writes `amount_micro`. `amount_micro` is written only when status is
+`priced`.
 
 ## 6. Rollups
 
@@ -450,11 +452,12 @@ stdout. `rhei schema` and `rhei schema --list` list every published id, one per
 line. An unknown id exits nonzero and names both the unknown id and the listing
 command.
 
-Published v1 schemas reject undeclared properties. Additive contract changes
-therefore require publishing a new schema id rather than silently widening an
-existing pinned contract. Fields documented as optional, including
-`duration_ms` and `cli_session`, remain optional so artifacts from older Rhei
-versions still validate.
+Published v1 schemas permit additive evolution: fields may be added within v1,
+and consumers must tolerate unknown fields at every object extension point. A
+removal, rename, type change, or semantic change to an existing field requires
+a new schema id. Fields documented as optional, including `duration_ms` and
+`cli_session`, remain optional so artifacts from older Rhei versions still
+validate.
 
 ## 9. Visualization
 

@@ -3,7 +3,7 @@
   "$id": "rhei.accounting.prices.v1",
   "title": "Rhei accounting price book v1",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": ["schema", "price_book_id", "currency", "entries"],
   "properties": {
     "schema": { "const": "rhei.accounting.prices.v1" },
@@ -17,7 +17,7 @@
   "$defs": {
     "entry": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": [
         "provider",
         "model",

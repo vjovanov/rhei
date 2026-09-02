@@ -77,6 +77,180 @@ fn validate(schema: &serde_json::Value, instance: &serde_json::Value, label: &st
     };
 }
 
+fn assert_invalid(schema: &serde_json::Value, instance: &serde_json::Value, label: &str) {
+    let mut schema_for_validation = schema.clone();
+    schema_for_validation.as_object_mut().expect("schema object").remove("$id");
+    let compiled = jsonschema::JSONSchema::compile(&schema_for_validation)
+        .unwrap_or_else(|err| panic!("compile schema for {label}: {err}"));
+    assert!(!compiled.is_valid(instance), "{label} unexpectedly validated:\n{instance:#}");
+}
+
+fn add_unknown_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for child in object.values_mut() {
+                add_unknown_fields(child);
+            }
+            object.insert("future_optional".to_string(), serde_json::json!(true));
+        }
+        serde_json::Value::Array(array) => {
+            for child in array {
+                add_unknown_fields(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn replace_pointer(
+    instance: &mut serde_json::Value,
+    pointer: &str,
+    replacement: serde_json::Value,
+) {
+    *instance
+        .pointer_mut(pointer)
+        .unwrap_or_else(|| panic!("fixture has JSON pointer {pointer}")) = replacement;
+}
+
+fn assert_pricing_contract(
+    schema: &serde_json::Value,
+    artifact: &serde_json::Value,
+    pointer: &str,
+    label: &str,
+) {
+    let priced = serde_json::json!({
+        "status": "priced",
+        "currency": "USD",
+        "amount_micro": 42,
+        "priced_amount_micro": 42,
+        "price_book_id": "fixture"
+    });
+    let mut valid_priced = artifact.clone();
+    replace_pointer(&mut valid_priced, pointer, priced.clone());
+    validate(schema, &valid_priced, &format!("{label} priced variant"));
+
+    let mut priced_without_subtotal = artifact.clone();
+    let mut incomplete_priced = priced;
+    incomplete_priced.as_object_mut().expect("pricing object").remove("priced_amount_micro");
+    replace_pointer(&mut priced_without_subtotal, pointer, incomplete_priced);
+    assert_invalid(schema, &priced_without_subtotal, &format!("{label} incomplete priced"));
+
+    for partial in [
+        serde_json::json!({
+            "status": "partial-price",
+            "currency": "USD",
+            "price_book_id": "fixture"
+        }),
+        serde_json::json!({
+            "status": "partial-price",
+            "currency": "USD",
+            "priced_amount_micro": 21,
+            "price_book_id": "fixture"
+        }),
+    ] {
+        let mut valid_partial = artifact.clone();
+        replace_pointer(&mut valid_partial, pointer, partial);
+        validate(schema, &valid_partial, &format!("{label} partial-price variant"));
+    }
+
+    let mut partial_with_full_amount = artifact.clone();
+    replace_pointer(
+        &mut partial_with_full_amount,
+        pointer,
+        serde_json::json!({
+            "status": "partial-price",
+            "currency": "USD",
+            "amount_micro": 42,
+            "price_book_id": "fixture"
+        }),
+    );
+    assert_invalid(
+        schema,
+        &partial_with_full_amount,
+        &format!("{label} partial-price with full amount"),
+    );
+}
+
+fn assert_negative_contract_cases(
+    schema_id: &str,
+    schema: &serde_json::Value,
+    artifact: &serde_json::Value,
+) {
+    let (required_key, enum_pointer, bad_enum) = match schema_id {
+        "rhei.accounting.cost.v1" => ("errors", "/summary/coverage", "invalid-coverage"),
+        "rhei.accounting.invocation.v1" => ("tokens", "/extraction_status", "invalid-extraction"),
+        "rhei.accounting.prices.v1" => ("currency", "/entries/0/unit", "per-token"),
+        "rhei.accounting.summary.v1" => ("summary", "/summary/pricing_status", "invalid-pricing"),
+        "rhei.accounting.task.v1" => ("subtree", "/direct/pricing_status", "invalid-pricing"),
+        "rhei.accounting.usage.v1" => ("schema", "/schema", "rhei.accounting.usage.v2"),
+        _ => panic!("unhandled schema {schema_id}"),
+    };
+
+    let mut missing_required = artifact.clone();
+    missing_required.as_object_mut().expect("artifact object").remove(required_key);
+    assert_invalid(schema, &missing_required, &format!("{schema_id} missing {required_key}"));
+
+    let mut bad_enum_artifact = artifact.clone();
+    replace_pointer(&mut bad_enum_artifact, enum_pointer, serde_json::json!(bad_enum));
+    assert_invalid(schema, &bad_enum_artifact, &format!("{schema_id} invalid enum"));
+
+    let (shape_pointer, malformed_shape) = match schema_id {
+        "rhei.accounting.cost.v1" => (
+            "/task/invocations/0/tokens/input/total",
+            serde_json::json!({
+                "value": 1,
+                "source": "fixture",
+                "status": "unsupported"
+            }),
+        ),
+        "rhei.accounting.invocation.v1" => (
+            "/tokens/input/total",
+            serde_json::json!({
+                "value": 1,
+                "source": "fixture",
+                "status": "unsupported"
+            }),
+        ),
+        "rhei.accounting.prices.v1" => {
+            ("/entries/0/input_total_micro", serde_json::json!({ "value": 1, "source": "fixture" }))
+        }
+        "rhei.accounting.summary.v1" => {
+            ("/summary/total", serde_json::json!({ "value": 1, "source": "fixture" }))
+        }
+        "rhei.accounting.task.v1" => {
+            ("/direct/total", serde_json::json!({ "value": 1, "source": "fixture" }))
+        }
+        "rhei.accounting.usage.v1" => {
+            ("/usage/input_tokens", serde_json::json!({ "value": 1, "source": "fixture" }))
+        }
+        _ => panic!("unhandled schema {schema_id}"),
+    };
+    let mut bad_shape = artifact.clone();
+    replace_pointer(&mut bad_shape, shape_pointer, malformed_shape);
+    assert_invalid(schema, &bad_shape, &format!("{schema_id} malformed token shape"));
+
+    match schema_id {
+        "rhei.accounting.invocation.v1" => {
+            assert_pricing_contract(schema, artifact, "/pricing", schema_id);
+        }
+        "rhei.accounting.cost.v1" => {
+            assert_pricing_contract(schema, artifact, "/task/invocations/0/pricing", schema_id);
+        }
+        "rhei.accounting.usage.v1" => {
+            let failed = serde_json::json!({
+                "schema": "rhei.accounting.usage.v1",
+                "status": "extractor-failed",
+                "future_optional": true
+            });
+            validate(schema, &failed, "open extractor-failed usage variant");
+            let mut mixed = failed;
+            mixed["usage"] = serde_json::json!({ "input_tokens": 1 });
+            assert_invalid(schema, &mixed, "usage event mixing both variants");
+        }
+        _ => {}
+    }
+}
+
 fn write_contract_agent_settings(root: &Path) {
     let script = write_python_agent(
         root,
@@ -153,7 +327,8 @@ fn schema_command_lists_and_prints_every_published_contract() {
 
 /// One actual run produces all six artifact/output shapes accepted by their
 /// published schemas, including exact CLI session identity and duration.
-// §FS-rhei-cost-accounting.3.4 §FS-rhei-cost-accounting.8.1
+// §FS-rhei-cost-accounting.3.1 §FS-rhei-cost-accounting.3.4 §FS-rhei-cost-accounting.5
+// §FS-rhei-cost-accounting.8.1
 #[test]
 fn run_artifacts_and_cost_json_validate_against_published_schemas() {
     let dir = unique_temp_dir("accounting-schema-run");
@@ -220,6 +395,12 @@ fn run_artifacts_and_cost_json_validate_against_published_schemas() {
         let schema: serde_json::Value =
             serde_json::from_str(&schema_result.stdout).expect("published schema JSON");
         validate(&schema, &artifact, schema_id);
+
+        let mut additive_artifact = artifact.clone();
+        add_unknown_fields(&mut additive_artifact);
+        validate(&schema, &additive_artifact, &format!("{schema_id} additive fields"));
+        assert_negative_contract_cases(schema_id, &schema, &artifact);
+
         if schema_id == "rhei.accounting.invocation.v1" {
             let mut old_artifact = artifact.clone();
             let old_object = old_artifact.as_object_mut().expect("invocation object");
