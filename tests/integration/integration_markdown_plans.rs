@@ -20,4 +20,5 @@ include!("integration_markdown_plans/workspace_validation_project_machine.rs");
 include!("integration_markdown_plans/workspace_validation_reports.rs");
 include!("integration_markdown_plans/workspace_validation_panta.rs");
 include!("integration_markdown_plans/workspace_validation_init.rs");
+include!("integration_markdown_plans/workspace_validation_init_agents_note.rs");
 include!("integration_markdown_plans/workspace_execution.rs");
