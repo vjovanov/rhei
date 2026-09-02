@@ -17,6 +17,7 @@ struct AgentSpawnOutcome {
     interrupted: bool,
     timeout_secs: Option<u64>,
     usage_capture_path: Option<PathBuf>,
+    cli_session: Option<AccountingCliSession>,
 }
 
 #[cfg(not(test))]
@@ -281,6 +282,8 @@ fn spawn_and_wait_agent(
         slot,
         price_book,
     );
+    let cli_session_capture =
+        usage_capture.as_ref().map(|capture| Arc::clone(&capture.cli_session));
 
     let mut cmd = build_agent_command(
         resolved,
@@ -336,6 +339,7 @@ fn spawn_and_wait_agent(
                 interrupted: true,
                 timeout_secs: resolved.timeout_secs,
                 usage_capture_path: None,
+                cli_session: None,
             });
         }
         Err(e) => {
@@ -522,11 +526,14 @@ fn spawn_and_wait_agent(
         "failed to append to log file '{}': {e}", log_path.display()
     ))?;
 
+    let cli_session = cli_session_capture
+        .and_then(|capture| capture.lock().ok().and_then(|observed| observed.clone()));
     Ok(AgentSpawnOutcome {
         status,
         timed_out,
         interrupted,
         timeout_secs: resolved.timeout_secs,
         usage_capture_path,
+        cli_session,
     })
 }

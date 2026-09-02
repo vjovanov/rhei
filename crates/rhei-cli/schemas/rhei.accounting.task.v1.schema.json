@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rhei.accounting.task.v1",
+  "title": "Rhei accounting task rollup v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "task_id", "direct", "subtree"],
+  "properties": {
+    "schema": { "const": "rhei.accounting.task.v1" },
+    "task_id": { "type": "string" },
+    "direct": {
+      "oneOf": [
+        { "$ref": "#/$defs/summary" },
+        { "type": "null" }
+      ]
+    },
+    "subtree": {
+      "oneOf": [
+        { "$ref": "#/$defs/summary" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "dimension_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "status", "missing_count", "measured_count"],
+      "properties": {
+        "value": { "type": ["integer", "null"], "minimum": 0 },
+        "status": { "enum": ["measured", "partial", "unsupported", "omitted", "unknown"] },
+        "missing_count": { "type": "integer", "minimum": 0 },
+        "measured_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "input_total",
+        "input_cached_read",
+        "input_cache_write",
+        "output_total",
+        "output_cached_read",
+        "output_cache_write",
+        "cost_micro",
+        "priced_cost_micro",
+        "currency",
+        "coverage",
+        "pricing_status",
+        "invocation_count",
+        "measured_invocation_count",
+        "missing_invocation_count"
+      ],
+      "properties": {
+        "total": { "$ref": "#/$defs/dimension_summary" },
+        "input_total": { "$ref": "#/$defs/dimension_summary" },
+        "input_cached_read": { "$ref": "#/$defs/dimension_summary" },
+        "input_cache_write": { "$ref": "#/$defs/dimension_summary" },
+        "output_total": { "$ref": "#/$defs/dimension_summary" },
+        "output_cached_read": { "$ref": "#/$defs/dimension_summary" },
+        "output_cache_write": { "$ref": "#/$defs/dimension_summary" },
+        "cost_micro": { "type": ["integer", "null"], "minimum": 0 },
+        "priced_cost_micro": { "type": ["integer", "null"], "minimum": 0 },
+        "currency": { "type": ["string", "null"] },
+        "coverage": { "enum": ["complete", "partial", "unpriced", "none"] },
+        "pricing_status": { "enum": ["priced", "partial-price", "unpriced", "not-applicable"] },
+        "invocation_count": { "type": "integer", "minimum": 0 },
+        "measured_invocation_count": { "type": "integer", "minimum": 0 },
+        "missing_invocation_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

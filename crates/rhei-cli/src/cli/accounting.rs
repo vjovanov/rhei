@@ -1,110 +1,3 @@
-const ACCOUNTING_INVOCATION_SCHEMA: &str = "rhei.accounting.invocation.v1";
-const ACCOUNTING_USAGE_EVENT_SCHEMA: &str = "rhei.accounting.usage.v1";
-static ACCOUNTING_INVOCATION_FILE_SEQUENCE: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AccountingInvocationRecord {
-    schema: String,
-    invocation_id: String,
-    task_id: String,
-    state: String,
-    visit: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target_slug: Option<String>,
-    agent: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    provider: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    started_at: String,
-    ended_at: String,
-    extraction_status: String,
-    scope: String,
-    tokens: AccountingTokens,
-    pricing: AccountingPricing,
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AccountingTokens {
-    #[serde(default = "unknown_token_dimension")]
-    total: AccountingTokenDimension,
-    input: AccountingTokenSide,
-    output: AccountingTokenSide,
-}
-
-impl Default for AccountingTokens {
-    fn default() -> Self {
-        Self {
-            total: AccountingTokenDimension::unavailable("unknown"),
-            input: AccountingTokenSide::default(),
-            output: AccountingTokenSide::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AccountingTokenSide {
-    total: AccountingTokenDimension,
-    cached_read: AccountingTokenDimension,
-    cache_write: AccountingTokenDimension,
-}
-
-impl Default for AccountingTokenSide {
-    fn default() -> Self {
-        Self {
-            total: AccountingTokenDimension::unavailable("unknown"),
-            cached_read: AccountingTokenDimension::unavailable("unsupported"),
-            cache_write: AccountingTokenDimension::unavailable("unsupported"),
-        }
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AccountingTokenDimension {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<String>,
-}
-
-impl AccountingTokenDimension {
-    fn measured(value: u64) -> Self {
-        Self::measured_from(value, "agent-usage-capture")
-    }
-
-    fn measured_from(value: u64, source: &str) -> Self {
-        Self {
-            value: Some(value),
-            source: Some(source.to_string()),
-            status: None,
-        }
-    }
-
-    fn unavailable(status: &str) -> Self {
-        Self { value: None, source: None, status: Some(status.to_string()) }
-    }
-}
-
-fn unknown_token_dimension() -> AccountingTokenDimension {
-    AccountingTokenDimension::unavailable("unknown")
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-struct AccountingPricing {
-    status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    currency: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    amount_micro: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    priced_amount_micro: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    price_book_id: Option<String>,
-}
-
 #[derive(Clone, Copy, Debug, Default)]
 struct ExtractedUsage {
     total: Option<u64>,
@@ -215,6 +108,7 @@ struct AgentUsageCapture {
     model: Option<String>,
     price_book: PriceBook,
     slot: rhei_tui::Slot,
+    cli_session: Arc<Mutex<Option<AccountingCliSession>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -234,6 +128,7 @@ struct AgentAccountingInvocation<'a> {
     ended_at: std::time::SystemTime,
     slot: Option<rhei_tui::Slot>,
     usage_capture_path: Option<&'a Path>,
+    cli_session: Option<&'a AccountingCliSession>,
     log_path: Option<&'a Path>,
     price_book: &'a PriceBook,
     sink: &'a Arc<dyn rhei_tui::EventSink>,
@@ -301,6 +196,9 @@ fn record_agent_accounting_invocation(
         model,
         started_at: format_iso8601_utc(invocation.started_at),
         ended_at: format_iso8601_utc(invocation.ended_at),
+        // §FS-rhei-cost-accounting.3.4: New records carry elapsed wall time.
+        duration_ms: Some(accounting_duration_ms(invocation.started_at, invocation.ended_at)),
+        cli_session: invocation.cli_session.cloned(),
         extraction_status: extraction_status.to_string(),
         scope: "aggregate-agent-process".to_string(),
         tokens,
@@ -797,6 +695,7 @@ fn usage_capture_for_spawn(
         model: resolved.model_name.clone().or_else(|| resolved.model.clone()),
         price_book: price_book.clone(),
         slot,
+        cli_session: Arc::new(Mutex::new(None)),
     })
 }
 
@@ -836,6 +735,7 @@ fn capture_agent_output_usage(
     if stream != rhei_tui::AgentStream::Stdout {
         return;
     }
+    capture_cli_session_from_output(capture, line);
     let usage = match extract_usage_from_output_line(capture.extractor, line) {
         OutputUsage::Measured(usage) => usage,
         OutputUsage::Ignored => return,

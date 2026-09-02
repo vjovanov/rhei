@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rhei.accounting.prices.v1",
+  "title": "Rhei accounting price book v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "price_book_id", "currency", "entries"],
+  "properties": {
+    "schema": { "const": "rhei.accounting.prices.v1" },
+    "price_book_id": { "type": "string", "minLength": 1 },
+    "currency": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model",
+        "effective_at",
+        "unit",
+        "input_total_micro",
+        "input_cached_read_micro",
+        "input_cache_write_micro",
+        "output_total_micro"
+      ],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "effective_at": { "type": "string", "minLength": 1 },
+        "unit": { "const": "1m_tokens" },
+        "input_total_micro": { "type": "integer", "minimum": 0 },
+        "input_cached_read_micro": { "type": "integer", "minimum": 0 },
+        "input_cache_write_micro": { "type": "integer", "minimum": 0 },
+        "output_total_micro": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

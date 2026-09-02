@@ -349,6 +349,10 @@ fn spawn_parallel_agent_work_item(
                 ended_at: finished_wall,
                 slot: Some(slot),
                 usage_capture_path: usage_capture_path.map(PathBuf::as_path),
+                cli_session: result
+                    .as_ref()
+                    .ok()
+                    .and_then(|outcome| outcome.cli_session.as_ref()),
                 log_path: Some(&log_for_thread),
                 price_book: &price_book_for_thread,
                 sink: &sink_for_thread,

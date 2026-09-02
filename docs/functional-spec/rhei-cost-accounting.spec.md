@@ -86,6 +86,11 @@ Each supported agent spawn writes one JSON object:
   "model": "claude-sonnet-4-6",
   "started_at": "2026-05-20T10:30:00Z",
   "ended_at": "2026-05-20T10:34:23Z",
+  "duration_ms": 263000,
+  "cli_session": {
+    "id": "8b04b0e8-5755-4d2e-bc01-1e14c89d0084",
+    "store_path": "/home/alice/.claude/projects/example/8b04b0e8-5755-4d2e-bc01-1e14c89d0084.jsonl"
+  },
   "extraction_status": "measured",
   "scope": "aggregate-agent-process",
   "tokens": {
@@ -173,6 +178,22 @@ silently omit records.
 
 The v1 built-in extractors may use `aggregate-agent-process` when the agent CLI
 does not expose finer-grained usage.
+
+### 3.4. Timing and Agent CLI Session
+
+`duration_ms` is the elapsed wall-clock time between `started_at` and
+`ended_at`, rounded down to whole milliseconds. New records always carry it;
+readers must accept older v1 records where it is absent.
+
+When structured agent output exposes a native session identity, the invocation
+record carries `cli_session.id`. Built-in extractors recognize Claude Code's
+result `session_id`, Codex's `thread.started.thread_id`, and Pi's
+`session.id`. `cli_session.store_path` is optional and is written only when
+Rhei can derive the native transcript path confidently. The whole
+`cli_session` field is absent when no id was exposed; neither it nor
+`store_path` is serialized as `null`. Session capture is independent of the
+usage-event capture lifecycle, including replacement of cumulative Claude Code
+usage events.
 
 ## 4. Extraction Flow
 
@@ -411,6 +432,29 @@ When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 `rhei summary` reads the same artifacts for the other question — not what the
 run cost but what it did, one numbered line per invocation, as Markdown short
 enough to paste into a pull request ([§FS-rhei-summary](rhei-summary.spec.md#fs-rhei-summary-rhei-summary)).
+
+### 8.1. Published Accounting Schemas
+
+Rhei publishes one JSON Schema for every accounting schema id it writes:
+
+- `rhei.accounting.invocation.v1`
+- `rhei.accounting.summary.v1`
+- `rhei.accounting.usage.v1`
+- `rhei.accounting.cost.v1`
+- `rhei.accounting.task.v1`
+- `rhei.accounting.prices.v1`
+
+The versioned source files live in `crates/rhei-cli/schemas/` and are embedded
+in the binary. `rhei schema <schema-id>` writes the embedded file bytes to
+stdout. `rhei schema` and `rhei schema --list` list every published id, one per
+line. An unknown id exits nonzero and names both the unknown id and the listing
+command.
+
+Published v1 schemas reject undeclared properties. Additive contract changes
+therefore require publishing a new schema id rather than silently widening an
+existing pinned contract. Fields documented as optional, including
+`duration_ms` and `cli_session`, remain optional so artifacts from older Rhei
+versions still validate.
 
 ## 9. Visualization
 

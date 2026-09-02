@@ -307,6 +307,10 @@ fn run_sequential_agent_invocation(
             .as_ref()
             .ok()
             .and_then(|outcome| outcome.usage_capture_path.as_deref()),
+        cli_session: spawn_result
+            .as_ref()
+            .ok()
+            .and_then(|outcome| outcome.cli_session.as_ref()),
         log_path: Some(&log),
         price_book: opts.price_book(),
         sink,
