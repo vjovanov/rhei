@@ -79,18 +79,26 @@ struct FinishedVisit<'a> {
     state: &'a str,
     /// Its subtree as the spawn found it. `None` leaves rule 2 unasked.
     before: Option<&'a SubtreeShape>,
+    /// Where this spawn recorded itself, so a withheld edge can give back the
+    /// attempt it was charged. §FS-rhei-agents.3.2.3
+    spawn_record: &'a Path,
 }
 
-/// The warning to print when this visit's self-loop must be withheld, or `None`
-/// when the visit released something and the engine advances as it always has.
+/// Withhold this visit's self-loop when it released nothing, and say so — or
+/// `None` when the visit released something and the engine advances as it
+/// always has.
 ///
 /// The three release rules of §FS-rhei-supervision.3.6, in order: there is no
 /// subtree to release, the visit moved it, or it can still move without the
 /// supervisor. Anything that is not a supervising state, not a self-loop, or
 /// not answerable returns `None` — this rule only ever *withholds* an edge, so
 /// every uncertainty resolves to today's behaviour.
-// §FS-rhei-supervision.3.6
-fn empty_supervising_visit(visit: FinishedVisit<'_>) -> Option<String> {
+///
+/// Taking the edge and giving the attempt back are one act, so they are one
+/// call: the engine, not the worker, is why the state did not move, and a
+/// budget spent on that would bar the supervisor's whole subtree for good.
+// §FS-rhei-supervision.3.6 §FS-rhei-agents.3.2.3
+fn withhold_empty_supervising_visit(visit: FinishedVisit<'_>) -> Option<String> {
     let machine = visit.machines.for_task(visit.task_id);
     execute_on_of(machine, visit.state)?;
     let task = find_task_by_id(&visit.plan.rhei.tasks, visit.task_id)?;
@@ -122,6 +130,7 @@ fn empty_supervising_visit(visit: FinishedVisit<'_>) -> Option<String> {
     if supervised_subtree_can_move(&held, &open) {
         return None;
     }
+    uncharge_withheld_visit(visit.spawn_record);
     Some(empty_visit_warning(visit.task_id, visit.state, &held, &open))
 }
 
@@ -144,6 +153,12 @@ fn supervised_subtree_can_move(
 /// Whether this non-terminal descendant can move once the barrier lifts —
 /// either it is in the ready set with its supervisor read as released, or what
 /// it waits on is not its supervisor's to give.
+///
+/// Only a gate answers on its own. Every other way of waiting — a poll's next
+/// attempt, a prior held by work elsewhere — decides *when* the descendant is
+/// scheduled and puts no file on disk, so each is conjoined with the state's
+/// declared `inputs:`: a brief only the supervisor writes is missing whichever
+/// clock the descendant is on.
 // §FS-rhei-supervision.3.6 rule 3
 fn descendant_can_still_move(
     held: &SupervisedSubtree<'_>,
@@ -154,32 +169,34 @@ fn descendant_can_still_move(
     let machine = held.machines.for_task(&task.id);
     let state = normalized_state_name(task.state.as_str(), machine);
     let Some(state_def) = machine.states.get(&state) else { return false };
-    // A human owns the next move, and time owns a poll's: the run is waiting on
-    // one of them, not stranded behind a supervisor that will not wake.
-    if state_def.gating || state_def.poll.is_some() {
+    // A human owns the next move of a gate, and moves it with `rhei
+    // transition`, which reads no inputs. §FS-rhei-transition-cmd.3
+    if state_def.gating {
         return true;
     }
-    let mut priors_satisfied = true;
+    let mut priors_block = false;
     for prior in &task.prior {
         let Some(prior_state) = states.get(prior) else {
-            priors_satisfied = false;
+            priors_block = true;
             continue;
         };
         if dependency_is_satisfied(prior_state, held.machines.for_task(prior)) {
             continue;
         }
-        priors_satisfied = false;
         // Other work owns it: a prior outside this subtree, still open, is not
-        // something the supervisor could have unblocked on this visit.
-        if !subtree.contains(prior)
-            && !is_terminal_state(prior_state, held.machines.for_task(prior))
+        // something the supervisor could have unblocked on this visit. That
+        // makes it no reason to call the subtree stranded — and no reason to
+        // skip the inputs the descendant will still need when it lands.
+        if subtree.contains(prior) || is_terminal_state(prior_state, held.machines.for_task(prior))
         {
-            return true;
+            priors_block = true;
         }
     }
+    // A `poll:` state needs nothing here either: time schedules its next
+    // attempt, and the inputs check below says whether that attempt could run.
     // A descendant held by a *nested* supervisor needs no special case: that
     // supervisor is itself a descendant, and it answers here for itself.
-    priors_satisfied
+    !priors_block
         && state_inputs_exist_for_ready_set(
             held.roots.workspace_root,
             held.roots.artifact_root(&task.id.to_string()),
@@ -190,13 +207,16 @@ fn descendant_can_still_move(
         )
 }
 
-/// The halt line an empty visit prints: what the visit did not do, what its
-/// descendants are waiting for, and what the engine does about it.
+/// The line an empty visit prints: what the visit did not do, what its
+/// descendants are waiting for, and the one action that answers it.
 ///
 /// The blocked descendants are named with the files they wait on, because that
 /// is the sentence an operator can act on — the run's own diagnosis of the same
 /// tickets says exactly this, and a warning that only said "released nothing"
-/// would send them to the log the visit did not write.
+/// would send them to the log the visit did not write. The rerun is promised
+/// unconditionally because the hold really is unconditional: the withheld edge
+/// gives its attempt back, so no budget can run out under this line
+/// (§FS-rhei-agents.3.2.3).
 // §FS-rhei-supervision.3.6 §FS-rhei-run-report.3.1
 fn empty_visit_warning(
     task_id: &TaskId,
@@ -205,9 +225,10 @@ fn empty_visit_warning(
     open: &[&rhei_core::ast::Task],
 ) -> String {
     format!(
-        "  halting Task {task_id} in state '{state}': the visit released nothing — it moved no \
-         descendant and left none able to move: {}. No transition fires and the visit is not \
-         spent; the ticket stays in '{state}' and a later pass or a rerun visits it again.",
+        "  holding Task {task_id} in state '{state}': the visit released nothing — it moved no \
+         descendant and left none able to move: {}. No transition fires, the visit is not spent \
+         and its attempt is not charged; the ticket stays in '{state}' and every later `rhei \
+         run` visits it again. Write what the ticket(s) above are waiting for, then rerun.",
         format_blocked_descendants(held, open)
     )
 }

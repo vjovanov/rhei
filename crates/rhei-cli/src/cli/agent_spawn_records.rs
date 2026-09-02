@@ -54,6 +54,12 @@ struct SpawnRecord {
     ending: String,
 }
 
+/// The `ending` of an attempt whose edge §FS-rhei-supervision.3.6 took away.
+/// Its own ending because the invocation neither failed nor left its state
+/// owing an artifact, and both of the other exit-0 sentences say it did.
+// §FS-rhei-agents.3.2.3 §FS-rhei-supervision.3.6
+const WITHHELD_ENDING: &str = "withheld";
+
 impl SpawnRecord {
     /// How the previous attempt ended, as the retry note and the retried
     /// prompt both say it.
@@ -67,11 +73,40 @@ impl SpawnRecord {
         match (self.ending.as_str(), self.code) {
             ("timed out", _) => format!("timed out after {}", self.duration),
             ("interrupted", _) => "was interrupted by a run shutdown".to_string(),
+            (WITHHELD_ENDING, _) => {
+                "exited 0 and met its completion condition, and the engine withheld its release \
+                 edge because the visit released nothing"
+                    .to_string()
+            }
             (_, Some(0)) | (_, None) => {
                 "exited 0 without meeting this state's completion condition".to_string()
             }
             (_, Some(code)) => format!("exited {code}"),
         }
+    }
+}
+
+/// Give back the attempt an engine-withheld visit was charged, and say in the
+/// record that the edge, not the worker, is why the state has not moved.
+///
+/// The budget bounds a worker that could not answer for itself
+/// (§FS-rhei-agents.3.2.3). This one answered — exit `0`, completion condition
+/// met — and §FS-rhei-supervision.3.6 took its self-loop away. Charging it
+/// would run the budget out on the engine's own decision, and a supervisor
+/// bars its subtree while it is held, so that budget running out would leave
+/// the workspace recoverable only by `rhei reset`.
+///
+/// Written where the record already is: the visit is judged after the exit,
+/// which is after the spawn recorded itself. A record that will not be read or
+/// written is left alone — an attempt given back is a courtesy, never a thing
+/// the run depends on.
+// §FS-rhei-agents.3.2.3 §FS-rhei-agents.8.4 §FS-rhei-supervision.3.6
+fn uncharge_withheld_visit(record: &Path) {
+    let Some(mut stored) = read_spawn_record(record) else { return };
+    stored.charged = stored.charged.saturating_sub(1);
+    stored.ending = WITHHELD_ENDING.to_string();
+    if let Ok(body) = serde_json::to_string_pretty(&stored) {
+        let _ = fs::write(record, body);
     }
 }
 
@@ -176,6 +211,16 @@ impl SpawnPlan {
         budget: AttemptBudget,
     ) -> Option<String> {
         let previous = self.previous.as_ref()?;
+        // A withheld visit is unspent and keeps its attempts, so this is not a
+        // retry of it — it is the same visit again. §FS-rhei-supervision.3.6
+        if previous.ending == WITHHELD_ENDING {
+            return Some(format!(
+                "  Visiting Task {task_id} in state '{state_name}' again: the previous visit {} \
+                 (previous log: {}).",
+                previous.ending_sentence(),
+                previous.log.display()
+            ));
+        }
         let budget = match budget {
             AttemptBudget::Visit(budget) => budget.to_string(),
             AttemptBudget::Poll { max_attempts } => format!("{max_attempts} (poll.max_attempts)"),

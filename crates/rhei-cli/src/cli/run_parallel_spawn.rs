@@ -282,6 +282,9 @@ fn spawn_parallel_agent_work_item(
     // read from the same pre-spawn plan the sequential path reads it from.
     let subtree_before =
         subtree_shape_before_visit(task, &machines.set, &item.current_state);
+    // Read before the plan moves into the worker, as the outlook above is.
+    // §FS-rhei-agents.3.2.3
+    let spawn_record = plan.record.clone();
     let plan_for_thread = plan;
     let snapshot_preload_for_thread = snapshot_preload.clone();
     let snapshot_preload_for_result = snapshot_preload.clone();
@@ -371,6 +374,7 @@ fn spawn_parallel_agent_work_item(
                 visit_count: visit_for_result,
                 retry_outlook: outlook_for_result,
                 subtree_before,
+                spawn_record,
                 result,
                 accounting_recorded,
                 accounting_warning,

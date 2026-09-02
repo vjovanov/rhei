@@ -157,6 +157,117 @@ fn an_empty_supervising_visit_is_held_and_a_rerun_spawns_the_supervisor_again() 
     assert_state_anywhere(&plan_path, &machine_path, "1.1", "completed");
 }
 
+/// The hold has to stay answerable however long it lasts. The default attempt
+/// budget is two, so a third and a fourth run prove the withheld edge gives its
+/// attempt back; then writing the very file the warning named — no `rhei
+/// reset`, no hand transition — makes the next run proceed.
+// §FS-rhei-supervision.3.6 §FS-rhei-agents.3.2.3
+#[test]
+fn repeated_empty_visits_never_spend_the_attempt_budget() {
+    let (dir, plan_path, machine_path) = setup_supervision_with_agent(
+        "supervision-empty-visit-budget",
+        ONE_CHILD_PLAN,
+        brief_gated_machine(),
+        CONDITIONAL_BRIEF_AGENT,
+    );
+
+    // Four runs is twice the default budget: on a charged visit the third would
+    // already refuse to spawn. §FS-rhei-agents.3.2.3
+    for run in 1..=4 {
+        let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+        let combined = format!("{}{}", result.stdout, result.stderr);
+        assert!(
+            combined.contains("the visit released nothing"),
+            "run {run} visits the supervisor and holds it; got:\n{combined}"
+        );
+        assert!(
+            !combined.contains("attempts spent on this visit"),
+            "run {run} never charges the visit's budget; got:\n{combined}"
+        );
+    }
+    assert_eq!(
+        spawn_log(&dir),
+        vec!["plan.1 supervising 1".to_string(); 4],
+        "one visit per run, and the visit is still the first"
+    );
+
+    // The remedy the warning names, and nothing else.
+    let brief = dir.join("runtime/supervise/plan.1.1.md");
+    fs::create_dir_all(brief.parent().expect("brief dir")).expect("create brief dir");
+    fs::write(&brief, "Review it.\n").expect("write brief");
+    let recovered = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    assert_success(&recovered);
+    assert_task_state(&plan_path, &machine_path, "1", "completed");
+    assert_state_anywhere(&plan_path, &machine_path, "1.1", "completed");
+}
+
+/// What a held visit leaves behind: nothing. The fixture carries everything a
+/// fired self-loop would have rewritten — a spent visit count, a delivered
+/// checkpoint, a `phase` — plus an `**Assignee:**`, the field the release edge
+/// drops (§3.4), so the preservation §3.6 claims is asserted against a plan
+/// that has something to lose. The assignee sits outside the subtree because
+/// `rhei run` schedules neither a claimed ticket (§FS-rhei-run.3) nor a
+/// supervisor whose descendant is claimed (§3.1, the drain).
+// §FS-rhei-supervision.3.6 §FS-rhei-supervision.3.4
+#[test]
+fn a_held_visit_leaves_the_plan_file_untouched() {
+    const CARRIES_METADATA_PLAN: &str = r#"# Rhei: Second visit
+
+---
+structure:
+  maxLevels: 3
+metadata:
+  tasks:
+    1:
+      stateVisits:
+        supervising: 2
+      supervision:
+        phase: held
+        checkpoints:
+          - task: "1.2"
+            from: review
+            to: completed
+            visit: 1
+---
+
+## Tasks
+
+### Task 1: Supervise
+**State:** supervising-2
+
+#### Task 1.1: Review
+**State:** review
+
+#### Task 1.2: Review lexer
+**State:** completed
+
+> **Result:** [plan.1.2](runtime/results/plan.1.2.md)
+
+### Task 2: Elsewhere
+**State:** review
+**Assignee:** dana
+"#;
+    let (dir, plan_path, machine_path) = setup_supervision_with_agent(
+        "supervision-empty-visit-metadata",
+        CARRIES_METADATA_PLAN,
+        brief_gated_machine(),
+        CONDITIONAL_BRIEF_AGENT,
+    );
+    let result_path = dir.join("runtime/results/plan.1.2.md");
+    fs::create_dir_all(result_path.parent().expect("results dir")).expect("create results dir");
+    fs::write(&result_path, "## Result\n\nDone.\n").expect("write result");
+    let before = fs::read_to_string(&plan_path).expect("read plan");
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-callbacks", "--no-tui"]);
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(combined.contains("the visit released nothing"), "the visit is held; got:\n{combined}");
+    assert_eq!(
+        fs::read_to_string(&plan_path).expect("read plan"),
+        before,
+        "no transition fired, so the checkpoint, the visit count and the assignee all stand"
+    );
+}
+
 /// The same scenario through the worker pool: the parallel completion path
 /// mirrors the sequential one, so the rule has to bite there identically.
 // §FS-rhei-supervision.3.6 §FS-rhei-run.5

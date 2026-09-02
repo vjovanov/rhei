@@ -253,6 +253,16 @@ from silently completing fresh tasks without executing them.
      woken only by a descendant that moves — so a subtree that cannot move
      would leave the run beyond the reach of a rerun rather than merely
      stalled.
+
+     This is the one stall that does **not** charge the attempt budget above.
+     The budget bounds a worker that could not answer for itself; this worker
+     answered, and the engine withheld its edge, so the attempt is given back
+     and a fresh `rhei run` does visit the state again. "Once per run, forever"
+     is accepted here because the alternative is worse than unbounded: a
+     supervisor bars its subtree while it is held, so a spent budget would make
+     the workspace unrecoverable rather than merely slow, and within a run the
+     ticket is re-visited only after something else advanced
+     ([§FS-rhei-supervision.3.6](rhei-supervision.spec.md#36-empty-visits)).
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)

@@ -443,26 +443,53 @@ as re-read after the subprocess exits (§4.1):
 3. **The subtree can still move.** Some non-terminal descendant is, once the
    barrier lifts, either in the ready set (§3.2, reading `P` as released), or
    waiting on something that is not `P`'s to do: a `gating: true` state, where
-   a human owns the next move; a `poll:` state whose next attempt is still
-   ahead, where time does; or an unsatisfied `**Prior:**` naming a
-   non-terminal task **outside** `P`'s subtree, where other work does.
+   a human owns the next move; a `poll:` state, where time owns it; or an
+   unsatisfied `**Prior:**` naming a non-terminal task **outside** `P`'s
+   subtree, where other work does.
+
+   Every clause but the gate is **conjoined with the descendant's declared
+   `inputs:`**. Time and other work decide *when* a descendant is scheduled;
+   neither puts a file on disk. A poll that keeps firing and a prior that
+   eventually lands both leave a descendant waiting on a brief only `P` writes
+   exactly where it was, so reading either as "can move" re-creates the strand
+   this rule exists to prevent. Only `gating: true` is exempt, because a human
+   moves a gate with `rhei transition`, which reads no `inputs:` at all
+   ([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)).
 
 When none of them holds the visit is **empty**, and it is treated exactly as a
-failed visit (§3.5): **no transition fires**, `supervision.phase` stays
-`held`, `supervision.checkpoints` keeps every entry delivered before it,
-`stateVisits.<state>` is not incremented — the visit is not spent — and the
-`**Assignee:**` is not dropped, because the visit it was claimed for is not
-over. The task is still ready under §3.2, so a later pass, or a rerun of `rhei
-run`, spawns the same visit again. The engine warns at the exit, naming `P`,
-its state, and the descendants it left with nowhere to go, and records the
-ticket as stalled for the run report exactly as an unmet completion condition
-does ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5).
+failed visit (§3.5): **no transition fires**, and the plan file is not
+rewritten. `supervision.phase` stays `held`, `supervision.checkpoints` keeps
+every entry delivered before the visit, `stateVisits.<state>` is not
+incremented — the visit is not spent — and none of the other edits the release
+self-loop makes happens either, down to the `**Assignee:**` it drops (§3.4).
+The task is still ready under
+§3.2, so a later pass, or a rerun of `rhei run`, spawns the same visit again.
+The engine warns at the exit, naming `P`, its state, the descendants it left
+with nowhere to go and the files they are waiting for, and the one action that
+answers it — write what they wait for and run again. It records the ticket as
+stalled for the run report exactly as an unmet completion condition does
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5).
 
-Re-spawning is bounded by the attempt budget every other stalled state is
-bounded by ([§FS-rhei-agents.3.2.3](rhei-agents.spec.md#323-attempt-budget)): an unspent visit keeps its attempts, and
-they run out. An empty visit therefore ends in an honest halt naming the
-attempts it spent, never in a silent release — which is the whole difference,
-because a halt is a thing an operator can answer and a release was not.
+An empty visit does **not** spend the visit's attempt budget
+([§FS-rhei-agents.3.2.3](rhei-agents.spec.md#323-attempt-budget)). The budget bounds a worker that could not answer for
+itself, and this worker did: it exited `0` and met its completion condition,
+and the engine took the edge away. So the attempt it was charged is given
+back when the edge is withheld, and every later `rhei run` visits `P` again —
+the §3.5 rerun shape, with no ceiling that a run can leave behind it.
+
+That ceiling would be the strand in another form. A held `P` still bars its
+whole subtree (§3.2), so a budget that ran out would leave `P` unspawnable and
+its descendants barred: writing the very file the warning named would start
+nothing, and `rhei reset` would again be the only remedy. A halt has to be a
+thing an operator can answer, and the answer here has to keep working.
+
+What bounds the re-spawning instead is the rule that bounds every stalled
+ticket: the empty visit puts `P` out of this run's running
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5), and the run picks it up again only after something
+else advanced. A subtree that cannot move produces no such advance, so a run
+that has nothing else to do visits `P` exactly once and halts. The invariant of
+§3.1 holds: within one run, `P` is re-visited only when the world it supervises
+changed.
 
 A supervisor that is *already* `released` over a subtree where nothing can
 move — a workspace stranded before this rule existed, or one whose supervisor
