@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Main now carries a `-dev` version, so a build from main can no longer be
+  mistaken for the release it is ahead of.** Between releases the checked-in
+  version stayed at the last tag, and `rhei --version` on a binary built from
+  main 44 commits past `v0.3.3` still said `0.3.3`. That is not cosmetic: a
+  supervising fix, a live-run listing fix and a usage-measurement fix all sat
+  merged and uninstalled for a day precisely because nothing on the machine
+  could tell installed-from-main from installed-from-tag. Main now opens the
+  next patch as `X.Y.Z-dev` the moment a release goes out, and
+  `set-release-version.py` accepts and overwrites the suffix so the release path
+  round-trips `0.3.4-dev` to `0.3.4` unchanged. (PR #161)
+
 - **A poll state can now declare that it waits on a person, so a run parked on
   an author's reply stops reading as work in flight.** A poll and a gate are
   the two ways a Rhei workflow waits, and a workflow waiting for a reply could
