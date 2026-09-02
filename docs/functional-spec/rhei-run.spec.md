@@ -616,7 +616,13 @@ to whether the run ends non-zero (§4) — a poll inside its backoff window
 already counted as deliberate waiting there. What the field adds is how the run
 *reports* the ticket: it is named as waiting on that person rather than left to
 read as work in flight ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout), [§FS-rhei-run-report.4](rhei-run-report.spec.md#4-transition-ledger)). Under
-`--rhei`, the no-advancement line names it the same way.
+`--rhei`, the no-advancement line names it the same way — and under the same
+condition, that the poll be the whole reason the ticket is not moving. The
+claim answers first there as it does in the classification: a ticket with a
+live `**Assignee:**` is named on the halt line above, with `rhei release` as
+its remedy, and contributes nothing to this line rather than a second reason
+contradicting the first. An unsatisfied `**Prior:**` is named as the prior it
+is ([§FS-rhei-panta.6.1](rhei-panta.spec.md#61-readiness-and-rhei-next)).
 
 `snapshot.inherit` is rejected on polling states in v1. Snapshot emit,
 including auto-emit, is suppressed for self-loop attempts and runs only on a

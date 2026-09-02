@@ -184,3 +184,55 @@ metadata:
         predicted.stdout
     );
 }
+
+/// One run must not give one ticket two reasons. The `--rhei` no-work line
+/// reads the claim first, the way the halt line above it does: a claimed
+/// ticket is already named there with `rhei release` as its remedy, so naming
+/// its poll's person again promised an answer that could not move it.
+// §FS-rhei-run.5.1 §FS-rhei-panta.6.1
+#[test]
+fn the_scoped_no_work_line_reads_the_claim_before_the_person() {
+    let plan = r#"# Rhei: Claims
+
+## Tasks
+
+### Task 1: Watch CI
+**State:** ci-watch
+**Assignee:** builder
+
+### Task 2: Get the plan approved
+**State:** plan-approval
+**Prior:** 1
+
+### Task 3: Get the other plan approved
+**State:** plan-approval
+**Assignee:** bot
+"#;
+    let dir = unique_temp_dir("waiting-on-scoped-no-work");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", APPROVAL_MACHINE);
+
+    let result = run_cli(
+        "run",
+        &plan_path,
+        &machine_path,
+        &["--rhei", "plan", "--no-callbacks", "--no-tui"],
+    );
+
+    assert!(
+        result.stdout.contains("Task plan.3 (plan-approval): claimed by bot"),
+        "the halt block stopped naming the claim in:\n{}",
+        result.stdout
+    );
+    let no_work = result
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("No tasks could be advanced"))
+        .unwrap_or_else(|| panic!("no no-advancement line in:\n{}", result.stdout));
+    assert_eq!(
+        no_work,
+        "No tasks could be advanced in the --rhei scope (plan): \
+         Task plan.2 waiting on Task plan.1 (ci-watch).",
+        "a claimed ticket contributes no reason of its own, and the prior still names one"
+    );
+}

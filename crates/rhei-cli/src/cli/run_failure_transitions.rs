@@ -415,8 +415,14 @@ fn no_advancement_summary(
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {
-            // The prior answers first: it stops the poll from ever coming back,
-            // so a person's label would name a wait nobody can end.
+            // Claim, then prior, then the person — the halt classification's
+            // order: a claimed ticket is named above with `rhei release`, and
+            // the poll resumes itself out of neither. §FS-rhei-run.5.1
+            if task.assignee.is_some() {
+                return None;
+            }
+            // The prior answers before the person: it stops the poll from ever
+            // coming back, so a label would name a wait nobody can end.
             // §FS-rhei-run-report.3.1 §FS-rhei-states.2.5
             let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
