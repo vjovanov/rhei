@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rhei.accounting.usage.v1",
+  "title": "Rhei normalized accounting usage event v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "usage"],
+      "properties": {
+        "schema": { "const": "rhei.accounting.usage.v1" },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "total_tokens": { "type": "integer", "minimum": 0 },
+            "input_tokens": { "type": "integer", "minimum": 0 },
+            "cached_input_tokens": { "type": "integer", "minimum": 0 },
+            "cache_write_input_tokens": { "type": "integer", "minimum": 0 },
+            "output_tokens": { "type": "integer", "minimum": 0 },
+            "cached_output_tokens": { "type": "integer", "minimum": 0 },
+            "output_cache_write": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "status"],
+      "properties": {
+        "schema": { "const": "rhei.accounting.usage.v1" },
+        "status": { "const": "extractor-failed" }
+      }
+    }
+  ]
+}

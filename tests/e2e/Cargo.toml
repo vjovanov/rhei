@@ -24,7 +24,13 @@ path = "mod.rs"
 [dev-dependencies]
 rhei-core = { package = "rhei-plan", path = "../../crates/rhei-core" }
 rhei-cli = { path = "../../crates/rhei-cli" }
+jsonschema = { version = "0.18.3", default-features = false }
 serde_json = "1"
+# Keep jsonschema's broad transitive ranges on dependencies that Cargo 1.82 can
+# parse and rustc 1.82 can compile; CI verifies the workspace at that MSRV.
+time = "=0.3.36"
+url = "=2.5.2"
+uuid = "=1.11.0"
 
 # Only the pty-based interruption e2e needs this, and only on Unix — Windows is
 # in the CI matrix and `nix` does not build there. §FS-rhei-run-tui.1.5.7

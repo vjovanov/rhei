@@ -76,6 +76,9 @@ include!("cli/agent_command.rs");
 include!("cli/agent_spawn.rs");
 include!("cli/intervene.rs");
 include!("cli/accounting_price_book.rs");
+include!("cli/accounting_schemas.rs");
+include!("cli/accounting_records.rs");
+include!("cli/accounting_session.rs");
 include!("cli/accounting.rs");
 include!("cli/summary_command.rs");
 include!("cli/programs.rs");
@@ -147,6 +150,7 @@ mod tests {
     include!("cli/tests_spawn_records.rs");
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_accounting.rs");
+    include!("cli/tests_accounting_contract.rs");
     include!("cli/tests_accounting_prices.rs");
     include!("cli/tests_summary.rs");
     include!("cli/tests_settings_tooling.rs");

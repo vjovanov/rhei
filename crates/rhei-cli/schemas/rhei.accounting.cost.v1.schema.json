@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rhei.accounting.cost.v1",
+  "title": "Rhei cost JSON output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "summary", "task", "groups", "errors"],
+  "properties": {
+    "schema": { "const": "rhei.accounting.cost.v1" },
+    "summary": {
+      "oneOf": [
+        { "$ref": "#/$defs/summary" },
+        { "type": "null" }
+      ]
+    },
+    "task": {
+      "oneOf": [
+        { "$ref": "#/$defs/task" },
+        { "type": "null" }
+      ]
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "summary"],
+        "properties": {
+          "key": { "type": "string" },
+          "summary": { "$ref": "#/$defs/summary" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "dimension_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "status", "missing_count", "measured_count"],
+      "properties": {
+        "value": { "type": ["integer", "null"], "minimum": 0 },
+        "status": { "enum": ["measured", "partial", "unsupported", "omitted", "unknown"] },
+        "missing_count": { "type": "integer", "minimum": 0 },
+        "measured_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "input_total",
+        "input_cached_read",
+        "input_cache_write",
+        "output_total",
+        "output_cached_read",
+        "output_cache_write",
+        "cost_micro",
+        "priced_cost_micro",
+        "currency",
+        "coverage",
+        "pricing_status",
+        "invocation_count",
+        "measured_invocation_count",
+        "missing_invocation_count"
+      ],
+      "properties": {
+        "total": { "$ref": "#/$defs/dimension_summary" },
+        "input_total": { "$ref": "#/$defs/dimension_summary" },
+        "input_cached_read": { "$ref": "#/$defs/dimension_summary" },
+        "input_cache_write": { "$ref": "#/$defs/dimension_summary" },
+        "output_total": { "$ref": "#/$defs/dimension_summary" },
+        "output_cached_read": { "$ref": "#/$defs/dimension_summary" },
+        "output_cache_write": { "$ref": "#/$defs/dimension_summary" },
+        "cost_micro": { "type": ["integer", "null"], "minimum": 0 },
+        "priced_cost_micro": { "type": ["integer", "null"], "minimum": 0 },
+        "currency": { "type": ["string", "null"] },
+        "coverage": { "enum": ["complete", "partial", "unpriced", "none"] },
+        "pricing_status": { "enum": ["priced", "partial-price", "unpriced", "not-applicable"] },
+        "invocation_count": { "type": "integer", "minimum": 0 },
+        "measured_invocation_count": { "type": "integer", "minimum": 0 },
+        "missing_invocation_count": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "cli_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "store_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "measured_dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "source"],
+      "properties": {
+        "value": { "type": "integer", "minimum": 0 },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    },
+    "unavailable_dimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["unsupported", "omitted", "unknown"] }
+      }
+    },
+    "dimension": {
+      "oneOf": [
+        { "$ref": "#/$defs/measured_dimension" },
+        { "$ref": "#/$defs/unavailable_dimension" }
+      ]
+    },
+    "token_side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "cached_read", "cache_write"],
+      "properties": {
+        "total": { "$ref": "#/$defs/dimension" },
+        "cached_read": { "$ref": "#/$defs/dimension" },
+        "cache_write": { "$ref": "#/$defs/dimension" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "input", "output"],
+      "properties": {
+        "total": { "$ref": "#/$defs/dimension" },
+        "input": { "$ref": "#/$defs/token_side" },
+        "output": { "$ref": "#/$defs/token_side" }
+      }
+    },
+    "pricing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "currency", "amount_micro", "priced_amount_micro", "price_book_id"],
+          "properties": {
+            "status": { "const": "priced" },
+            "currency": { "type": "string" },
+            "amount_micro": { "type": "integer", "minimum": 0 },
+            "priced_amount_micro": { "type": "integer", "minimum": 0 },
+            "price_book_id": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "currency", "priced_amount_micro", "price_book_id"],
+          "properties": {
+            "status": { "const": "partial-price" },
+            "currency": { "type": "string" },
+            "priced_amount_micro": { "type": "integer", "minimum": 0 },
+            "price_book_id": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "currency", "price_book_id"],
+          "properties": {
+            "status": { "const": "unpriced" },
+            "currency": { "type": "string" },
+            "price_book_id": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "not-applicable" }
+          }
+        }
+      ]
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "invocation_id",
+        "task_id",
+        "state",
+        "visit",
+        "agent",
+        "started_at",
+        "ended_at",
+        "extraction_status",
+        "scope",
+        "tokens",
+        "pricing"
+      ],
+      "properties": {
+        "schema": { "const": "rhei.accounting.invocation.v1" },
+        "invocation_id": { "type": "string" },
+        "task_id": { "type": "string" },
+        "state": { "type": "string" },
+        "visit": { "type": "integer", "minimum": 0 },
+        "target_slug": { "type": "string" },
+        "agent": { "type": "string" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "started_at": { "type": "string" },
+        "ended_at": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "cli_session": { "$ref": "#/$defs/cli_session" },
+        "extraction_status": {
+          "enum": ["measured", "unsupported-agent", "extractor-unavailable", "extractor-failed", "no-usage-emitted"]
+        },
+        "scope": { "enum": ["aggregate-agent-process", "provider-call", "child-invocation"] },
+        "tokens": { "$ref": "#/$defs/tokens" },
+        "pricing": { "$ref": "#/$defs/pricing" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "title", "direct", "subtree", "invocations"],
+      "properties": {
+        "task_id": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "direct": {
+          "oneOf": [
+            { "$ref": "#/$defs/summary" },
+            { "type": "null" }
+          ]
+        },
+        "subtree": {
+          "oneOf": [
+            { "$ref": "#/$defs/summary" },
+            { "type": "null" }
+          ]
+        },
+        "invocations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/invocation" }
+        }
+      }
+    }
+  }
+}

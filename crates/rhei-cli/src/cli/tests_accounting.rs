@@ -11,6 +11,8 @@ fn accounting_test_record() -> AccountingInvocationRecord {
         model: Some("gpt-test".to_string()),
         started_at: "2026-05-20T10:00:00Z".to_string(),
         ended_at: "2026-05-20T10:00:00Z".to_string(),
+        duration_ms: None,
+        cli_session: None,
         extraction_status: "measured".to_string(),
         scope: "aggregate-agent-process".to_string(),
         tokens: AccountingTokens::default(),
@@ -279,6 +281,7 @@ fn claude_result_stream_usage_keeps_latest_cumulative_capture() {
         model: Some("claude-sonnet-4-6".to_string()),
         price_book: builtin_price_book(),
         slot: 0,
+        cli_session: Arc::new(Mutex::new(None)),
     };
     let sink: Arc<dyn rhei_tui::EventSink> = Arc::new(RecordingSink::default());
 
@@ -391,6 +394,7 @@ print(json.dumps({
         ended_at: std::time::SystemTime::now(),
         slot: Some(0),
         usage_capture_path: outcome.usage_capture_path.as_deref(),
+        cli_session: outcome.cli_session.as_ref(),
         log_path: Some(&log_path),
         price_book: &builtin_price_book(),
         sink: &sink_trait,
@@ -485,6 +489,7 @@ print(json.dumps({
         ended_at: std::time::SystemTime::now(),
         slot: Some(0),
         usage_capture_path: outcome.usage_capture_path.as_deref(),
+        cli_session: outcome.cli_session.as_ref(),
         log_path: Some(&log_path),
         price_book: &builtin_price_book(),
         sink: &sink_trait,

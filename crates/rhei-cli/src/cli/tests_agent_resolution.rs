@@ -583,6 +583,7 @@
             model: Some("claude-sonnet-4-6".to_string()),
             price_book: builtin_price_book(),
             slot: 3,
+            cli_session: Arc::new(Mutex::new(None)),
         };
         let result = r#"{"type":"result","subtype":"success","is_error":false,"result":"first\n\nsecond","usage":{"input_tokens":12,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":7}}"#;
 

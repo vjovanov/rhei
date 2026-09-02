@@ -56,6 +56,7 @@ Inspection:
   render      Render a markdown plan into a selected output format
   states      Print the states and allowed transitions for the configured state machine
   list        List tasks in a plan with optional filters
+  schema      Print or list published accounting JSON Schemas
   viz         Render a self-contained HTML flow visualization of a plan or workspace
 
 Templates:
@@ -400,6 +401,15 @@ enum Commands {
         /// Group run totals in text/JSON output
         #[arg(long, value_enum, default_value = "node")]
         by: CostGroup,
+    },
+    /// Print or list published accounting JSON Schemas
+    Schema {
+        /// Full accounting schema id to print; omitted, lists published ids
+        #[arg(value_name = "SCHEMA_ID", conflicts_with = "list")]
+        name: Option<String>,
+        /// List every published accounting schema id
+        #[arg(long)]
+        list: bool,
     },
     /// Print a compact Markdown run summary for a pull request body
     // §FS-rhei-summary.1: the positional resolves exactly as `rhei cost`'s does.

@@ -13,7 +13,7 @@ readme = "../../README.md"
 # The built-in templates, skills, and the flow-visualization asset are compiled
 # into the binary (§FS-rhei-templates.1, §FS-rhei-install-skills.4.3,
 # §AR-rhei-viz-flow.2), so they must travel with the published package.
-include = ["src/**/*", "templates/**/*", "skills/**/*", "assets/**/*"]
+include = ["src/**/*", "templates/**/*", "skills/**/*", "assets/**/*", "schemas/**/*"]
 
 [dependencies]
 rhei-core = { package = "rhei-plan", path = "../rhei-core", version = "=0.3.3" }

@@ -6,6 +6,17 @@
   discovery inside each test's unique temporary directory.** An unrelated `.git` marker above
   the test tree can no longer redirect agent-note writes into shared temporary
   state or make later init tests fail. (PR #153)
+- **Accounting artifacts now have a published consumer contract.** Versioned,
+  strict JSON Schemas for invocation, summary, usage, task, price-book, and
+  `rhei cost --json` records ship with the crate and are embedded behind
+  `rhei schema <schema-id>`; the bare command and `--list` enumerate the ids.
+  Invocation records now carry elapsed `duration_ms` and the exact native agent
+  session id when Claude Code, Codex, or Pi exposes one, while older v1 records
+  without either optional field remain readable. Native transcript paths stay
+  absent unless they can be derived without guessing.
+  [§FS-rhei-cost-accounting.3.4](functional-spec/rhei-cost-accounting.spec.md#34-timing-and-agent-cli-session)
+  [§FS-rhei-cost-accounting.8.1](functional-spec/rhei-cost-accounting.spec.md#81-published-accounting-schemas)
+  (PR #N)
 - **Measured agent runs can use a caller-supplied reproducible price book.**
   `rhei run ... --prices <PATH>` validates a local
   `rhei.accounting.prices.v1` book before starting agents, copies it into each
