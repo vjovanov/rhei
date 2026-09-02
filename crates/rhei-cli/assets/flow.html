@@ -546,7 +546,8 @@ function renderSurroundings(){
   head.appendChild(el("span",{class:"ttl",text:n.title}));
   const pl=el("span",{class:"pill",text:n.state}); pl.style.background=c; pl.style.color=pillInk(c);
   head.appendChild(pl);
-  const flags=[]; if(ms){ if(ms.initial)flags.push("initial"); if(ms.terminal)flags.push("terminal"); if(ms.gating)flags.push("gating"); }
+  // The ⏸ glyph says it is somebody's turn; the label says whose. §FS-rhei-viz.4
+  const flags=[]; if(ms){ if(ms.initial)flags.push("initial"); if(ms.terminal)flags.push("terminal"); if(ms.gating)flags.push("gating"); if(ms.waiting_on)flags.push("waiting on "+ms.waiting_on); }
   flags.push(n.kind==="task"?"root task":"depth "+n.depth);
   head.appendChild(el("span",{class:"flags",text:flags.join(" · ")}));
   // Deep link: copy a URL whose hash opens this node (§FS-rhei-viz §1).
@@ -1112,6 +1113,8 @@ function renderMachineDetail(name){
   head.appendChild(pl);
   const flags=[]; if(ms.initial)flags.push("initial"); if(ms.terminal)flags.push("terminal"); if(ms.gating)flags.push("gating");
   if(ms.visits)flags.push(`counted ×${ms.visits}`);
+  // §FS-rhei-viz.6: the state-detail panel names the person its poll waits on.
+  if(ms.waiting_on)flags.push(`waiting on ${ms.waiting_on}`);
   if(flags.length) head.appendChild(el("span",{class:"flags",text:flags.join(" · ")}));
   box.appendChild(head);
   if(ms.description) box.appendChild(el("div",{class:"desc",text:ms.description}));

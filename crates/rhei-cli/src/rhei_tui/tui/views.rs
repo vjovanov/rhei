@@ -400,7 +400,7 @@ pub(super) fn inspector_lines(
     (lines, focus_row)
 }
 
-fn task_flags(state: &UiState, task: &TaskRow) -> String {
+pub(super) fn task_flags(state: &UiState, task: &TaskRow) -> String {
     let mut flags = Vec::new();
     if task.depth == 0 {
         flags.push("root task".to_string());
@@ -416,6 +416,11 @@ fn task_flags(state: &UiState, task: &TaskRow) -> String {
         }
         if st.gating {
             flags.push("gating".to_string());
+        }
+        // The pause color says it is somebody's turn; only the label says
+        // whose. §FS-rhei-viz.4
+        if let Some(label) = &st.waiting_on {
+            flags.push(format!("waiting on {label}"));
         }
     }
     if state.deferred.contains(&task.id) {
@@ -719,6 +724,10 @@ pub(super) fn render_machine(f: &mut Frame, area: Rect, state: &UiState) {
         }
         if let Some(visits) = st.visits {
             flags.push(format!("counted ×{visits}"));
+        }
+        // §FS-rhei-viz.6: the state detail names the person its poll waits on.
+        if let Some(label) = &st.waiting_on {
+            flags.push(format!("waiting on {label}"));
         }
         if !flags.is_empty() {
             lines.push(dim_line(&state.theme, &flags.join(" · ")));
