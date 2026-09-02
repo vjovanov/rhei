@@ -13,7 +13,7 @@
   the operator cut mid-path, naming a lock file that could not be found; on
   macOS CI it also flaked the run-lock end-to-end test that gates a release.
   The log is now emptied at launch and opened append-only, so two consoles
-  interleave by lines and neither can destroy the other's bytes. (PR #N)
+  interleave by lines and neither can destroy the other's bytes. (PR #163)
 
 - **Every declaration is listed in its folder's index.** `grund check` warned
   that ten declarations were absent from their index README and that the warning
