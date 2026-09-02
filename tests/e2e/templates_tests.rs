@@ -1089,6 +1089,7 @@ transitions:
 fn instantiate_defaults_into_the_enclosing_project_keeping_its_machine() {
     let dir = unique_temp_dir("instantiate-project-default");
     write_machine_template(&dir, "audit");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
 
     let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
@@ -1192,6 +1193,7 @@ fn instantiate_composes_templates_with_different_machines_into_one_project() {
     let dir = unique_temp_dir("instantiate-project-compose");
     write_runnable_machine_template(&dir, "audit");
     write_runnable_machine_template(&dir, "triage");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
     write_mock_agent_settings(&dir);
 
@@ -1257,6 +1259,7 @@ fn instantiate_hoists_template_settings_to_the_project_root() {
 }
 "#,
     );
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     assert!(run_raw(&["init", "--here"], &dir).status.success(), "init should succeed");
 
     let result = run_raw(&["instantiate", "audit", "subject=payments"], &dir);
