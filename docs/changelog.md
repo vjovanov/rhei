@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **A detached run's console log is appended to, so one run can no longer
+  overwrite another's diagnostic in it.** The launcher opened
+  `runtime/run.log` truncating and without `O_APPEND`, and the launch lock it
+  relied on for safety only serialises launchers, not a live run's writes.
+  Where the pre-check is blind — two launches sharing a root, so the run lock
+  is what refuses the second — a launcher emptied the log a running child still
+  held open, and that child's next write landed at its old offset, in the
+  middle of the refusal the losing child had just rendered. The refusal reached
+  the operator cut mid-path, naming a lock file that could not be found; on
+  macOS CI it also flaked the run-lock end-to-end test that gates a release.
+  The log is now emptied at launch and opened append-only, so two consoles
+  interleave by lines and neither can destroy the other's bytes. (PR #N)
+
 - **Every declaration is listed in its folder's index.** `grund check` warned
   that ten declarations were absent from their index README and that the warning
   becomes an error in grund 0.13.0; the entries are added now so the gate stays
