@@ -93,6 +93,21 @@ impl StateMachine {
         Ok(())
     }
 
+    /// Trim every declared `poll.waiting_on` once, so the stored label is the
+    /// one every surface prints and no reader has to normalize again — the
+    /// serialized machine and the text surfaces cannot then disagree about the
+    /// same person. Runs after [`Self::validate_poll_configuration`], which has
+    /// already refused a label that is blank once trimmed.
+    // §FS-rhei-states.2.5
+    fn normalize_poll_waiting_on(&mut self) {
+        for state in self.states.values_mut() {
+            let Some(poll) = state.poll.as_mut() else { continue };
+            let Some(label) = poll.waiting_on.as_deref() else { continue };
+            let trimmed = label.trim();
+            poll.waiting_on = (!trimmed.is_empty()).then(|| trimmed.to_string());
+        }
+    }
+
     /// Validate the per-state `execute_on:` field: a legal value, an
     /// agent-bearing state that is neither final, gating, program-driven nor
     /// polling, no fanout, and a self-loop transition to release the subtree

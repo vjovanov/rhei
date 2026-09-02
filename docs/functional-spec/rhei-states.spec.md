@@ -322,6 +322,10 @@ waiting on a human being as live work.
 - **The value is a label, not an identity.** It is short free-form text naming
   who is being waited on for a reader — `author`, `reviewer`, a team name. Rhei
   never resolves it to an account, notifies it, or authorizes against it.
+  Surrounding whitespace is not part of it: the label is trimmed once when the
+  machine loads, so the stored value is the one every surface shows and the
+  machine's own JSON cannot name a different person from the text beside it. A
+  label that is blank once trimmed is the error in §FS-rhei-states.1.3.
 - **Scheduling is unchanged.** The state still self-resumes on its own
   `interval`, still releases its `--parallel` slot between attempts, still
   counts attempts against `max_attempts`, and still leaves the state by an

@@ -192,11 +192,12 @@ pub struct PollConfig {
 }
 
 impl PollConfig {
-    /// The person this poll waits on, trimmed, or `None` for a machine-backoff
-    /// poll. Every surface reads the label through here so one poll reads the
-    /// same way everywhere. §FS-rhei-states.2.5
+    /// The person this poll waits on, or `None` for a machine-backoff poll.
+    /// The stored label is already the printed one: loading normalizes it, so
+    /// the serialized field and every text surface name the same person.
+    /// §FS-rhei-states.2.5
     pub fn waiting_on(&self) -> Option<&str> {
-        self.waiting_on.as_deref().map(str::trim).filter(|label| !label.is_empty())
+        self.waiting_on.as_deref()
     }
 }
 
