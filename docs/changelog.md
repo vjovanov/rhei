@@ -17,10 +17,15 @@
   end-of-run summary and report put the ticket under **Waiting** with a calm
   marker instead of Attention, keep it out of `could not advance`, and give the
   ledger the label as its reason; and viz, the TUI, and the dashboard classify
-  it as a pause rather than active work. Scheduling is untouched — same
-  interval, same slot release, same attempt budget, same exit statuses — and
-  everything is absent for a poll that does not declare the field, so existing
-  machines read exactly as they did.
+  it as a pause and name the label in their detail panels. A claim or an
+  unfinished prior still outranks the wait, because neither is something the
+  person named can answer. Scheduling is untouched — same interval, same slot
+  release, same attempt budget, same exit statuses — and every part of this is
+  absent for a poll that does not declare the field. One thing does change for
+  every machine: the durable report's transition ledger now explains a held
+  descendant as `held by supervisor Task <P> (<state>)` instead of `stalled in
+  non-terminal state <state>`, which is what the run's other surfaces already
+  said about it.
   [§FS-rhei-states.2.5](functional-spec/rhei-states.spec.md#25-waiting-on-a-person)
   (PR #N)
 - **A supervising visit that released nothing no longer strands the run.** An
