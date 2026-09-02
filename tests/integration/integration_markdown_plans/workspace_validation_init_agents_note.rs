@@ -132,3 +132,58 @@ fn init_strips_an_orphaned_begin_marker_without_eating_user_content() {
     assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
     assert!(!agents.contains("Old text."), "stale note body removed: {agents}");
 }
+
+/// A host inside a repository it does not own keeps its own note: the
+/// enclosing root's hand-written instruction file is never modified, and a
+/// printed hint takes the place of the write it used to make. §FS-rhei-init.4
+fn assert_the_note_stays_in_the_host(prefix: &str, mode: &[&str], location: &str) {
+    const ROOT_RULES: &str = "# House rules\n\nBe kind.\n";
+    let repo = unique_temp_dir(prefix);
+    fs::create_dir_all(repo.join(".git")).expect("mark repo root");
+    fs::write(repo.join("AGENTS.md"), ROOT_RULES).expect("write root agents");
+    let host = repo.join("host");
+    fs::create_dir_all(&host).expect("create host");
+    // The hint names the *root's* file; only the enclosing directory name
+    // tells it apart from the note written into the host.
+    let root_note = format!(
+        "{}{}AGENTS.md",
+        repo.file_name().and_then(|name| name.to_str()).expect("repo directory name"),
+        std::path::MAIN_SEPARATOR
+    );
+
+    let output = rhei_command().arg("init").arg(&host).args(mode).output().expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    let note = fs::read_to_string(host.join("AGENTS.md")).expect("host agent note");
+    assert!(
+        note.contains("<!-- rhei:begin -->") && note.contains(location),
+        "the note belongs in the host and names the project location: {note}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join("AGENTS.md")).expect("root agents"),
+        ROOT_RULES,
+        "the enclosing repository's AGENTS.md must be left byte-identical"
+    );
+    assert!(
+        stdout.contains("Also changed in the host directory: .gitignore, AGENTS.md")
+            && stdout.contains("Hint: init writes nothing above the host.")
+            && stdout.contains(&root_note),
+        "init should name the host change and hint at the root's file: {stdout}"
+    );
+}
+
+/// Adopting a subdirectory of someone else's repository (#116).
+#[test]
+fn init_here_writes_the_note_in_the_host_not_the_enclosing_repository_root() {
+    assert_the_note_stays_in_the_host(
+        "init-enclosing-here",
+        &["--here"],
+        "This directory is a Rhei (Panta) project.",
+    );
+}
+
+/// The same host, in default mode, where the project is the `panta/` child.
+#[test]
+fn init_writes_the_note_in_the_host_not_the_enclosing_repository_root() {
+    assert_the_note_stays_in_the_host("init-enclosing-default", &[], "lives in `panta/`");
+}

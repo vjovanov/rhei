@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`rhei init` no longer writes outside the directory you gave it.** The
+  agent-discovery note was anchored at the enclosing git repository root, so
+  `rhei init <subdir>` inside somebody else's repository appended the note to
+  that repository's tracked, hand-written `AGENTS.md` — a file the user never
+  named, and one that init did not even list among the files it changed
+  (#116). The walk-up could not tell a plans subdirectory of the repository
+  the agent works in from a host that merely happens to sit inside an
+  unrelated one. The note now always lands in the host directory, where it is
+  reported like every other host change, and an enclosing repository's
+  instruction file is never read or modified. Where the host does sit inside a
+  repository, init prints one hint naming that root's `AGENTS.md` so adding a
+  pointer stays the user's decision. (PR #N)
+
 - **A detached run's console log is appended to, so one run can no longer
   overwrite another's diagnostic in it.** The launcher opened
   `runtime/run.log` truncating and without `O_APPEND`, and the launch lock it

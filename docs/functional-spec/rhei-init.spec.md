@@ -116,20 +116,20 @@ hand-maintained ignore file is never rewritten or reordered.
 ## 4. Agent-discovery note (`AGENTS.md`)
 
 Rhei projects are driven by coding agents, and an agent dropped into a
-repository has no way to know it plans work with Rhei. Init creates
-`AGENTS.md` at the **repository root** — the enclosing directory containing
-`.git`, falling back to the host when there is none — or appends to an
-existing one, with a short note between stable markers naming where the
-project lives.
+directory has no way to know it plans work with Rhei. Init creates
+`AGENTS.md` in the **host directory** — the directory `rhei init` was given —
+or appends to an existing one, with a short note between stable markers naming
+where the project lives. Init never writes above the host.
 
-One exception: when the root has no `AGENTS.md` but does have a `CLAUDE.md`,
-the note is appended to `CLAUDE.md` instead. A repository whose agent
+One exception: when the host has no `AGENTS.md` but does have a `CLAUDE.md`,
+the note is appended to `CLAUDE.md` instead. A project whose agent
 instructions live only in `CLAUDE.md` has an agent that never opens
 `AGENTS.md`, so creating one there files the note where nobody reads — the
-note goes into the instruction file the repository actually uses. A repository
-with both files (including the common `CLAUDE.md → AGENTS.md` symlink) keeps
-`AGENTS.md` as the target, and re-running init finds and rewrites the note in
-whichever file carries it. Init's output names the file it changed either way.
+note goes into the instruction file that is actually used. A host with both
+files (including the common `CLAUDE.md → AGENTS.md` symlink) keeps `AGENTS.md`
+as the target, and re-running init finds and rewrites the note in whichever
+file carries it. Init names the file it changed either way, in the host-changes
+list (§5).
 
 The note:
 
@@ -147,16 +147,28 @@ Orchestration (`rhei run`) is started by humans, never by agents.
 <!-- rhei:end -->
 ```
 
-The note is anchored at the repository root because that is the file coding
-agents read. Anchoring it at the host instead buried it inside the adopted
-directory whenever `rhei init <subdir> --here` was used for its documented
-purpose — adopting a directory of existing, versioned plans — which is
-precisely the case where nothing else advertises the project. When the note
-lands somewhere other than the host, init says so and names the path.
+The note is anchored at the host because the host is the only directory the
+user named. An earlier revision anchored it at the enclosing **repository
+root** — the nearest ancestor containing `.git` — so that a directory of plans
+adopted with `rhei init <subdir> --here` was advertised where coding agents
+read. That walk cannot tell a plans subdirectory of the repository the agent
+works in from a host that merely happens to sit inside an unrelated
+repository, and in the second case init appended the note to a tracked,
+hand-written instruction file the user never named. An enclosing repository's
+`AGENTS.md` or `CLAUDE.md` is therefore never read for content and never
+modified.
 
-The first sentence names where the project is relative to that root: `panta/`
-in default mode, the relative path in `--here` mode, and "This directory is a
-Rhei (Panta) project." when the root and the project are the same directory. The note deliberately names only the worker surface —
+Discoverability from an enclosing root is the user's call, and init only
+prompts it: when the note is being written and the host lies strictly inside a
+git repository, init prints one hint line naming that root's instruction file,
+so a user who wants agents starting there to find the project can add a pointer
+themselves. The hint is a suggestion, never a write. It follows the layout, not
+the write: a re-run that changes nothing still prints it, because it describes
+where the project sits rather than a file init touched.
+
+The first sentence of the note names where the project is relative to the
+host: `panta/` in default mode, and "This directory is a Rhei (Panta)
+project." with `--here`, where the host is the project itself. The note deliberately names only the worker surface —
 `list`, `next`, `complete`, `validate` — and marks `rhei run` as
 human-initiated: orchestration spawns agent fleets and spends money, so an
 agent must never be instructed to start it. Rewriting the note first strips every trace of a previous

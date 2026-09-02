@@ -136,34 +136,22 @@ help = init_conflict_help(),
         }
         seed_gitignore(&project, &["runtime/", ".rhei/cache/"])?;
     }
-    let mut agents_note_path = None;
     if !no_agents {
         let (changed, path) = write_agents_note(&host, here)?;
-        // Compared as files, not as spellings: the note's directory comes back
-        // canonicalized, which on Windows is the `\\?\` verbatim form of a
-        // path `host` spells plainly. `==` therefore said "somewhere else" for
-        // a note written into the host directory itself, and init both left it
-        // out of the changed list and announced it as a repository-root write.
-        let at_host = path.parent().is_some_and(|parent| same_path(parent, &host));
-        if changed && at_host {
+        if changed {
             // Name the actual file: the note can land in CLAUDE.md when
-            // that is the instruction file the repository uses. §FS-rhei-init.4
+            // that is the instruction file the host uses. §FS-rhei-init.4
             let name = path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "AGENTS.md".to_string());
             host_changes.push(name);
-        } else if changed {
-            agents_note_path = Some(path);
         }
     }
     report_initialized_project(&project, &title, here);
     report_host_changes(&host_changes, here);
-    if let Some(path) = agents_note_path {
-        println!(
-            "Wrote the agent-discovery note to {} (the repository root).",
-            display_path(&path)
-        );
+    if !no_agents {
+        report_enclosing_repository_hint(&host);
     }
     println!("Next: `rhei install-skills` wires agent skills; `rhei list` shows the project.");
     // A fresh project's real next step is its first rhei, and the block is
@@ -244,25 +232,14 @@ fn seed_gitignore(dir: &Path, entries: &[&str]) -> MietteResult<bool> {
 /// every trace of a previous note first so it stays idempotent. `true` when it
 /// changed, so the caller can name it. §FS-rhei-init.4 §FS-rhei-init.5
 fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
-    // The note exists to be *read* by coding agents, which read the repository
-    // root. Writing it into the adopted plans directory buried it exactly where
-    // no agent looks. §FS-rhei-init.5
-    let anchor = repository_root(host).unwrap_or_else(|| host.to_path_buf());
-    let path = agents_note_target(&anchor);
-    // `same_path` rather than `==`: `anchor` is canonicalized and `host` is
-    // whatever the caller spelled, which are the same directory in different
-    // words on every platform and visibly so on Windows.
-    let location = if same_path(&anchor, host) {
-        if here {
-            "This directory is a Rhei (Panta) project.".to_string()
-        } else {
-            "The Rhei (Panta) project for this repository lives in `panta/`.".to_string()
-        }
+    // §FS-rhei-init.4: anchored at the host, the only directory the user named
+    // — an earlier revision walked up to the enclosing repository root and
+    // appended to a tracked instruction file nobody had asked it to touch.
+    let path = agents_note_target(host);
+    let location = if here {
+        "This directory is a Rhei (Panta) project."
     } else {
-        format!(
-            "The Rhei (Panta) project for this repository lives in `{}`.",
-            relative_path(&anchor, host).display()
-        )
+        "The Rhei (Panta) project for this repository lives in `panta/`."
     };
     let block = format!(
         "{AGENTS_NOTE_BEGIN}\n## Rhei\n\n{location} {AGENTS_NOTE_TAIL}\n{AGENTS_NOTE_END}\n"
@@ -285,17 +262,17 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
     Ok((true, path))
 }
 
-/// Which instruction file at the root receives the agent-discovery note.
+/// Which instruction file in `dir` receives the agent-discovery note.
 ///
-/// `AGENTS.md` is the canonical target, but a repository whose agent
+/// `AGENTS.md` is the canonical target, but a directory whose agent
 /// instructions live only in `CLAUDE.md` has an agent that never opens
 /// `AGENTS.md` — the note must land in the file that agent actually reads.
 /// A file already carrying the note wins outright so a re-run rewrites in
 /// place instead of duplicating the note into a newer sibling.
 // §FS-rhei-init.4: CLAUDE.md-only repositories get the note in CLAUDE.md.
-fn agents_note_target(anchor: &Path) -> PathBuf {
-    let agents = anchor.join("AGENTS.md");
-    let claude = anchor.join("CLAUDE.md");
+fn agents_note_target(dir: &Path) -> PathBuf {
+    let agents = dir.join("AGENTS.md");
+    let claude = dir.join("CLAUDE.md");
     let carries_note = |path: &Path| {
         fs::read_to_string(path).is_ok_and(|content| strip_rhei_note(&content) != content)
     };
@@ -322,6 +299,31 @@ fn repository_root(dir: &Path) -> Option<PathBuf> {
         current = candidate.parent();
     }
     None
+}
+
+/// A host inside a repository it does not own gets a *hint*, never a write:
+/// an agent starting at the enclosing root will not see a note that lives in
+/// the host, and only the user can decide to point it there. Printed whenever
+/// the layout calls for it, not only when the note changed — it describes
+/// where the project sits, not a file init touched. §FS-rhei-init.4
+fn report_enclosing_repository_hint(host: &Path) {
+    let Some(root) = repository_root(host) else {
+        return;
+    };
+    // `same_path` rather than `==`: `root` comes back canonicalized and `host`
+    // is whatever the caller spelled — the same directory in different words on
+    // every platform, and visibly so on Windows.
+    if same_path(&root, host) {
+        return;
+    }
+    // Absolute, not shortened: the whole point of the line is that this file
+    // is in a *different* directory from the host, and a bare `AGENTS.md`
+    // relative to the invocation directory reads as the one just written.
+    println!(
+        "Hint: init writes nothing above the host. Add a pointer in {} yourself if agents \
+         starting at the enclosing repository root should find this project.",
+        agents_note_target(&root).display()
+    );
 }
 
 /// Name the host files init changed and state the gitignore consequence. Doing
