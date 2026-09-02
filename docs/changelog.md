@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A supervising visit that released nothing no longer strands the run.** An
+  agent visit in an `execute_on:` state that exited `0` without moving its
+  subtree or leaving it able to move used to fire the self-loop anyway, which
+  released the subtree and spent the only edge that could ever wake the
+  supervisor again — the descendants stayed blocked, no checkpoint could
+  arrive, and every rerun invoked nothing while advising a rerun. `rhei run`
+  now withholds that self-loop and holds the state exactly as it holds a failed
+  visit: no transition, `phase: held`, checkpoints preserved, the visit
+  unspent, and a warning naming the descendants left with nowhere to go — so a
+  rerun spawns the same visit again, within its ordinary attempt budget. A
+  visit that moved a descendant, or left one schedulable, gated on a human,
+  polling, or waiting on work outside the subtree, releases as before, and
+  conditioned exits are untouched. A supervisor a previous release already
+  stranded now gets a halt row that says so instead of "rerun to pick it up".
+  [§FS-rhei-supervision.3.6](functional-spec/rhei-supervision.spec.md#36-empty-visits)
+  (PR #N)
 - **`rhei init` integration and end-to-end tests now contain repository
   discovery inside each test's unique temporary directory.** An unrelated `.git` marker above
   the test tree can no longer redirect agent-note writes into shared temporary

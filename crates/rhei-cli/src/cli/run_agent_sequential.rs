@@ -340,6 +340,9 @@ fn run_sequential_agent_invocation(
             snapshot_preload,
             visit_count,
             retry_outlook: plan.retry_outlook(budget),
+            // §FS-rhei-supervision.3.6: what the visit is about to be judged
+            // against, read before it can change anything.
+            subtree_before: subtree_shape_before_visit(task, &machines.set, current_state),
             result: spawn_result,
         },
         progress,

@@ -41,6 +41,16 @@ enum HaltCause {
     /// halt names the missing line rather than pointing at logs.
     // §FS-rhei-supervision.1.2 §FS-rhei-supervision.4.1
     SupervisorHasNoTerminalEdge { suggested_final: String },
+    /// A supervisor that released its subtree and can never be woken again:
+    /// every non-terminal descendant beneath it is blocked, so no checkpoint
+    /// can arrive and a released supervisor is scheduled by nothing else.
+    ///
+    /// Only a workspace stranded before §FS-rhei-supervision.3.6 withheld that
+    /// self-loop reaches this, or one whose supervisor steered its subtree into
+    /// a corner. Either way "not scheduled … rerun to pick it up" was the one
+    /// remedy that provably does nothing, and this row names the ones that do.
+    // §FS-rhei-supervision.3.6 §FS-rhei-run-report.3.1
+    SupervisorStrandedBySelfLoop { open: String },
     /// A live `**Assignee:**`; the scheduler never schedules a claimed ticket.
     Claimed { assignee: String },
     /// An unsatisfied `**Prior:**`, already formatted as `Task <id> (<state>)`.
@@ -143,6 +153,18 @@ impl HaltCause {
                 format!(
                     "add `- {{from: {state}, to: {suggested_final}, condition: \
                      openDescendants < 1}}` to the machine's transitions"
+                ),
+            ),
+            // §FS-rhei-supervision.3.6: the checkpoint is the only wake, so
+            // the remedy is whatever lets a descendant produce one.
+            HaltCause::SupervisorStrandedBySelfLoop { open } => (
+                format!(
+                    "released its subtree on a visit that changed nothing, and nothing beneath \
+                     it can move: {open}"
+                ),
+                format!(
+                    "a released supervisor is woken only by a descendant that moves: unblock \
+                     one of the tickets above and rerun, or `rhei reset` to start Task {id} over"
                 ),
             ),
             HaltCause::Claimed { assignee } => (
@@ -305,6 +327,23 @@ fn classify_halt(
         return HaltCause::SupervisorHasNoTerminalEdge {
             suggested_final: suggested_final_state(machine, &state),
         };
+    }
+    // A supervisor that released a subtree nothing can move is not "not
+    // scheduled": it is unwakeable, and a rerun cannot change that.
+    // §FS-rhei-supervision.3.6
+    if task_is_supervising(task, machine) {
+        let held = SupervisedSubtree {
+            rhei,
+            machines,
+            roots: ReadySetRoots {
+                workspace_root: roots.workspace_root,
+                task_roots: roots.task_roots,
+            },
+            supervisor: task,
+        };
+        if let Some(open) = stranded_released_supervisor(&held, &open) {
+            return HaltCause::SupervisorStrandedBySelfLoop { open };
+        }
     }
     if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
         return HaltCause::Gate;

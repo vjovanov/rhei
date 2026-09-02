@@ -25,6 +25,9 @@ struct SequentialAgentCompletion<'a> {
     /// and read here, where the run says what it will do next.
     // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
     retry_outlook: RetryOutlook,
+    /// The supervisor's subtree as this spawn found it, for a supervising
+    /// state; `None` for every other. §FS-rhei-supervision.3.6
+    subtree_before: Option<SubtreeShape>,
     result: MietteResult<AgentSpawnOutcome>,
 }
 
@@ -56,6 +59,7 @@ fn handle_sequential_agent_completion(
         snapshot_preload,
         visit_count,
         retry_outlook,
+        subtree_before,
         result: spawn_result,
     } = completion;
     let task_id_str = &task_id_str;
@@ -309,14 +313,28 @@ fn handle_sequential_agent_completion(
                                 &snapshot_preload,
                             )
                         };
-                    match try_auto_advance_task(
-                        input,
-                        machines,
-                        task_id_str,
-                        state_before,
-                        opts.no_callbacks(),
-                        Some(&mut emit_before_transition),
-                    ) {
+                    // §FS-rhei-supervision.3.6: a visit that released nothing
+                    // must not spend the self-loop that releases the subtree.
+                    let empty_visit = empty_supervising_visit(FinishedVisit {
+                        workspace_root,
+                        plan: &reloaded,
+                        machines: &machines.set,
+                        task_id: &target_id,
+                        state: state_before,
+                        before: subtree_before.as_ref(),
+                    });
+                    let advance = match empty_visit {
+                        Some(_) => Ok(None),
+                        None => try_auto_advance_task(
+                            input,
+                            machines,
+                            task_id_str,
+                            state_before,
+                            opts.no_callbacks(),
+                            Some(&mut emit_before_transition),
+                        ),
+                    };
+                    match advance {
                         Ok(Some(to_state)) => {
                             run_info!(
                                 "  Task {} auto-advanced: '{}' -> '{}'",
@@ -347,19 +365,26 @@ fn handle_sequential_agent_completion(
                                     }
                                 }
                             }
-                            emit_exit_zero_warnings(
-                                workspace_root,
-                                &task_workspace_root,
-                                machine,
-                                loaded.rhei.metadata.as_ref(),
-                                task,
-                                task_id_str,
-                                state_before,
-                                selected_forward_transition(&loaded.rhei, machine, task)
-                                    .as_deref(),
-                                retry_outlook,
-                                sink,
-                            );
+                            match &empty_visit {
+                                // §FS-rhei-supervision.3.6: the edge was
+                                // withheld, so say that, not "did not advance".
+                                Some(warning) => {
+                                    run_warn!("{}", warning);
+                                }
+                                None => emit_exit_zero_warnings(
+                                    workspace_root,
+                                    &task_workspace_root,
+                                    machine,
+                                    loaded.rhei.metadata.as_ref(),
+                                    task,
+                                    task_id_str,
+                                    state_before,
+                                    selected_forward_transition(&loaded.rhei, machine, task)
+                                        .as_deref(),
+                                    retry_outlook,
+                                    sink,
+                                ),
+                            }
                             // Did not move; the rest of the pass must look
                             // elsewhere. §FS-rhei-run.3
                             progress.stalled_tasks.insert(task_id_str.clone());

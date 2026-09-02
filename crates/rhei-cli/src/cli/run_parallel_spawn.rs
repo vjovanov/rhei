@@ -278,6 +278,10 @@ fn spawn_parallel_agent_work_item(
     // Read before the plan moves into the worker: only here are the plan and
     // the resolved budget both in hand. §FS-rhei-agents.3.2.1
     let outlook_for_result = plan.retry_outlook(budget);
+    // §FS-rhei-supervision.3.6: what the visit is about to be judged against,
+    // read from the same pre-spawn plan the sequential path reads it from.
+    let subtree_before =
+        subtree_shape_before_visit(task, &machines.set, &item.current_state);
     let plan_for_thread = plan;
     let snapshot_preload_for_thread = snapshot_preload.clone();
     let snapshot_preload_for_result = snapshot_preload.clone();
@@ -366,6 +370,7 @@ fn spawn_parallel_agent_work_item(
                 snapshot_preload: snapshot_preload_for_result,
                 visit_count: visit_for_result,
                 retry_outlook: outlook_for_result,
+                subtree_before,
                 result,
                 accounting_recorded,
                 accounting_warning,

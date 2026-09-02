@@ -59,6 +59,9 @@ struct ParallelAgentCompletion {
     /// the run says what it will do next.
     // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
     retry_outlook: RetryOutlook,
+    /// The supervisor's subtree as this spawn found it, for a supervising
+    /// state; `None` for every other. §FS-rhei-supervision.3.6
+    subtree_before: Option<SubtreeShape>,
     result: MietteResult<AgentSpawnOutcome>,
     accounting_recorded: bool,
     accounting_warning: Option<String>,
@@ -80,6 +83,9 @@ struct ParallelAgentExit {
     /// the run says what it will do next.
     // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
     retry_outlook: RetryOutlook,
+    /// The supervisor's subtree as this spawn found it, for a supervising
+    /// state; `None` for every other. §FS-rhei-supervision.3.6
+    subtree_before: Option<SubtreeShape>,
     accounting_recorded: bool,
     outcome: AgentSpawnOutcome,
 }
