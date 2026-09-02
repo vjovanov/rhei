@@ -440,33 +440,36 @@ as re-read after the subprocess exits (§4.1):
    it was when the visit was spawned, or the visit appended or removed one. A
    cancel, a hand `rhei transition`, an appended-and-moved step: the supervisor
    steered, and the engine does not second-guess how.
-3. **The subtree can still move.** Some non-terminal descendant is, once the
-   barrier lifts, either in the ready set (§3.2, reading `P` as released), or
-   waiting on something that is not `P`'s to do: a `gating: true` state, where
-   a human owns the next move; a `poll:` state, where time owns it; or an
-   unsatisfied `**Prior:**` naming a non-terminal task **outside** `P`'s
-   subtree, where other work does.
-
-   Every clause but the gate is **conjoined with the descendant's declared
-   `inputs:`**. Time and other work decide *when* a descendant is scheduled;
-   neither puts a file on disk. A poll that keeps firing and a prior that
-   eventually lands both leave a descendant waiting on a brief only `P` writes
-   exactly where it was, so reading either as "can move" re-creates the strand
-   this rule exists to prevent. Only `gating: true` is exempt, because a human
-   moves a gate with `rhei transition`, which reads no `inputs:` at all
+3. **The subtree can still move.** Some non-terminal descendant can, once the
+   barrier lifts, be scheduled without `P`. A `gating: true` descendant
+   answers this on its own, because a human owns its next move and makes it
+   with `rhei transition`, which reads no `inputs:` at all
    ([§FS-rhei-transition-cmd.3](rhei-transition-cmd.spec.md#3-behavior)).
+   Every other descendant answers it when **both** hold: its `**Prior:**`s do
+   not block it — an unsatisfied prior naming a non-terminal task **outside**
+   `P`'s subtree is other work's to finish and does not block — **and** its
+   state's declared `inputs:` exist (§3.2, reading `P` as released).
+
+   A `poll:` state is no clause of its own. Time and other work decide *when*
+   a descendant is scheduled and neither puts a file on disk, so a poll that
+   keeps firing and a prior that eventually lands both leave a descendant
+   waiting on a brief only `P` writes exactly where it was. The clock says
+   when; the same priors-and-inputs test says whether.
 
 When none of them holds the visit is **empty**, and it is treated exactly as a
 failed visit (§3.5): **no transition fires**, and the plan file is not
 rewritten. `supervision.phase` stays `held`, `supervision.checkpoints` keeps
 every entry delivered before the visit, `stateVisits.<state>` is not
-incremented — the visit is not spent — and none of the other edits the release
-self-loop makes happens either, down to the `**Assignee:**` it drops (§3.4).
+incremented — the visit is not spent — and no other edit the release self-loop
+makes happens either. Not its `**Assignee:**` drop (§3.4), though: a claimed
+ticket anywhere in `P`'s subtree stops the visit being scheduled at all (§3.2),
+so no visit judged by this rule has one to drop.
 The task is still ready under
 §3.2, so a later pass, or a rerun of `rhei run`, spawns the same visit again.
-The engine warns at the exit, naming `P`, its state, the descendants it left
-with nowhere to go and the files they are waiting for, and the one action that
-answers it — write what they wait for and run again. It records the ticket as
+The engine warns where it withheld, naming `P`, its state, every descendant it
+left with nowhere to go **with the reason that one is stuck** — the file it is
+waiting for, or the `**Prior:**` that has not landed — and the one action that
+answers it. It records the ticket as
 stalled for the run report exactly as an unmet completion condition does
 ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5).
 
@@ -501,12 +504,24 @@ released supervisor is woken by a descendant checkpoint and by nothing else,
 so a rerun is the one remedy that provably does nothing
 ([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout)).
 
-The rule is defined on the *visit*, so it applies where a visit happens: the
-agent completion paths of `rhei run`, sequential and parallel. Callback-only
-advancement (`--no-agent`) spawns no visit and applies §3.1 unchanged, and a
-supervising state is never a `program:` state (§1.2). A conditioned exit —
-`visitCount >= visits`, `openDescendants < 1` — is untouched: the rule reaches
-only the edge that releases, which is the self-loop.
+The rule guards the release edge, so it is asked wherever `rhei run` fires that
+edge in agent mode. That is the sequential and parallel completion paths after
+a visit — and also the advance that spawns nothing at all, because the state's
+declared `outputs:` are already on disk and there is no invocation left to run
+([§FS-rhei-agents.3.2](rhei-agents.spec.md#32-completion-condition)). A held
+visit is exactly what leaves those outputs behind, so a rule that skipped that
+advance would hand the strand back on the very next command. Rules 1 and 3
+answer there as they always do; rule 2 is not asked, because no subprocess ran
+and nothing could have moved while it did — and nothing was charged, so there
+is no attempt to give back. A dry run asks the same question at that advance
+and reports the edge as withheld, because a run that will not take an edge must
+not say it would ([§FS-rhei-run.4](rhei-run.spec.md#4-dry-run)).
+
+What is exempt is what has no visit to judge, not what carries a flag: with
+`--no-agent` the run intends no visit at any state and applies §3.1 unchanged,
+and a supervising state is never a `program:` state (§1.2). A conditioned exit
+— `visitCount >= visits`, `openDescendants < 1` — is untouched: the rule
+reaches only the edge that releases, which is the self-loop.
 
 ## 4. Transition Support
 

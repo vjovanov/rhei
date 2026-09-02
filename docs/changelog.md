@@ -10,8 +10,13 @@
   arrive, and every rerun invoked nothing while advising a rerun. `rhei run`
   now withholds that self-loop and holds the state exactly as it holds a failed
   visit: no transition, `phase: held`, checkpoints preserved, the visit
-  unspent, and a warning naming the descendants left with nowhere to go, the
-  files they wait for, and the one action that answers it. Because the engine
+  unspent, and a warning naming the descendants left with nowhere to go, why
+  each one is stuck — the file it waits for, or the `**Prior:**` that has not
+  landed — and the one action that answers it. The test guards every agent-mode
+  advance of that edge, including the one that spawns nothing because the
+  state's declared `outputs:` are already on disk, so the leftovers of a held
+  visit cannot release the subtree on the next run; a dry run reports the
+  withheld edge rather than a transition it would not make. Because the engine
   withheld the edge rather than the worker failing to earn it, the visit's
   attempt budget is not charged, so every later `rhei run` visits the
   supervisor again and writing the missing file is enough to recover — no

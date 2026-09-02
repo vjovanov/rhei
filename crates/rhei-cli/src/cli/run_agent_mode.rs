@@ -277,7 +277,10 @@ fn run_agent_mode(
         let plan_title = loaded.rhei.title.clone();
         let mut agent_tasks: Vec<(String, String, String, ResolvedAgent)> = Vec::new();
         let mut program_tasks: Vec<(String, String, String, ResolvedProgram)> = Vec::new();
-        let mut callback_tasks: Vec<(String, String, String)> = Vec::new();
+        // The `bool` is whether this advance fires in agent mode with no
+        // invocation left to run, so the release edge answers to
+        // §FS-rhei-supervision.3.6 before it fires.
+        let mut callback_tasks: Vec<(String, String, String, bool)> = Vec::new();
 
         for task in &ready {
             let task_id_str = task.id.to_string();
@@ -311,7 +314,7 @@ fn run_agent_mode(
 
             if state_def.program.is_some() {
                 if opts.no_program() {
-                    callback_tasks.push((task_id_str, current_state_raw, current_state));
+                    callback_tasks.push((task_id_str, current_state_raw, current_state, false));
                     continue;
                 }
 
@@ -328,7 +331,7 @@ fn run_agent_mode(
                 )?;
                 if invocations.is_empty() {
                     if opts.no_agent() {
-                        callback_tasks.push((task_id_str, current_state_raw, current_state));
+                        callback_tasks.push((task_id_str, current_state_raw, current_state, false));
                         continue;
                     }
                     // Surface every remediation slot from the resolution order:
@@ -378,7 +381,7 @@ fn run_agent_mode(
                 );
 
                 if pending.is_empty() {
-                    callback_tasks.push((task_id_str, current_state_raw, current_state));
+                    callback_tasks.push((task_id_str, current_state_raw, current_state, true));
                     continue;
                 }
 
@@ -410,7 +413,7 @@ fn run_agent_mode(
         let run_programs_in_worker_pool = max_parallel != 1;
 
         // Handle callback-only tasks first (fast, synchronous).
-        for (task_id_str, current_state_raw, current_state) in &callback_tasks {
+        for (task_id_str, current_state_raw, current_state, judge_release) in &callback_tasks {
             let loaded = load_plan(input)?;
             let target_id = parse_task_id(task_id_str);
             let machine = machines.for_task_str(task_id_str);
@@ -440,11 +443,36 @@ fn run_agent_mode(
             let next_to = find_next_transition(task, &loaded.rhei, machine)?;
             let Some(to_state) = next_to else { continue };
 
+            // This advance fires the release edge with no visit behind it — the
+            // outputs a held visit left routed it here — so it answers the same
+            // test, in a dry run too. §FS-rhei-supervision.3.6
+            let withheld = withhold_empty_supervising_advance(
+                *judge_release,
+                &workspace_root,
+                &loaded,
+                &machines.set,
+                &target_id,
+                current_state,
+            );
+
             if opts.dry_run() {
-                run_info!(
-                    "{}",
-                    format_dry_run_transition(task_id_str, current_state_raw, &to_state, machine)
+                let line = format_dry_run_advance(
+                    withheld.is_some(),
+                    task_id_str,
+                    current_state_raw,
+                    current_state,
+                    &to_state,
+                    machine,
                 );
+                run_info!("{}", line);
+                continue;
+            }
+
+            if let Some(warning) = withheld {
+                run_warn!("{}", warning);
+                // Did not move; the rest of the pass must look elsewhere, and
+                // the run's own stall bound ends it. §FS-rhei-run.3
+                stalled_tasks.insert(task_id_str.clone());
                 continue;
             }
 
