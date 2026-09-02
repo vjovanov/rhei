@@ -27,7 +27,7 @@
   non-terminal state <state>`, which is what the run's other surfaces already
   said about it.
   [§FS-rhei-states.2.5](functional-spec/rhei-states.spec.md#25-waiting-on-a-person)
-  (PR #N)
+  (PR #156)
 - **A supervising visit that released nothing no longer strands the run.** An
   agent visit in an `execute_on:` state that exited `0` without moving its
   subtree or leaving it able to move used to fire the self-loop anyway, which
