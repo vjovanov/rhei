@@ -175,8 +175,11 @@ The right pane is the inspector for the selected node — the heart of "why." Fo
 the selected task or subtask it shows, top to bottom:
 
 - **Head** — glyph, id, title, the state pill, and flags (`initial`/`terminal`/
-  `gating` from the machine, plus `root task` or `depth N`), followed by the
-  state's description.
+  `gating` from the machine, `waiting on <label>` when the state is a poll that
+  declares one (§FS-rhei-states.2.5), plus `root task` or `depth N`), followed
+  by the state's description. The label is shown, not just carried: the `⏸`
+  glyph of §1.1 says the node is somebody's turn but not whose, and that is the
+  one thing the operator needs to act on it.
 - **Last state** — always shown as its own section for the selected node. The
   collapsed row is labeled `last state` and shows the state immediately before
   the current persisted state. Expanding the row shows the ordered earlier
@@ -328,8 +331,9 @@ state pill colored by §10, carrying its flags in a tooltip. A legend lists ever
 state with its description and doubles as the prompt index.
 
 Clicking a state — in a graph or the legend — opens the **state-detail** panel:
-its flags (`initial`/`terminal`/`gating`, and `counted ×N` when the state
-declares `visits: N`), description, and the raw prompt template for the state.
+its flags (`initial`/`terminal`/`gating`, `counted ×N` when the state
+declares `visits: N`, and `waiting on <label>` when its poll declares one
+(§FS-rhei-states.2.5)), description, and the raw prompt template for the state.
 Selecting a task highlights its current state across every graph and shows the
 prompt *instantiated* for that task in the surroundings inspector (§4), so the
 operator sees both the template and its resolution. The plan's overview prose, if

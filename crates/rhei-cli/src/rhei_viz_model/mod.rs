@@ -310,6 +310,15 @@ mod tests {
         assert!(FLOW_ASSET.contains(r#"if (ms && ms.waiting_on) return "gate";"#));
     }
 
+    /// The pause glyph says the node is somebody's turn; both flag lines say
+    /// whose, so the label the wire carries is one an operator can read.
+    // §FS-rhei-viz.4 §FS-rhei-viz.6
+    #[test]
+    fn flow_asset_shows_the_person_a_poll_waits_on() {
+        assert!(FLOW_ASSET.contains(r#"flags.push("waiting on "+ms.waiting_on)"#));
+        assert!(FLOW_ASSET.contains(r#"flags.push(`waiting on ${ms.waiting_on}`)"#));
+    }
+
     #[test]
     fn flow_asset_clears_stale_running_overlay_on_poll_loss() {
         assert!(FLOW_ASSET.contains("let POLL_FAILS=0, LIVE_STALE=false"));

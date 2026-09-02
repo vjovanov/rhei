@@ -302,10 +302,10 @@ path = "crates/rhei-cli/src/rhei_tui/tui/tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 800, unit = "lines" }
+max_accepted = { value = 810, unit = "lines" }
 until = "The UiState fixture is shared from a test-support module so state, input, and view tests can live beside the code they cover."
 reason = """
-Over budget before this change; the touch that surfaced it added two lines. One test module covers state application, key handling, and view derivation because they are exercised through one UiState fixture.
+Over budget before this change; the touch that surfaced it added two lines, and the inspector-flags test for a person-waiting poll carried it 797 -> 807. One test module covers state application, key handling, and view derivation because they are exercised through one UiState fixture, and a view test cannot move out until that fixture does.
 """
 [[exceptions]]
 path = "crates/rhei-cli/src/rhei_tui/tui/state.rs"
