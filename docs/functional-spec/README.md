@@ -42,6 +42,11 @@ one `FS-<slug>` ID at its H1.
 | [§FS-rhei-version](rhei-version.spec.md#fs-rhei-version-rhei-version) | `rhei version` command behavior |
 | [§FS-rhei-distribution](rhei-distribution.spec.md#fs-rhei-distribution-rhei-distribution-and-release-process) | Distribution targets and release process |
 | [§FS-rhei-state-machine-writer](rhei-state-machine-writer.spec.md#fs-rhei-state-machine-writer-rhei-state-machine-writer) | State machine writer guidance |
+| [§FS-rhei-init](rhei-init.spec.md#fs-rhei-init-rhei-init) | `rhei init` |
+| [§FS-rhei-new](rhei-new.spec.md#fs-rhei-new-rhei-new) | `rhei new` |
+| [§FS-rhei-run-headless](rhei-run-headless.spec.md#fs-rhei-run-headless-detached-runs) | Detached Runs |
+| [§FS-rhei-run-json](rhei-run-json.spec.md#fs-rhei-run-json-rhei-run---json) | `rhei run --json` |
+| [§FS-rhei-viz-ux](rhei-viz-ux.spec.md#fs-rhei-viz-ux-console-first-visualization-ux) | Console-First Visualization UX |
 
 This index is navigational. Normative citations should target the specific
 declaration ID rather than this file.
