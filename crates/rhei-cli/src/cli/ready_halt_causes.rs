@@ -363,11 +363,6 @@ fn classify_halt(
     if machine.states.get(&state).map(|def| def.gating).unwrap_or(false) {
         return HaltCause::Gate;
     }
-    // Beside the gate, and for the same reason: the ticket is somebody's turn.
-    // It differs only in who moves it on. §FS-rhei-states.2.5
-    if let Some(label) = machine.states.get(&state).and_then(|def| def.waiting_on_person()) {
-        return HaltCause::WaitingOnPerson { label: label.to_string() };
-    }
     // A claim outranks a prior: releasing it is the one action that unblocks
     // the scheduler, and a claimed ticket is skipped before priors are read.
     if let Some(assignee) = task.assignee.as_deref() {
@@ -375,6 +370,12 @@ fn classify_halt(
     }
     if let Some(prior) = first_blocking_prior(task, state_map, machines, scope) {
         return HaltCause::BlockedByPrior { prior };
+    }
+    // Behind the claim and the prior, unlike the gate above: both really do
+    // stop a poll from ever coming back, so "it resumes itself" would be a
+    // false promise. §FS-rhei-run-report.3.1 §FS-rhei-states.2.5
+    if let Some(label) = machine.states.get(&state).and_then(|def| def.waiting_on_person()) {
+        return HaltCause::WaitingOnPerson { label: label.to_string() };
     }
     if let Ok(Some(to)) = manual_initial_terminal_transition(task, rhei, machine) {
         return HaltCause::ManualOnly { to };

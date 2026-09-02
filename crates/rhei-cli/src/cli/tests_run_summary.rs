@@ -85,27 +85,12 @@
         );
     }
 
-    /// One gated leaf under three ancestors is one thing needing a human, so
-    /// the report counts it once. Treating each ancestor as halted work of its
-    /// own gave four Attention rows, `4 gated`, `could not advance | 4`, and
-    /// A poll waiting on a person is nobody's action item: it goes under
-    /// Waiting beside held tickets, keeps a calm marker, stays out of the
-    /// `N gated · M blocked` header and `could not advance`, and gives the
-    /// ledger the label rather than a stall. Before this it was simply an
-    /// active state, indistinguishable from an agent that was running.
-    // §FS-rhei-states.2.5 §FS-rhei-run-report.3.1 §FS-rhei-run-report.4
-    #[test]
-    fn a_poll_waiting_on_a_person_is_parked_not_halted() {
-        let rhei = rhei_core::parse(
-            r#"# Rhei: Approvals
-
-## Tasks
-
-### Task 1: Get the plan approved
-**State:** plan-approval
-"#,
-        )
-        .expect("plan parses");
+    /// The ticket's own machine: a poll that waits on the author beside one
+    /// that waits on CI, so a person wait and a machine backoff can block each
+    /// other in one plan. §FS-rhei-states.2.5
+    fn approval_report(tasks: &str) -> RunSummaryReport {
+        let rhei = rhei_core::parse(&format!("# Rhei: Approvals\n\n## Tasks\n\n{tasks}"))
+            .expect("plan parses");
         let machine = rhei_validator::StateMachine::from_yaml_str(
             r#"name: approvals
 version: 1
@@ -114,29 +99,40 @@ states:
     description: Wait for the author
     initial: true
     program: "./check-reply.sh"
-    poll:
-      interval: 10m
-      max_attempts: 60
-      waiting_on: author
-  done:
-    description: terminal
-    final: true
+    poll: { interval: 10m, max_attempts: 60, waiting_on: author }
+  ci-watch:
+    description: Wait for CI
+    program: "./check-ci.sh"
+    poll: { interval: 2m, max_attempts: 30 }
+  done: { description: terminal, final: true }
 transitions:
-  - from: plan-approval
-    to: plan-approval
-  - from: plan-approval
-    to: done
+  - { from: plan-approval, to: plan-approval }
+  - { from: plan-approval, to: done }
+  - { from: ci-watch, to: ci-watch }
+  - { from: ci-watch, to: done }
 "#,
         )
         .expect("valid state machine");
-        let report = RunSummaryReport::build(
+        RunSummaryReport::build(
             &rhei,
             &rhei_validator::MachineSet::single(machine),
             &SummarySink::new(),
             test_stats(),
             "plan.rhei.md",
             &no_task_roots(),
-        );
+        )
+    }
+
+    /// A poll waiting on a person is nobody's action item: it goes under
+    /// Waiting beside held tickets, keeps a calm marker, stays out of the
+    /// `N gated · M blocked` header and `could not advance`, and gives the
+    /// ledger the label rather than a stall. Before this it was simply an
+    /// active state, indistinguishable from an agent that was running.
+    // §FS-rhei-states.2.5 §FS-rhei-run-report.3.1 §FS-rhei-run-report.4
+    #[test]
+    fn a_poll_waiting_on_a_person_is_parked_not_halted() {
+        let report =
+            approval_report("### Task 1: Get the plan approved\n**State:** plan-approval\n");
 
         assert!(report.attention.is_empty(), "a person wait is not an action item");
         assert_eq!(
@@ -156,6 +152,51 @@ transitions:
         let markdown = report.render_markdown();
         assert!(markdown.contains("| could not advance | 0 |"), "{markdown}");
         assert!(markdown.contains("waiting on author"), "{markdown}");
+    }
+
+    /// An unsatisfied prior stops the poll from ever reaching its next
+    /// attempt, so the prior — not the person — is why the ticket is not
+    /// moving. Classified the other way round, a ticket a prior really blocks
+    /// read as calmly parked, with a promise that the author's answer would
+    /// release it. It stays in Attention and keeps counting.
+    // §FS-rhei-run-report.3.1 §FS-rhei-states.2.5
+    #[test]
+    fn a_prior_outranks_the_person_a_poll_waits_on() {
+        let report = approval_report(
+            "### Task 1: Watch CI\n**State:** ci-watch\n\n\
+             ### Task 2: Get the plan approved\n**State:** plan-approval\n**Prior:** 1\n",
+        );
+
+        let row = report
+            .attention
+            .iter()
+            .find(|row| row.state == "plan-approval")
+            .expect("a blocked ticket keeps its Attention row");
+        assert_eq!(row.reason, "waiting on Task 1 (ci-watch)");
+        assert_eq!(row.next, "finish the prior first");
+        assert!(!row.is_gate, "an unsatisfied prior is not a deliberate pause");
+        assert!(report.waiting.is_empty(), "nothing here is parked");
+
+        let markdown = report.render_markdown();
+        assert!(markdown.contains("| could not advance | 2 |"), "{markdown}");
+        assert!(!markdown.contains("the poll resumes itself"), "{markdown}");
+    }
+
+    /// A live claim is the same story with a different remedy: `rhei release`
+    /// is what unblocks the ticket, and the person the poll names cannot
+    /// deliver it. Hiding the claim behind the person wait left the operator a
+    /// single row telling them to do nothing.
+    // §FS-rhei-run-report.3.1 §FS-rhei-states.2.5
+    #[test]
+    fn a_live_claim_outranks_the_person_a_poll_waits_on() {
+        let report = approval_report(
+            "### Task 1: Get the plan approved\n**State:** plan-approval\n**Assignee:** bot\n",
+        );
+
+        let row = report.attention.first().expect("a claimed ticket is an action item");
+        assert_eq!(row.reason, "claimed by bot");
+        assert!(row.next.contains("rhei release 1"), "{}", row.next);
+        assert!(report.waiting.is_empty(), "a claimed ticket is not parked");
     }
 
     /// The Waiting group can hold both kinds at once, and its count line names
@@ -178,6 +219,9 @@ transitions:
         );
     }
 
+    /// One gated leaf under three ancestors is one thing needing a human, so
+    /// the report counts it once. Treating each ancestor as halted work of its
+    /// own gave four Attention rows, `4 gated`, `could not advance | 4`, and
     /// four blocked ledger rows for a single decision — and the topmost
     /// parent's reason text repeated the whole transitive subtree.
     // §FS-rhei-run-report.3.1 §FS-rhei-run-report.4 §FS-rhei-plan-language.3

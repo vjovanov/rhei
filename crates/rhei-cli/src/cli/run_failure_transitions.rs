@@ -415,17 +415,18 @@ fn no_advancement_summary(
         .filter(|task| task_in_rhei_scope(scope, &task.id.to_string()))
         .filter(|task| !is_terminal_state(task.state.as_str(), machines.for_task(&task.id)))
         .filter_map(|task| {
-            // A poll that declares a person answers for itself, ahead of any
-            // prior: the wait is the reason the ticket is not moving, and the
-            // label is what the reader needs. §FS-rhei-states.2.5
+            // The prior answers first: it stops the poll from ever coming back,
+            // so a person's label would name a wait nobody can end.
+            // §FS-rhei-run-report.3.1 §FS-rhei-states.2.5
             let machine = machines.for_task(&task.id);
             let state = normalized_state_name(task.state.as_str(), machine);
-            let waiting_on = machine
-                .states
-                .get(&state)
-                .and_then(|def| def.waiting_on_person())
-                .map(str::to_string)
-                .or_else(|| first_blocking_prior(task, &state_map, machines, scope))?;
+            let waiting_on = first_blocking_prior(task, &state_map, machines, scope).or_else(|| {
+                machine
+                    .states
+                    .get(&state)
+                    .and_then(|def| def.waiting_on_person())
+                    .map(str::to_string)
+            })?;
             Some(format!("Task {} waiting on {}", task.id, waiting_on))
         })
         .collect();

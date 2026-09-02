@@ -128,6 +128,17 @@ the summary prints five stacked groups:
    was work in flight, and one plan-approval poll held a concurrency slot for
    hours looking indistinguishable from an agent that was running.
 
+   It joins the group **only when the poll is the whole reason it is not
+   moving**. A live `**Assignee:**` or an unsatisfied `**Prior:**` stops the
+   ticket from ever reaching its next attempt, so the calm reading would be a
+   false promise: the poll cannot resume itself out of a claim, and `rhei
+   release` — not the author's answer — is the remedy. Such a ticket is
+   classified by the claim or the prior, stays in Attention with its ordinary
+   marker, and keeps counting toward `could not advance`. This is where a
+   person-waiting poll parts from a gate: a gate outranks both because nothing
+   but a human moves it either way, while a poll is machinery that a claim or a
+   prior really does stop.
+
    Nothing about the run's exit status follows from this. Whether work remains
    that a human must act on is the judgment in [§FS-rhei-run.4](rhei-run.spec.md#4-dry-run), unchanged: a
    person-waiting poll is a poll, and it already counted as deliberate waiting
@@ -135,9 +146,9 @@ the summary prints five stacked groups:
 
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
-   subtree; a gating state awaiting a decision; a poll state that declares it
-   waits on a person; a live `**Assignee:**`; an
-   unsatisfied `**Prior:**`; a worker interrupted mid-flight by an *operator's*
+   subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
+   unsatisfied `**Prior:**`; a poll state that declares it waits on a person; a
+   worker interrupted mid-flight by an *operator's*
    shutdown ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)) — a run that tore its own workers down while
    failing describes their tickets by the failure instead, never by "re-run to
    continue"; a manual-only initial state; a worker that ran and
@@ -145,7 +156,10 @@ the summary prints five stacked groups:
    workers and both stall the same way; a required `inputs:` artifact of the
    ticket's current state that is not on disk ([§FS-rhei-states.3](rhei-states.spec.md#3-artifact-contracts)), named with
    the path readiness looked for; a ticket the run never scheduled; no
-   declared outgoing transition; anything else. Interruption is classified
+   declared outgoing transition; anything else. The person-waiting poll sits
+   behind the claim and the prior, and the gate ahead of them, for the reason
+   given above: both really do stop a poll from coming back, and neither can
+   stop a gate. Interruption is classified
    ahead of the missing-artifact class because it explains it: a worker the run
    killed had no chance to write what it owed, and telling the operator to
    write those files by hand would be advice about a stall that did not
