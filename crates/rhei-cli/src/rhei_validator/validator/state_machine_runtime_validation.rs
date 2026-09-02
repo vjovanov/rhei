@@ -55,10 +55,8 @@ impl StateMachine {
                     poll.max_attempts
                 )));
             }
-            // A poll that says it waits on someone must say on whom: a blank
-            // label declares the person wait and then names nobody, which is
-            // the one shape every reporting surface has nothing to print for.
-            // §FS-rhei-states.1.3 §FS-rhei-states.2.5
+            // A blank label declares the person wait and names nobody, the one
+            // shape no surface can print. §FS-rhei-states.1.3 §FS-rhei-states.2.5
             if poll.waiting_on.as_ref().is_some_and(|label| label.trim().is_empty()) {
                 return Err(StateMachineLoadError::Invalid(format!(
                     "state '{state_name}' has an empty poll.waiting_on; name the person or role the poll waits on (e.g. 'author'), or omit the field"

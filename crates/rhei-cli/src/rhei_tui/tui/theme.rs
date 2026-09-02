@@ -32,7 +32,8 @@ pub(super) fn category(machine: &Machine, state: &str) -> Category {
     if state == "blocked" {
         return Category::Blocked;
     }
-    if def.map(|d| d.gating).unwrap_or(false) || state == "human-review" {
+    // §FS-rhei-viz.1.1: a poll waiting on a person reads as the gate does.
+    if def.map(|d| d.gating || d.waiting_on.is_some()).unwrap_or(false) || state == "human-review" {
         return Category::Gate;
     }
     if def.map(|d| d.terminal).unwrap_or(false) {

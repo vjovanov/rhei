@@ -93,6 +93,12 @@ pub struct MachineState {
     pub initial: bool,
     pub terminal: bool,
     pub gating: bool,
+    /// The person this state's poll waits on, when it declares one. The
+    /// renderers classify on it, so it has to cross the wire: without it the
+    /// dashboard and the TUI would read an approval wait as live work while
+    /// `rhei list` read it as a person's turn. §FS-rhei-states.2.5
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_on: Option<String>,
     /// Authored autonomous process kind for this state, when the state machine
     /// declares one. Renderers use this to distinguish agent and program states.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -294,6 +300,14 @@ mod tests {
         assert!(FLOW_ASSET.contains("function isRunningNow(n)"));
         assert!(FLOW_ASSET.contains("filter(isRunningNow)"));
         assert!(FLOW_ASSET.contains("const runningPart = hasRuntimeOverlay()"));
+    }
+
+    /// The dashboard's `category()` mirrors the Rust one, so the three
+    /// surfaces cannot disagree about a poll that waits on a person.
+    // §FS-rhei-viz.1.1 §FS-rhei-states.2.5
+    #[test]
+    fn flow_asset_classifies_a_person_waiting_poll_as_a_gate() {
+        assert!(FLOW_ASSET.contains(r#"if (ms && ms.waiting_on) return "gate";"#));
     }
 
     #[test]
