@@ -162,3 +162,20 @@ jobs:
             -f publish_crates=true \
             -f create_github_release=true
           git push origin --delete "$branch" || true
+
+      - name: Advance main to the next dev version
+        shell: bash
+        run: |
+          set -euo pipefail
+          released="${{ steps.versions.outputs.next }}"
+          IFS=. read -r major minor patch <<< "$released"
+          dev="${major}.${minor}.$((patch + 1))-dev"
+          # Main must not keep the version it just released: a build from main is
+          # otherwise indistinguishable from the tag it is ahead of.
+          git fetch origin main
+          git checkout -B main refs/remotes/origin/main
+          python3 scripts/set-release-version.py "$dev"
+          cargo update --workspace --offline || cargo update --workspace
+          git add Cargo.toml crates/*/Cargo.toml xtask/Cargo.toml Cargo.lock packages
+          git commit -m "Open ${dev} for development"
+          git push origin main

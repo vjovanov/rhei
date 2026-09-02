@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Sequence
 
 
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+# A released version is `0.1.0`; between releases main carries `0.1.1-dev`, so
+# every pattern here has to match the version it is replacing as well as the one
+# it writes. §FS-rhei-distribution.2
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?$")
 
 
 def internal_manifests(root: Path) -> list[Path]:
@@ -40,14 +43,14 @@ def update_json(path: Path, version: str) -> None:
 def update(version: str) -> None:
     root = Path.cwd()
     if VERSION_RE.match(version) is None:
-        raise RuntimeError(f"version must look like 0.1.0, got {version!r}")
+        raise RuntimeError(f"version must look like 0.1.0 or 0.1.0-dev, got {version!r}")
 
-    replace_one(root / "Cargo.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+"$', rf'\1"{version}"')
+    replace_one(root / "Cargo.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', rf'\1"{version}"')
 
     # `package = ` is absent when the dependency name already is the package
     # name, as in xtask's `rhei-cli` pin.
     internal_dep_version = re.compile(
-        r'(\{ (?:package = "rhei-[^"]+", )?path = "[^"]+", version = ")=[0-9]+\.[0-9]+\.[0-9]+(" \})'
+        r'(\{ (?:package = "rhei-[^"]+", )?path = "[^"]+", version = ")=[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?(" \})'
     )
     for manifest in internal_manifests(root):
         text = manifest.read_text(encoding="utf-8")
@@ -57,17 +60,17 @@ def update(version: str) -> None:
     update_json(root / "packages/npm/rhei-cli/package.json", version)
     update_json(root / "packages/npm/rhei-api/package.json", version)
 
-    replace_one(root / "packages/python/rhei-cli/pyproject.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+"$', rf'\1"{version}"')
-    replace_one(root / "packages/python/rhei-api/pyproject.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+"$', rf'\1"{version}"')
+    replace_one(root / "packages/python/rhei-cli/pyproject.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', rf'\1"{version}"')
+    replace_one(root / "packages/python/rhei-api/pyproject.toml", r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', rf'\1"{version}"')
     replace_one(
         root / "packages/python/rhei-api/pyproject.toml",
-        r'"rhei-cli==[0-9]+\.[0-9]+\.[0-9]+"',
+        r'"rhei-cli==[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"',
         f'"rhei-cli=={version}"',
     )
 
-    replace_one(root / "packages/python/rhei-cli/src/rhei_cli/__init__.py", r'^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"$', f'__version__ = "{version}"')
-    replace_one(root / "packages/python/rhei-cli/src/rhei_cli/__init__.py", r'^_CRATE_VERSION = "[0-9]+\.[0-9]+\.[0-9]+"$', f'_CRATE_VERSION = "{version}"')
-    replace_one(root / "packages/python/rhei-api/src/rhei_api/__init__.py", r'^__version__ = "[0-9]+\.[0-9]+\.[0-9]+"$', f'__version__ = "{version}"')
+    replace_one(root / "packages/python/rhei-cli/src/rhei_cli/__init__.py", r'^__version__ = "[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', f'__version__ = "{version}"')
+    replace_one(root / "packages/python/rhei-cli/src/rhei_cli/__init__.py", r'^_CRATE_VERSION = "[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', f'_CRATE_VERSION = "{version}"')
+    replace_one(root / "packages/python/rhei-api/src/rhei_api/__init__.py", r'^__version__ = "[0-9]+\.[0-9]+\.[0-9]+(?:-dev)?"$', f'__version__ = "{version}"')
 
 
 def main(argv: Sequence[str] | None = None) -> int:
