@@ -115,6 +115,7 @@ include!("cli/run_failure_transitions.rs");
 include!("cli/run_summary.rs");
 include!("cli/ready_transition.rs");
 include!("cli/ready_halt_causes.rs");
+include!("cli/subtree_supervision_release.rs");
 include!("cli/next_diagnostics.rs");
 include!("cli/ready_auto_advance.rs");
 include!("cli/snapshot_runtime_emit.rs");

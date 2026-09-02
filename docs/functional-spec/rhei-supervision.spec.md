@@ -264,8 +264,12 @@ Two invariants follow, and they are the point:
   non-leaf model already guarantees for an unsupervised parent
   ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints)), extended to a parent that runs many times.
 - **A supervisor that changes nothing changes nothing.** Its self-loop
-  releases the subtree and the subtree proceeds. Supervision never spins: `P`
-  is not ready again until a descendant produces a checkpoint.
+  releases the subtree and the subtree proceeds — *when there is a subtree that
+  can proceed*. A visit that neither moved the subtree nor left it able to move
+  releases nothing, and its self-loop is withheld (§3.6). Supervision never
+  spins: `P` is not ready again until a descendant produces a checkpoint, and a
+  withheld self-loop re-spawns `P` only within the attempt budget of the visit
+  it did not spend.
 
 Under `--parallel`, rule 3 is a drain: siblings already running finish, no new
 ones start, and the supervisor sees every checkpoint they produced in one
@@ -413,6 +417,70 @@ the visit is not spent. The task is still ready under §3.2, so a later pass,
 or a rerun of `rhei run`, spawns the same visit again with the same pending
 checkpoints (§5.1).
 
+### 3.6. Empty Visits
+
+A visit that exits `0` and meets its completion condition has still to have
+*done* something before its self-loop may fire. The self-loop is the release
+edge (§3.1 rule 2), and the release is the one thing a run cannot take back:
+`P` is `released` until a descendant delivers a checkpoint, and a subtree that
+cannot move delivers none. A visit that neither moved the subtree nor left it
+able to move would therefore spend the only edge that could ever wake `P`
+again — and the run would not be stalled but beyond the reach of a rerun, with
+`rhei reset` the only remedy.
+
+So the self-loop fires only for a visit that **released** something. A visit
+released something when at least one of these holds, judged against the plan
+as re-read after the subprocess exits (§4.1):
+
+1. **There is no subtree to release.** `P` has no non-terminal descendant.
+   Nothing is being held, and finishing `P` is the machine's own business —
+   its `openDescendants` edge (§4.1), or the halt that names the missing one
+   (§1.2).
+2. **The visit moved the subtree.** Some descendant's state differs from what
+   it was when the visit was spawned, or the visit appended or removed one. A
+   cancel, a hand `rhei transition`, an appended-and-moved step: the supervisor
+   steered, and the engine does not second-guess how.
+3. **The subtree can still move.** Some non-terminal descendant is, once the
+   barrier lifts, either in the ready set (§3.2, reading `P` as released), or
+   waiting on something that is not `P`'s to do: a `gating: true` state, where
+   a human owns the next move; a `poll:` state whose next attempt is still
+   ahead, where time does; or an unsatisfied `**Prior:**` naming a
+   non-terminal task **outside** `P`'s subtree, where other work does.
+
+When none of them holds the visit is **empty**, and it is treated exactly as a
+failed visit (§3.5): **no transition fires**, `supervision.phase` stays
+`held`, `supervision.checkpoints` keeps every entry delivered before it,
+`stateVisits.<state>` is not incremented — the visit is not spent — and the
+`**Assignee:**` is not dropped, because the visit it was claimed for is not
+over. The task is still ready under §3.2, so a later pass, or a rerun of `rhei
+run`, spawns the same visit again. The engine warns at the exit, naming `P`,
+its state, and the descendants it left with nowhere to go, and records the
+ticket as stalled for the run report exactly as an unmet completion condition
+does ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop) step 5).
+
+Re-spawning is bounded by the attempt budget every other stalled state is
+bounded by ([§FS-rhei-agents.3.2.3](rhei-agents.spec.md#323-attempt-budget)): an unspent visit keeps its attempts, and
+they run out. An empty visit therefore ends in an honest halt naming the
+attempts it spent, never in a silent release — which is the whole difference,
+because a halt is a thing an operator can answer and a release was not.
+
+A supervisor that is *already* `released` over a subtree where nothing can
+move — a workspace stranded before this rule existed, or one whose supervisor
+steered its subtree into a corner under rule 2 — gets a halt row of its own:
+it released its subtree on a visit that changed nothing and nothing beneath it
+can move, and the next action is to unblock one of the descendants the row
+names, or `rhei reset`. It is not "not scheduled … rerun to pick it up": a
+released supervisor is woken by a descendant checkpoint and by nothing else,
+so a rerun is the one remedy that provably does nothing
+([§FS-rhei-run-report.3.1](rhei-run-report.spec.md#31-layout)).
+
+The rule is defined on the *visit*, so it applies where a visit happens: the
+agent completion paths of `rhei run`, sequential and parallel. Callback-only
+advancement (`--no-agent`) spawns no visit and applies §3.1 unchanged, and a
+supervising state is never a `program:` state (§1.2). A conditioned exit —
+`visitCount >= visits`, `openDescendants < 1` — is untouched: the rule reaches
+only the edge that releases, which is the self-loop.
+
 ## 4. Transition Support
 
 ### 4.1. The `openDescendants` Operand
@@ -459,7 +527,10 @@ any other re-entry ([§FS-rhei-transitions.4.3](rhei-transitions.spec.md#43-coun
 declared, emits and inherits snapshots per visit ([§FS-rhei-snapshots.10.3](rhei-snapshots.spec.md#103-counted-loops-fanout-and-polling)),
 and re-evaluates the state's `inputs:` on re-entry. The engine selects it on
 the same rules as any other edge. On a supervising state it is the release
-edge (§3.1); on any other agent state it simply means "run this state again".
+edge (§3.1), withheld from a visit that released nothing — which is the one
+case where a selected self-loop does not fire and `stateVisits.<state>` does
+not move (§3.6); on any other agent state it simply means "run this state
+again".
 
 The counter is therefore kept for **every** non-poll state the machine
 declares a self-loop from, whether or not that state caps itself with

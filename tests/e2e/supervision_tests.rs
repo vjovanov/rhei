@@ -105,10 +105,21 @@ pub fn setup_supervision(
     machine: &str,
     script_extra: &str,
 ) -> (TestDir, PathBuf, PathBuf) {
+    setup_supervision_with_agent(prefix, plan, machine, &supervision_agent_script(script_extra))
+}
+
+/// [`setup_supervision`] with the agent body given whole, for a scenario whose
+/// supervisor does something other than write a brief per child.
+pub fn setup_supervision_with_agent(
+    prefix: &str,
+    plan: &str,
+    machine: &str,
+    script: &str,
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
-    let script = write_python_agent(&dir, "mock-agent.py", &supervision_agent_script(script_extra));
+    let script = write_python_agent(&dir, "mock-agent.py", script);
     let settings_dir = dir.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&script);

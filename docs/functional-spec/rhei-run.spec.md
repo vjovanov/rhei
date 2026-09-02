@@ -241,6 +241,18 @@ from silently completing fresh tasks without executing them.
      unfinished. No transition fires on an exhausted budget — an error edge, a
      timeout edge, or a move to `cancelled` would record a verdict on work the
      engine never saw.
+   - **The subprocess exited `0` in a supervising state and the visit released
+     nothing.** The completion condition held, but the edge it selects is the
+     supervisor's own self-loop and the visit neither moved the subtree nor
+     left it able to move ([§FS-rhei-supervision.3.6](rhei-supervision.spec.md#36-empty-visits)). **No transition
+     fires**, by the path above and with the same consequences: the ticket
+     keeps its state, the visit is not spent, the engine warns naming the
+     descendants left with nowhere to go, and the run carries on with the
+     tickets beside it. Firing the self-loop would release the subtree on the
+     strength of a visit that released nothing, and a released supervisor is
+     woken only by a descendant that moves — so a subtree that cannot move
+     would leave the run beyond the reach of a rerun rather than merely
+     stalled.
 6. For agent invocations, extract measured usage and write the accounting
    invocation record when the resolved agent supports accounting. Accounting
    failures affect cost coverage but do not alter transition selection. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)

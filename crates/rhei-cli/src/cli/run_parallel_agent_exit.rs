@@ -34,6 +34,7 @@ fn handle_parallel_agent_exit(
         snapshot_preload,
         visit_count,
         retry_outlook,
+        subtree_before,
         accounting_recorded,
         outcome,
     } = exit;
@@ -294,44 +295,54 @@ fn handle_parallel_agent_exit(
                 }
                 break 'exit_zero;
             }
-            let auto_advance_result =
-                if let Some(snapshot_completion) = snapshot_completion_for_emit {
-                    let mut emit_before_transition =
-                        |task_for_snapshot: &rhei_core::ast::Task,
-                         to_state: &str|
-                         -> MietteResult<()> {
-                            emit_snapshots_after_agent_exit(
-                                workspace_root,
-                                machine,
-                                settings,
-                                task_for_snapshot,
-                                &state_name,
-                                Some(to_state),
-                                &resolved,
-                                &log,
-                                visit_count,
-                                snapshot_completion,
-                                &snapshot_preload,
-                            )
-                        };
-                    try_auto_advance_task(
-                        input,
-                        machines,
-                        &task_id_str,
+            // §FS-rhei-supervision.3.6: a visit that released nothing must
+            // not spend the self-loop that releases the subtree.
+            let empty_visit = empty_supervising_visit(FinishedVisit {
+                workspace_root,
+                plan: &reloaded,
+                machines: &machines.set,
+                task_id: &target_id,
+                state: &state_name,
+                before: subtree_before.as_ref(),
+            });
+            if let Some(warning) = &empty_visit {
+                run_warn!("{}", warning);
+            }
+            let mut emit_before_transition =
+                |task_for_snapshot: &rhei_core::ast::Task,
+                 to_state: &str|
+                 -> MietteResult<()> {
+                    // Nothing to emit when the exit produced no completion to
+                    // emit for: the callback answers, rather than the caller
+                    // branching around it. §FS-rhei-snapshots.10.2
+                    let Some(snapshot_completion) = snapshot_completion_for_emit else {
+                        return Ok(());
+                    };
+                    emit_snapshots_after_agent_exit(
+                        workspace_root,
+                        machine,
+                        settings,
+                        task_for_snapshot,
                         &state_name,
-                        opts.no_callbacks(),
-                        Some(&mut emit_before_transition),
-                    )
-                } else {
-                    try_auto_advance_task(
-                        input,
-                        machines,
-                        &task_id_str,
-                        &state_name,
-                        opts.no_callbacks(),
-                        None,
+                        Some(to_state),
+                        &resolved,
+                        &log,
+                        visit_count,
+                        snapshot_completion,
+                        &snapshot_preload,
                     )
                 };
+            let auto_advance_result = match empty_visit {
+                Some(_) => Ok(None),
+                None => try_auto_advance_task(
+                    input,
+                    machines,
+                    &task_id_str,
+                    &state_name,
+                    opts.no_callbacks(),
+                    Some(&mut emit_before_transition),
+                ),
+            };
             match auto_advance_result {
                 Ok(Some(to_state)) => {
                     run_info!(
@@ -368,23 +379,23 @@ fn handle_parallel_agent_exit(
                                 }
                             }
                         }
-                        emit_exit_zero_warnings(
-                            workspace_root,
-                            &task_root,
-                            machine,
-                            reloaded.rhei.metadata.as_ref(),
-                            task,
-                            &task_id_str,
-                            &state_name,
-                            selected_forward_transition(
-                                &reloaded.rhei,
+                        // A withheld release edge already said so above.
+                        // §FS-rhei-supervision.3.6
+                        if empty_visit.is_none() {
+                            emit_exit_zero_warnings(
+                                workspace_root,
+                                &task_root,
                                 machine,
+                                reloaded.rhei.metadata.as_ref(),
                                 task,
-                            )
-                            .as_deref(),
-                            retry_outlook,
-                            sink,
-                        );
+                                &task_id_str,
+                                &state_name,
+                                selected_forward_transition(&reloaded.rhei, machine, task)
+                                    .as_deref(),
+                                retry_outlook,
+                                sink,
+                            );
+                        }
                         progress.stalled_tasks.insert(task_id_str.clone());
                     } else {
                         run_warn!(
