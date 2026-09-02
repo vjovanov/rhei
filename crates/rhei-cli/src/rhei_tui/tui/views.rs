@@ -400,6 +400,34 @@ pub(super) fn inspector_lines(
     (lines, focus_row)
 }
 
+/// What a state contributes to a detail panel's flags line, in the order both
+/// panels print them. The task inspector (§FS-rhei-viz.4) and the state detail
+/// (§FS-rhei-viz.6) differ in one flag — only the state detail names the
+/// counted-loop budget — and agree on the rest, including the person a poll
+/// waits on: the pause color says the node is somebody's turn, and only the
+/// label says whose. Built here so neither panel can lose it alone.
+pub(super) fn machine_state_flags(st: &MachineState, counted: bool) -> Vec<String> {
+    let mut flags = Vec::new();
+    if st.initial {
+        flags.push("initial".to_string());
+    }
+    if st.terminal {
+        flags.push("terminal".to_string());
+    }
+    if st.gating {
+        flags.push("gating".to_string());
+    }
+    if counted {
+        if let Some(visits) = st.visits {
+            flags.push(format!("counted ×{visits}"));
+        }
+    }
+    if let Some(label) = &st.waiting_on {
+        flags.push(format!("waiting on {label}"));
+    }
+    flags
+}
+
 pub(super) fn task_flags(state: &UiState, task: &TaskRow) -> String {
     let mut flags = Vec::new();
     if task.depth == 0 {
@@ -408,20 +436,7 @@ pub(super) fn task_flags(state: &UiState, task: &TaskRow) -> String {
         flags.push(format!("depth {}", task.depth));
     }
     if let Some(st) = state.machine_state(&task.state) {
-        if st.initial {
-            flags.push("initial".to_string());
-        }
-        if st.terminal {
-            flags.push("terminal".to_string());
-        }
-        if st.gating {
-            flags.push("gating".to_string());
-        }
-        // The pause color says it is somebody's turn; only the label says
-        // whose. §FS-rhei-viz.4
-        if let Some(label) = &st.waiting_on {
-            flags.push(format!("waiting on {label}"));
-        }
+        flags.extend(machine_state_flags(st, false));
     }
     if state.deferred.contains(&task.id) {
         flags.push("deferred".to_string());
@@ -712,23 +727,8 @@ pub(super) fn render_machine(f: &mut Frame, area: Rect, state: &UiState) {
         let mut head = vec![Span::raw("")];
         head.extend(machine_state_pill(state, st, machine));
         lines.push(Line::from(head));
-        let mut flags = Vec::new();
-        if st.initial {
-            flags.push("initial".to_string());
-        }
-        if st.terminal {
-            flags.push("terminal".to_string());
-        }
-        if st.gating {
-            flags.push("gating".to_string());
-        }
-        if let Some(visits) = st.visits {
-            flags.push(format!("counted ×{visits}"));
-        }
-        // §FS-rhei-viz.6: the state detail names the person its poll waits on.
-        if let Some(label) = &st.waiting_on {
-            flags.push(format!("waiting on {label}"));
-        }
+        // §FS-rhei-viz.6: the counted budget is this panel's, the rest shared.
+        let flags = machine_state_flags(st, true);
         if !flags.is_empty() {
             lines.push(dim_line(&state.theme, &flags.join(" · ")));
         }
