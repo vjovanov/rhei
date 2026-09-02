@@ -27,7 +27,7 @@
   which a human moves regardless. A supervisor a previous release already
   stranded gets a halt row that says so instead of "rerun to pick it up".
   [§FS-rhei-supervision.3.6](functional-spec/rhei-supervision.spec.md#36-empty-visits)
-  (PR #N)
+  (PR #155)
 - **`rhei init` integration and end-to-end tests now contain repository
   discovery inside each test's unique temporary directory.** An unrelated `.git` marker above
   the test tree can no longer redirect agent-note writes into shared temporary
