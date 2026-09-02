@@ -159,8 +159,10 @@ transitions:
         assert!(err.to_string().contains("snapshot.inherit"));
     }
 
-    /// A poll may declare the person it waits on; the label survives the load
-    /// and reads back trimmed. §FS-rhei-states.2.5
+    /// A poll may declare the person it waits on; the load trims the label
+    /// into the machine, so the stored field a serializer would print and the
+    /// accessor every text surface reads name the same person.
+    /// §FS-rhei-states.2.5
     #[test]
     fn accepts_poll_waiting_on_a_person() {
         let yaml = poll_machine(
@@ -183,6 +185,11 @@ transitions:
         let sm = StateMachine::from_yaml_str(&yaml).expect("valid person-waiting poll");
         let def = sm.states.get("ci-wait").expect("state present");
         assert_eq!(def.waiting_on_person(), Some("author"));
+        assert_eq!(
+            def.poll.as_ref().and_then(|poll| poll.waiting_on.as_deref()),
+            Some("author"),
+            "the padded label must be normalized into the machine, not on each read"
+        );
     }
 
     /// Absence is the machine-backoff reading, so an ordinary poll answers

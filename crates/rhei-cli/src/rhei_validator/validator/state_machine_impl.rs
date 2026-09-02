@@ -25,7 +25,7 @@ impl StateMachine {
         Ok(serde_yaml::from_str(yaml)?)
     }
 
-    fn validate(self) -> Result<Self, StateMachineLoadError> {
+    fn validate(mut self) -> Result<Self, StateMachineLoadError> {
         self.validate_model_configuration()?;
         self.validate_prompt_templates()?;
         self.validate_program_configuration()?;
@@ -33,6 +33,9 @@ impl StateMachine {
         self.validate_tooling_configuration()?;
         self.validate_template_conditions()?;
         self.validate_poll_configuration()?;
+        // Every surface reads the stored label, so normalize it once here
+        // rather than on each read. §FS-rhei-states.2.5
+        self.normalize_poll_waiting_on();
         self.validate_execute_on_configuration()?;
         self.validate_profiles_and_node_policy()?;
         self.validate_terminal_state_present()?;
