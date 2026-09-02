@@ -475,6 +475,15 @@ retain the previous best-effort descriptor re-read and lock-only stop behavior.
 - **A detached run's `run.log` grows without bound.** It is truncated at run
   start, like the latest run report: one file is one run, and the previous
   run's console is superseded rather than accumulated.
+- **Two runs write one `run.log`.** The launch lock of §1.1 serialises
+  launchers, not a *live* run's writes: where the pre-check is blind — two
+  launches on member plans that share a root, so the refusal is left to the run
+  lock — a second launcher truncates the console log a running child is still
+  writing to. The log is therefore emptied at launch and **appended** to
+  thereafter, so the two consoles can interleave by lines but neither can
+  overwrite the other's bytes. A diagnostic that was rendered whole is never
+  cut: whatever a reader is shown, including the launcher's own tail of this
+  file, names paths that can still be copied and opened.
 - **The attached surface's terminal goes away.** The client ends the way a
   driving TUI does ([§FS-rhei-run-tui.1.8](rhei-run-tui.spec.md#18-failure-modes)) — and because it was only ever a
   reader, the run is unaffected.

@@ -344,6 +344,27 @@ fn child_outcome(descriptor_path: &Path, pid: u32) -> Option<LaunchOutcome> {
     }
 }
 
+/// Open the console log the detached child writes on: emptied for the run that
+/// is starting, and append-only from then on.
+///
+/// Append mode is not a detail. The launch lock covers launchers, not a *live*
+/// run's writes, so where the pre-check is blind — two launches on member plans
+/// of one root — this call empties a log a running child still holds open. That
+/// child's next write then goes to the offset it had before, landing inside
+/// whatever the new child wrote and cutting a rendered diagnostic mid-token.
+/// `O_APPEND` sends every write to the end instead: the two consoles interleave
+/// by lines, and no byte is ever overwritten.
+///
+/// `set_len` and not `OpenOptions::truncate`, which std rejects outright when
+/// it is combined with `append`. The stderr `try_clone` shares this open file
+/// description, so both of the child's streams inherit the append flag.
+// §FS-rhei-run-headless.8
+fn open_console_log(log_path: &Path) -> std::io::Result<fs::File> {
+    let log = fs::OpenOptions::new().create(true).append(true).open(log_path)?;
+    log.set_len(0)?;
+    Ok(log)
+}
+
 /// Re-execute this binary's `rhei run` invocation, minus the launcher-only
 /// flags, in a new session with its console redirected.
 fn spawn_detached_run(log_path: &Path) -> MietteResult<std::process::Child> {
@@ -365,10 +386,10 @@ fn spawn_detached_run(log_path: &Path) -> MietteResult<std::process::Child> {
         fs::create_dir_all(parent)
             .map_err(|err| file_io_report(parent, "failed to create the runtime directory", err))?;
     }
-    // Truncated per run: one file is one run's console, superseded rather than
-    // accumulated. Safe under the launch lock, which is what keeps a second
-    // launcher from truncating this one's log. §FS-rhei-run-headless.8
-    let log = fs::File::create(log_path)
+    // Emptied for this run and appended to from then on, so a launcher that
+    // empties it under a live run cannot cut that run's bytes.
+    // §FS-rhei-run-headless.8
+    let log = open_console_log(log_path)
         .map_err(|err| file_io_report(log_path, "failed to open the run console log", err))?;
     let stderr = log
         .try_clone()

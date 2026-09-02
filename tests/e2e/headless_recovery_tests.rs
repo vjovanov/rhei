@@ -305,6 +305,22 @@ fn a_child_that_loses_the_run_lock_fails_fast_with_the_lock_diagnostic() {
     let message = format!("{}{}", stdout(&second), stderr(&second));
     assert!(message.contains("already live"), "got: {message}");
     assert!(message.contains("run.lock"), "the run lock is what refused it: {message}");
+    // The refused root is named inside the refusal, and the name arrives whole:
+    // a writer sharing this console used to cut the path mid-token, leaving
+    // `already live` standing and the rest overwritten. Search only between the
+    // two matches above, because the launcher's own `help:` line names the
+    // console log under this same root — over the whole message the check would
+    // pass on exactly the cut it guards. The basename, not the path, because
+    // macOS canonicalises the temporary directory's `/var` to `/private/var`.
+    let name = ws.root.file_name().expect("the workspace root has a name");
+    let name = name.to_str().expect("the workspace root's name is utf-8");
+    let refusal = message.find("already live").and_then(|start| {
+        message[start..].find("run.lock").map(|cut| &message[start..start + cut])
+    });
+    assert!(
+        refusal.is_some_and(|refusal| refusal.contains(name)),
+        "the refused root's name was cut: {message}"
+    );
 }
 
 // ---------------------------------------------------------------------------
