@@ -5,6 +5,7 @@
 fn init_creates_project_with_manifest_gitignore_and_agents_note() {
     let dir = unique_temp_dir("init-fresh");
     let host = dir.join("my-cool_project");
+    fs::create_dir_all(host.join(".git")).expect("mark repo root");
 
     // §FS-rhei-init.2: manifest in panta/, ignore rules, agent note at the
     // host, empty-project hint.
@@ -63,6 +64,7 @@ fn init_creates_project_with_manifest_gitignore_and_agents_note() {
 #[test]
 fn init_adopts_existing_bare_rheis_and_unblocks_bare_commands() {
     let dir = unique_temp_dir("init-adopt");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     fs::write(
         dir.join("auth.rhei.md"),
         "# Rhei: Auth\n\n## Tasks\n\n### Task 1: Login\n**State:** pending\n",
@@ -268,6 +270,7 @@ fn init_leaves_the_manifest_bare_over_rhei_declared_machines() {
 #[test]
 fn init_force_overwrites_manifest_without_duplicating_companions() {
     let dir = unique_temp_dir("init-force");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     let run_init = |args: &[&str]| {
         rhei_command()
             .arg("init")
@@ -315,6 +318,7 @@ fn init_force_overwrites_manifest_without_duplicating_companions() {
 #[test]
 fn init_force_heals_a_mangled_agents_note() {
     let dir = unique_temp_dir("init-heal-agents");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     // A merge ate the begin marker, leaving a marker-less note body plus an
     // orphaned end marker, followed by an intact duplicate.
     fs::write(
@@ -416,6 +420,7 @@ fn init_loads_a_mixed_declared_and_silent_machine_set_cleanly() {
 #[test]
 fn init_strips_an_orphaned_begin_marker_without_eating_user_content() {
     let dir = unique_temp_dir("init-orphaned-begin");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     // A merge lost the end marker; the user's own sections follow the note.
     fs::write(
         dir.join("AGENTS.md"),
@@ -453,6 +458,7 @@ fn init_here_refuses_to_shadow_an_existing_panta_child_project() {
     // project at panta/ — target resolution prefers the host manifest, so
     // the child project would become unreachable by inference.
     let dir = unique_temp_dir("init-here-shadow");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
     let first = rhei_command()
         .arg("init")
         .current_dir(&dir)
