@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **`rhei init` integration tests now contain repository discovery inside
+  each test's unique temporary directory.** An unrelated `.git` marker above
+  the test tree can no longer redirect agent-note writes into shared temporary
+  state or make later init tests fail. (PR #N)
 - **Measured agent runs can use a caller-supplied reproducible price book.**
   `rhei run ... --prices <PATH>` validates a local
   `rhei.accounting.prices.v1` book before starting agents, copies it into each
