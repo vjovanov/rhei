@@ -117,9 +117,26 @@ the summary prints five stacked groups:
    by its own subtree is not: the ticket that *is* someone's problem — the
    supervisor, or the human gate holding it — reports for itself.
 
+   A ticket sitting in a **person-waiting poll** — a poll state declaring
+   `waiting_on` ([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)) — joins it there, for the same reason
+   and with the same treatment: it is somebody's turn, it resumes itself when
+   the answer lands, and there is nothing for the operator to do. Its reason
+   names the label (`waiting on author`) and its next action says so plainly.
+   The group's count line names each kind it holds rather than one of them —
+   `2 held · 1 waiting on a person` — and reads exactly as before when only
+   held tickets are in it. Without this the run's only reading of such a ticket
+   was work in flight, and one plan-approval poll held a concurrency slot for
+   hours looking indistinguishable from an agent that was running.
+
+   Nothing about the run's exit status follows from this. Whether work remains
+   that a human must act on is the judgment in [§FS-rhei-run.4](rhei-run.spec.md#4-dry-run), unchanged: a
+   person-waiting poll is a poll, and it already counted as deliberate waiting
+   there while its backoff window was open.
+
    The blocker and next action come from a **plan-wide classification** of why
    each non-terminal task node is not moving, in this order: an open descendant
-   subtree; a gating state awaiting a decision; a live `**Assignee:**`; an
+   subtree; a gating state awaiting a decision; a poll state that declares it
+   waits on a person; a live `**Assignee:**`; an
    unsatisfied `**Prior:**`; a worker interrupted mid-flight by an *operator's*
    shutdown ([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)) — a run that tore its own workers down while
    failing describes their tickets by the failure instead, never by "re-run to
@@ -414,7 +431,7 @@ marker its unchanged state earns.
 
 `driver: blocked` is used for non-terminal tasks that remain in place at run end.
 The row's `reason` must name the first concrete blocker Rhei can prove, such as
-`waiting for prior ui-test-canonical-example.polling`, `gating state human-gate`, `missing input
+`waiting for prior ui-test-canonical-example.polling`, `gating state human-gate`, `waiting on author`, `missing input
 runtime/build/ui-test-canonical-example.full-pipeline-report.md`, `poll next attempt at ...`, or
 `required skill absent-lens unavailable`.
 

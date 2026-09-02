@@ -109,10 +109,17 @@ matched:
 | `done` | `✓` | completed | state `completed` |
 | `blocked` | `⊘` | attention | state `blocked` |
 | `failed` | `✗` | attention | state `failed` |
-| `gate` | `⏸` | awaiting a gate | machine `gating`, or `human-review` |
+| `gate` | `⏸` | awaiting a person | machine `gating`, a poll declaring `waiting_on` ([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)), or `human-review` |
 | `retired` | `⊝` | terminal, not done | `cancelled`, `archived`, other terminal |
 | `idle` | `·` | not started | `draft`, `pending`, or any profile's `initial` |
 | `active` | `●` | active state, not necessarily running | any non-terminal state not matched above |
+
+A person-waiting poll shares the `gate` row rather than earning an eighth
+category because it is the same thing to the eye: work that is somebody's turn
+and nobody's to hurry. It differs from a gate only in who moves it on — the
+poll resumes itself when the answer lands — and that is a scheduling fact, not
+a status the operator reads off a glyph. A poll with no `waiting_on` is
+unaffected and stays `active`.
 
 Category, not raw state, drives the calm whole-line coloring of list rows and the
 fill of graph nodes, so the eye reads status at a glance. During a dynamic run,
@@ -429,6 +436,7 @@ type MachineState = {
   initial: boolean;             // entry state of at least one profile (§FS-rhei-states; initiality is per-profile)
   terminal: boolean;
   gating: boolean;
+  waiting_on?: string;          // person this state's poll waits on, when it declares one (§FS-rhei-states.2.5)
   transitions: Transition[];    // explicit edges first, then applicable wildcards
   inputs: Artifact[];
   outputs: Artifact[];

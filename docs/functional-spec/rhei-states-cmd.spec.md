@@ -108,6 +108,11 @@ Text output includes:
   which moves under the task bring it back, and the bare value answers that
   only to someone who already knows the grammar. `--json` keeps the value
   itself, `"execute_on": "<scope>-<event>"`.
+- A polling state's `Poll:` line carries its cadence and, when the state
+  declares one, the person it waits on: `Poll: interval=10m,
+  max_attempts=60, waiting_on=author`. The label is appended only when
+  `poll.waiting_on` is authored ([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)), so a machine-backoff
+  poll prints exactly what it printed before.
 - Per-state prompt-template reference when present.
 - Declared transitions and annotations for callbacks, conditions, and timeouts.
 
@@ -127,6 +132,12 @@ Text output includes:
   "transitions": []
 }
 ```
+
+Each state's `poll` object mirrors the authored block: `interval`,
+`max_attempts`, and `waiting_on` only when the state declares it
+([§FS-rhei-states.2.5](rhei-states.spec.md#25-waiting-on-a-person)). Presence is the meaning of that field, so it is
+*omitted* rather than emitted as `null` when absent — which also makes the
+JSON for every machine authored without it byte-for-byte what it was.
 
 When JSON output is selected, command errors are rendered as a single JSON
 object on stderr.
