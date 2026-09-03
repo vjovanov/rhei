@@ -213,6 +213,11 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
     // -c approval_policy="never"`. `-c approval_policy="never"` replaced the
     // older `-a never` short flag, which codex-cli no longer accepts.
 
+    // Its session block is the §FS-rhei-snapshots.9.2 row: `resume` and `fork`
+    // as `codex exec` subcommands, `--ephemeral` as the off switch, and no
+    // `session_dir_flag` analogue, so the §9.1.1 keys find the rollout.
+
+    // Interactive continuation is the top-level `codex`, not `codex exec`.
     // §FS-rhei-agents.2: Built-in codex profile.
     agents.insert(
         "codex".to_string(),
@@ -229,6 +234,20 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
                 "-c",
                 "approval_policy=\"never\"",
             ])),
+            session: Some(serde_json::json!({
+                "resume": {"flag": "resume"},
+                "fork": {"flag": "fork"},
+                "interactive": {"command": ["codex"]},
+                "no_session_flag": "--ephemeral",
+                "layout": {
+                    "kind": "FlatById",
+                    "dir_template": "~/.codex/sessions",
+                    "ext": "jsonl",
+                    "nested": true,
+                    "id_from_stem": "trailing_uuid",
+                    "confirm_cwd_path": ["payload", "cwd"]
+                }
+            })),
             ..Default::default()
         },
     );

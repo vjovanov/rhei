@@ -1470,10 +1470,13 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
         );
     }
 
+    /// Codex left this list when its adapter spike landed: it now declares a
+    /// session block of its own (§FS-rhei-snapshots.9.2), so the remaining
+    /// four are the ones no spike has proved.
     #[test]
     fn unproven_built_in_profiles_do_not_support_snapshot_continue() {
         let agents = built_in_agents();
-        for id in ["claude-code", "codex", "cursor", "gemini", "kilocode"] {
+        for id in ["claude-code", "cursor", "gemini", "kilocode"] {
             let profile = agents.get(id).expect("built-in profile");
             assert!(
                 !profile_supports_interactive_continue(&profile.session),
