@@ -144,6 +144,12 @@ resolve against, so `rhei validate <member>` reported errors that
 CI or pre-commit check. An explicit `--rhei` on the same invocation wins over
 the id implied by the path.
 
+Membership follows the same rule as identity: the project is the directory that
+encloses *where the target resolves*, not the one left when its last component
+is dropped. A member named `..` from its own `tasks/` is the member, loaded
+through its project — reading it as the `tasks/` directory's neighbour would
+load the member alone and call its valid cross-rhei prior missing.
+
 Two commands do not widen:
 
 - `rhei validate` takes no `--rhei` at all ([§FS-rhei-validate.1.1](rhei-validate.spec.md#11-why-there-is-no---rhei)), so pointing

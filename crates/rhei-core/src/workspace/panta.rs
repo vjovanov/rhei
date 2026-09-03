@@ -462,6 +462,13 @@ pub fn panta_member(path: &Path) -> Option<(PathBuf, String)> {
     } else {
         std::env::current_dir().ok()?.join(&entry)
     };
+    // `Path::parent` of a path ending in `..` is the directory it climbs out of,
+    // so resolve the spellings that carry no name of their own — as the id
+    // derivation does — before asking what encloses the entry. §FS-rhei-panta.6
+    let absolute = match absolute.file_name() {
+        Some(_) => absolute,
+        None => std::fs::canonicalize(&absolute).ok()?,
+    };
     let parent = absolute.parent()?;
     if !is_panta_project(parent) {
         return None;

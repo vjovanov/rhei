@@ -132,3 +132,53 @@ fn a_plan_error_keeps_its_authoring_help() {
         "a plan error is not a path problem; got:\n{said}"
     );
 }
+
+/// A member rhei named `..` from its own `tasks/` still loads *through* its
+/// project: the enclosing project is decided by where the path resolves, not by
+/// dropping its last component. Loaded alone the member's cross-rhei
+/// `**Prior:**` has nothing to resolve against, and a valid plan is called
+/// broken. §FS-rhei-panta.6
+#[test]
+fn a_member_named_from_its_tasks_directory_loads_through_the_project() {
+    let dir = unique_temp_dir("cwd-target-panta-member");
+    let project = dir.join("proj");
+    let member = project.join("a");
+    let member_tasks = member.join("tasks");
+    std::fs::create_dir_all(&member_tasks).expect("the project should be creatable");
+    write_fixture_file(&project, "index.panta.md", "# Panta: Two Rheis\n");
+    write_fixture_file(&member, "index.rhei.md", "# Rhei: A\n");
+    write_fixture_file(
+        &member_tasks,
+        "01.md",
+        "### Task 1: A task\n**State:** draft\n**Prior:** b.1\n",
+    );
+    write_fixture_file(&project, "b.rhei.md", &format!("# Rhei: B\n\n## Tasks\n\n{ONE_TICKET}"));
+    let machine = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+    let home = dir.join(".home");
+
+    let absolute = run_from(&project, &home, &machine, "list", &member.display().to_string());
+    assert_success(&absolute);
+    assert!(
+        absolute.stdout.contains("Task a.1"),
+        "the member lists under its own id; got:\n{}",
+        absolute.stdout
+    );
+
+    let from_tasks = run_from(&member_tasks, &home, &machine, "list", "..");
+    assert_success(&from_tasks);
+    assert_eq!(
+        from_tasks.stdout, absolute.stdout,
+        "`rhei list ..` should read as the member's absolute path does"
+    );
+
+    // Validation is where loading the member alone shows: `b.1` is a ticket of
+    // a sibling rhei, so only the project can resolve it.
+    let validated = run_from(&member_tasks, &home, &machine, "validate", "..");
+    assert_success(&validated);
+    assert!(
+        validated.stdout.contains("Validation succeeded"),
+        "the cross-rhei prior should resolve through the project; got:\n{}\n{}",
+        validated.stdout,
+        validated.stderr
+    );
+}
