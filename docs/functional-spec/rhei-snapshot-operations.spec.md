@@ -203,10 +203,11 @@ If the agent exits cleanly, Rhei writes a sibling operator generation such as
 `g2` with `parent_ref.generation = 1`; the identity's `current` pointer still
 points at the orchestrator generation. Use `--no-capture` for throwaway
 analysis sessions that should not add `g<N>` entries. Captured operator
-generations require a profile-level `session_dir_flag` or an equivalent
-agent-specific adapter that makes the new native transcript discoverable
-through the declared `SessionLayout`; otherwise `continue` fails before
-spawn unless `--no-capture` is passed.
+generations require only that the new native transcript be discoverable
+through the declared `SessionLayout` — a profile-level `session_dir_flag`
+that redirects it into a directory Rhei owns, or a layout `dir_template` the
+fixed-location locator can search ([§FS-rhei-snapshots.9.3.4](rhei-snapshots.spec.md#934-codex)).
+A profile with neither fails before spawn unless `--no-capture` is passed.
 
 After a captured continuation, stdout prints the captured reference and a hint
 that operator generations are hidden from the default list view; operators can
@@ -226,10 +227,12 @@ binary or subcommand; otherwise Rhei reuses the profile's base command with
 the interactive arguments appended.
 Agents whose built-in profiles offer only a headless transport or lack a
 Rhei-readable transcript layout cannot be used with `continue`; the command
-fails with `unsupported-snapshot-session`. In v1, the built-in Pi profile is
-the only built-in profile that declares the complete interactive continuation
-surface. Other agents may still participate when the user supplies a custom
-session-capable profile.
+fails with `unsupported-snapshot-session`. The built-in Pi and codex profiles
+are the two that declare the complete interactive continuation surface — pi
+through `--session-dir`, codex through its fixed rollout root
+([§FS-rhei-snapshots.9.2](rhei-snapshots.spec.md#92-built-in-profiles)). Other
+agents may still participate when the user supplies a custom session-capable
+profile.
 
 If the referenced manifest has `completion: timeout`, `continue` may proceed
 only after warning that the native transcript may be truncated.
@@ -404,8 +407,13 @@ phased rollout progresses.
 
 1. Whether `--session-id` is the correct flag for assigning a session id on
    claude-code. Determined by the adapter spike.
-2. Whether `codex exec` supports session resume or whether a separate
-   transport variant is required. Determined by the adapter spike.
+2. **Answered.** `codex exec` supports session resume as the positional
+   subcommand `codex exec resume <SESSION_ID>`, and no separate transport
+   variant is required ([§FS-rhei-snapshots.9.3.4](rhei-snapshots.spec.md#934-codex)).
+   What stays open is fork: `codex exec fork` takes a session id, and
+   `ForkStrategy::Native` can only hand over a transcript path, so declaring
+   fork for a subcommand-style agent needs a strategy that says which argument
+   it takes.
 3. Whether `gemini --resume` accepts a UUID directly or only an integer index
    from `--list-sessions`. Determined by the adapter spike.
 4. The default `provider_cache_ttl` table contents at release time. The
