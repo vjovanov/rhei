@@ -125,13 +125,20 @@ command operates on the whole project. Pointed at a single rhei (a `.rhei.md`
 file or a rhei workspace directory) it operates on that rhei alone. `--rhei <id>`
 (repeatable) narrows a project-scoped invocation to named rheis.
 
-**How the target is spelled never changes which rhei it names.** A workspace
-directory reached as `.`, `./`, `../billing`, or an absolute path — or named by
-the `index.rhei.md` inside it, with or without a `./` prefix — is one and the
-same rhei, carrying the id its directory name gives it
+**A target that carries no name of its own still names a rhei.** A workspace
+directory reached as `.`, `./`, or `..` from a subdirectory — or named by the
+`index.rhei.md` inside it, with or without a `./` prefix — carries no last
+component to take an id from, so the id comes from *where the path resolves*:
+the same rhei, with the same id, that `../billing` or an absolute path names
 ([§AR-rhei-panta.3](../architecture/rhei-panta.spec.md#3-identity-and-id-namespacing)). The current directory is the spelling an author reaches for
 first, from inside the workspace they are already standing in, and it must not
 be the one spelling that fails.
+
+A path that *does* carry a name keeps it, and resolution never overrides it: a
+symlink `billing` pointing at the workspace `myws/` is the rhei `billing` when
+it is named directly, and `myws` when named from inside as `.`. Those are two
+ids, so their tickets and the runtime artifacts named after them stay apart —
+address one workspace one way.
 
 **A rhei that belongs to a project always loads through it.** Pointing a command
 at `panta/billing.rhei.md` loads the project and narrows to `billing` — it is

@@ -27,11 +27,16 @@ fn plan_authoring_help() -> &'static str {
 /// Help for a rhei whose id cannot be derived from the path naming it.
 ///
 /// The plan is not the problem here — it parsed — so the reader must be sent to
-/// the path they typed rather than to their task metadata. §FS-rhei-panta.6
+/// the path they typed rather than to their task metadata. It serves three
+/// failures — a path that names nothing, a name that is not a valid id, and the
+/// reserved `basin` — so it states the rule and offers both remedies: pointing
+/// a directory named `not.an.id` at its absolute path names a fix that cannot
+/// work, and the message above it already prescribes the rename. §FS-rhei-panta.6
 fn rhei_identity_help() -> &'static str {
     "a rhei's id comes from the path naming it: the directory name of a Directory \
-     Workspace, or the `<id>` of `<id>.rhei.md`. Point the command at a path that \
-     carries that name — an absolute path always does."
+     Workspace, or the `<id>` of `<id>.rhei.md`. That name must be a valid \
+     single-segment id and not the reserved `basin`. Rename it, or name the rhei \
+     by a path that carries such a name."
 }
 
 /// Help for the snapshot store.

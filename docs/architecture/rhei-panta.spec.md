@@ -107,11 +107,15 @@ its tickets:
   `auth`) and the directory name for a Directory Workspace rhei (`billing/` ->
   `billing`). This rule is the same for an explicit Panta and for the implicit
   Panta wrapping a bare rhei (§2), so loading `auth.rhei.md` directly yields the
-  rhei id `auth`. The name comes from where the path *resolves*, not from how it
-  was spelled: a Directory Workspace named `.`, `./`, or by its own
-  `index.rhei.md` derives the same id as its absolute path
-  ([§FS-rhei-panta.6](../functional-spec/rhei-panta.spec.md#6-project-scope-and-command-behavior)); only a path that resolves to no usable
-  directory name — the filesystem root — has no id to derive. A derived id that is
+  rhei id `auth`. Where the path carries no last component of its own — `.`,
+  `./`, a trailing `..`, or a Directory Workspace named by its own
+  `index.rhei.md` — the name comes from where the path *resolves*, so those
+  spellings derive the same id as the absolute path
+  ([§FS-rhei-panta.6](../functional-spec/rhei-panta.spec.md#6-project-scope-and-command-behavior)); a path that carries a name keeps it, symlinks
+  included, and only a path that resolves to no usable directory name — the
+  filesystem root — has no id to derive. The same resolution decides which
+  project encloses an entry, so a member addressed as `..` still loads through
+  its project. A derived id that is
   not a valid single-segment rhei id, or that collides with another rhei or the
   reserved `basin`, is a load/validation error.
 - A ticket's project-wide id is its rhei id joined with its rhei-local id:

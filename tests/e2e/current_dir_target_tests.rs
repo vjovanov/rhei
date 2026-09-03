@@ -103,6 +103,17 @@ fn a_path_that_names_no_id_is_reported_against_the_path() {
         said.contains("a rhei's id comes from the path naming it"),
         "the help should point at the path; got:\n{said}"
     );
+    // An id that is not a valid segment is fixed by renaming, and by nothing
+    // else: the same id is derived from every path that reaches this directory,
+    // so the help must not send the reader to try another spelling.
+    assert!(
+        said.contains("must be a valid single-segment id"),
+        "the help should name the remedy that works here; got:\n{said}"
+    );
+    assert!(
+        !said.contains("an absolute path"),
+        "an absolute path derives the same invalid id; got:\n{said}"
+    );
 }
 
 /// And the plan errors the same load reports keep the authoring help and the
