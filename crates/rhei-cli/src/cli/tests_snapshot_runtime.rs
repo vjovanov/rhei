@@ -1521,7 +1521,8 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
         let resolved = resolve_snapshot_continue_agent(&ctx, &record).expect("resolve agent");
         let session = resolved.profile.session.as_ref().expect("session");
         let preload =
-            prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session).expect("preload");
+            prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session, true)
+                .expect("preload");
 
         let err = capture_snapshot_continue_generation(
             &ctx,
