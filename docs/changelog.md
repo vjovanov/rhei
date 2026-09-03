@@ -4,34 +4,22 @@
 
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
-  profile deliberately left its `session` block unset, so `snapshot.emit:`
-  failed before spawn with `unsupported-snapshot-session`, `snapshot.inherit:`
-  ran cold or failed outright, and `rhei snapshot continue` refused — every
-  visit to a codex state started from nothing and re-read the plan, the briefs
-  and the exports from disk (#146). The spec had left this pending an adapter
-  spike; the spike is done, and what it found is now what the code does. Two
-  generic extensions to the session contract carry it, neither of which knows
-  what codex is. The `FlatById` layout takes three optional locator keys —
-  `nested` to descend below `dir_template`, `id_from_stem: trailing_uuid` to
-  recover the bare UUID from a `rollout-<timestamp>-<uuid>` file name, and
-  `confirm_cwd_path` to accept a candidate only when its own first record names
-  this spawn's working directory, so a concurrent run or an operator's own
-  interactive session in a machine-global session root cannot win the
-  newest-file race. And the snapshot strategy flags now go in one place, after
-  the mode, prompt and model flags and before the `--` a `stdin_prompt` profile
-  emits, rather than being appended after everything: past a `--` an argument is
-  prompt text, which is why a resume spelled as a positional subcommand did
-  nothing. All three keys default to the behaviour every existing profile
-  already has, they are not recorded in the manifest and take no part in
-  native-compatibility matching, so a snapshot written before this change stays
-  compatible with the profile that wrote it. `rhei snapshot continue` no longer
-  requires a `session_dir_flag` either: it falls back to the same fixed-location
-  locator emit uses, and refuses only a profile that has neither. The observed
-  provider and model are now read the same way for every agent — the first 32
-  lines of any `jsonl` transcript, the two fields taken independently — because
-  codex records the provider in its session header and the model only when the
-  first turn opens. Pi's flags move ahead of its `--skill` flags and are
-  otherwise untouched. (PR #N)
+  profile left its `session` block unset, so `snapshot.emit:` failed before
+  spawn with `unsupported-snapshot-session`, `snapshot.inherit:` ran cold, and
+  `rhei snapshot continue` refused — every visit to a codex state started from
+  nothing and re-read the plan, the briefs and the exports from disk (#146).
+  The adapter spike the spec waited on is done. Two generic extensions carry
+  its result, neither of which knows what codex is: the `FlatById` layout takes
+  three optional locator keys (`nested`, `id_from_stem`, `confirm_cwd_path`)
+  that find a session in a shared, dated directory the agent names itself, and
+  the snapshot strategy flags now go before the `--` a `stdin_prompt` emits
+  rather than after it — past a `--` an argument is prompt text, which is why a
+  resume spelled as a positional subcommand did nothing. The keys default to
+  what every existing profile already does and stay out of the manifest and out
+  of compatibility matching, so older snapshots and older builds are
+  unaffected. `rhei snapshot continue` no longer requires a `session_dir_flag`,
+  and no longer hands the agent the result file of whatever run started it.
+  (PR #N)
 - **The run report counts one invocation once now, however many times it
   reported its usage.** `UsageReported` arrives again for the same invocation as
   a streaming extractor observes further turns, and arrives once more after the
