@@ -12,22 +12,70 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 
-/// How far past `rhei transition` an invocation is read when no backtick ends
-/// it first, which is what a fenced code block looks like after normalization.
-const COMMAND_WINDOW: usize = 240;
-
-/// Every run of whitespace becomes one space, so a command wrapped across
-/// lines (and across a YAML block scalar's indentation) reads as one command.
+/// Every run of whitespace in a joined line becomes one space, so a command
+/// reads the same however the source indented it (a YAML block scalar indents
+/// every line of the prompt it carries).
 fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The invocation that starts at `rhei transition`: up to the backtick that
-/// closes its code span, or `COMMAND_WINDOW` characters, whichever comes first.
-fn command_span(normalized: &str, start: usize) -> &str {
-    let rest = &normalized[start..];
-    let end = rest.find('`').unwrap_or(COMMAND_WINDOW).min(COMMAND_WINDOW).min(rest.len());
+/// The lines one invocation may occupy: a single source line, except that a
+/// line leaving an inline code span open takes the lines that close it, which
+/// is how prose wraps a command it shows. A fenced block's ``` delimiter opens
+/// no span, so commands inside a fence stay one to a line and can never lend
+/// each other a flag.
+fn logical_lines(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut pending = String::new();
+    let mut flush = |pending: &mut String| {
+        if !pending.is_empty() {
+            lines.push(normalize_whitespace(pending));
+            pending.clear();
+        }
+    };
+    for line in text.lines() {
+        if line.trim_start().starts_with("```") {
+            flush(&mut pending);
+            continue;
+        }
+        if !pending.is_empty() {
+            pending.push(' ');
+        }
+        pending.push_str(line);
+        if pending.matches('`').count() % 2 == 0 {
+            flush(&mut pending);
+        }
+    }
+    flush(&mut pending);
+    lines
+}
+
+/// The invocation that starts at `rhei transition`: it ends at the backtick
+/// closing its code span, at the next invocation, or where its line does —
+/// whichever comes first. Nothing beyond that end can excuse it.
+fn command_span(line: &str, start: usize) -> &str {
+    let rest = &line[start..];
+    let mut end = rest.find('`').unwrap_or(rest.len());
+    if let Some(next) = rest[1..end].find("rhei transition") {
+        end = next + 1;
+    }
     &rest[..end]
+}
+
+/// Every invocation in `text` that shows `--to` without the required `--from`.
+/// A mention of the command by name (`cancel it with `rhei transition``) is not
+/// an invocation, because its span carries no `--to`.
+pub(crate) fn offending_invocations(text: &str) -> Vec<String> {
+    let mut offenders = Vec::new();
+    for line in logical_lines(text) {
+        for (offset, _) in line.match_indices("rhei transition") {
+            let command = command_span(&line, offset);
+            if command.contains("--to") && !command.contains("--from") {
+                offenders.push(command.to_string());
+            }
+        }
+    }
+    offenders
 }
 
 fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -42,8 +90,6 @@ fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// A mention of the command by name (`cancel it with `rhei transition``) is
-/// not an invocation; one that shows `--to` is, and it must show `--from` too.
 #[test]
 fn every_template_transition_invocation_names_from() {
     let templates_root = repo_root().join("crates/rhei-cli/templates");
@@ -53,14 +99,11 @@ fn every_template_transition_invocation_names_from() {
 
     let mut offenders = Vec::new();
     for path in &files {
-        let normalized = normalize_whitespace(&fs::read_to_string(path).expect("read template"));
-        for (offset, _) in normalized.match_indices("rhei transition") {
-            let command = command_span(&normalized, offset);
-            if command.contains("--to") && !command.contains("--from") {
-                let rel = path.strip_prefix(&templates_root).unwrap_or(path);
-                offenders.push(format!("{}: {command}", rel.display()));
-            }
-        }
+        let text = fs::read_to_string(path).expect("read template");
+        let rel = path.strip_prefix(&templates_root).unwrap_or(path);
+        offenders.extend(
+            offending_invocations(&text).into_iter().map(|c| format!("{}: {c}", rel.display())),
+        );
     }
 
     assert!(
@@ -69,4 +112,46 @@ fn every_template_transition_invocation_names_from() {
          `--from` (the CLI exits 2 on it):\n{}",
         offenders.join("\n")
     );
+}
+
+/// The guard reads one invocation at a time: a `--from` that belongs to a
+/// neighbouring command, or to the prose around it, never excuses a defective
+/// one, and a command the prose wrapped is still read whole.
+#[test]
+fn the_guard_reads_one_invocation_at_a_time() {
+    let fenced_pair = "```bash\n\
+        rhei transition <plan> --task <child> --to cancelled --result \"why\"\n\
+        rhei transition <plan> --task <parent> --from supervising --to supervising\n\
+        ```\n";
+    assert_eq!(
+        offending_invocations(fenced_pair),
+        vec!["rhei transition <plan> --task <child> --to cancelled --result \"why\"".to_string()],
+        "the second line's `--from` must not excuse the first line's cancel"
+    );
+
+    let wrapped = "- The supervisor cancels with `rhei transition <id> --from <current-state>\n  \
+        --to cancelled --result \"<why>\"`. That state is the one in brackets.\n";
+    assert!(
+        offending_invocations(wrapped).is_empty(),
+        "an invocation the prose wrapped inside one code span is read whole"
+    );
+
+    let mention = "Cancel it with `rhei transition`, and remember that `--to cancelled` \
+        is what a skipped round gets.\n";
+    assert!(offending_invocations(mention).is_empty(), "naming the command is not invoking it");
+
+    // An em dash swept across the offsets a fixed window used to end at: a
+    // byte-indexed slice cuts one of them mid-character and panics instead of
+    // reporting the offender it is standing in.
+    for pad in 100..300 {
+        let long = format!(
+            "rhei transition <plan> --task <child> --to cancelled --result \"{}\"—done\n",
+            "x".repeat(pad)
+        );
+        assert_eq!(
+            offending_invocations(&long).len(),
+            1,
+            "a multi-byte character is not a boundary"
+        );
+    }
 }
