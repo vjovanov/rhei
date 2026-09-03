@@ -357,17 +357,16 @@ fn the_supervisor_prompt_cancels_with_the_required_from() {
     let peeked = run_cli("next", &workspace, &machine, &["--task", "deliver", "--peek"]);
     assert_success(&peeked);
 
+    // The same scan the templates are held to, over what the supervisor reads.
+    let offenders = super::template_transition_guard_tests::offending_invocations(&peeked.stdout);
+    assert!(
+        offenders.is_empty(),
+        "the supervisor prompt shows a transition the CLI rejects:\n{}",
+        offenders.join("\n")
+    );
+
     // The prompt wraps its commands, so read it as one line before matching.
     let prompt = peeked.stdout.split_whitespace().collect::<Vec<_>>().join(" ");
-    for (offset, _) in prompt.match_indices("rhei transition") {
-        let rest = &prompt[offset..];
-        let end = rest.find('`').unwrap_or(rest.len()).min(240).min(rest.len());
-        let command = &rest[..end];
-        assert!(
-            !command.contains("--to") || command.contains("--from"),
-            "the supervisor prompt shows a transition the CLI rejects: {command}"
-        );
-    }
     assert!(
         prompt.contains("rhei transition <task-id> --from <current-state> --to cancelled"),
         "the cancel rule spells the guard out; got:\n{}",
