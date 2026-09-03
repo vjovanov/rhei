@@ -683,8 +683,8 @@ pub enum ResumeStrategy {
 }
 
 pub enum ForkStrategy {
-    /// Agent exposes a native fork flag. Rhei always passes it the staged
-    /// transcript's filesystem path; an agent whose fork takes a session id
+    /// Agent exposes a native fork flag. Rhei always passes it the source
+    /// snapshot's transcript path; an agent whose fork takes a session id
     /// instead cannot be expressed by this variant.
     Native { flag: String },
     /// Rhei copies the session file itself; agent does not need a fork flag.
@@ -1051,7 +1051,7 @@ authentication.
 **Codex forks, but not in a shape rhei can declare yet.** `codex exec fork
 <SESSION_ID> [PROMPT]` exists and takes the same UUID `resume` does. Rhei's
 `ForkStrategy::Native { flag }` cannot express it: that variant means *hand the
-agent the staged transcript's filesystem path* (§9.1), which is pi's
+agent the source snapshot's transcript path* (§9.1), which is pi's
 `--fork <path>`, and step 7 of [Spawn-Time Preload](#101-spawn-time-preload)
 prefers fork over resume whenever a profile declares both. A codex profile
 declaring `fork` would therefore emit `fork <…/transcript.jsonl>`, which
@@ -1136,8 +1136,8 @@ For each spawn of a state declaring `snapshot.inherit:`:
    into the inheritor's generation directory. A profile that declares both is
    forked, not resumed: fork starts from a copy and leaves the source
    transcript untouched, so it is the safer of the two when the agent offers
-   it. `ForkStrategy::Native` is passed the staged transcript's path and
-   `ResumeStrategy::Native` the manifest's `session_id`.
+   it. `ForkStrategy::Native` is passed the source snapshot's transcript path
+   and `ResumeStrategy::Native` the manifest's `session_id`.
 8. Spawn the subprocess with the strategy-defined flags placed after the
    agent's own mode, prompt and model flags and **before** the `--` separator
    a `stdin_prompt` profile emits — never after it. Past a `--`, an argument

@@ -3,14 +3,14 @@
 // is at its file-size budget. §AR-source-file-size.3
 
 /// A profile declaring both strategies is forked rather than resumed, and the
-/// fork flag is handed the staged transcript's *path* — never a session id.
+/// fork flag is handed the source snapshot's transcript *path* — never an id.
 /// That is what makes `ForkStrategy::Native` unusable for an agent whose fork
 /// takes an id, and it is why the built-in codex profile declares no `fork`
 /// (§FS-rhei-snapshots.9.3.4). Nothing pinned the pair before this test, so
 /// a profile could declare both and look correct while never resuming.
 // §FS-rhei-snapshots.10.1 §FS-rhei-snapshots.9.2
 #[test]
-fn snapshot_preload_prefers_fork_and_hands_it_the_staged_transcript_path() {
+fn snapshot_preload_prefers_fork_and_hands_it_the_source_transcript_path() {
     let dir = snapshot_workspace();
     write_preload_strategy_machine(dir.path());
     let settings = preload_strategy_settings(serde_json::json!({
@@ -51,7 +51,7 @@ fn snapshot_preload_prefers_fork_and_hands_it_the_staged_transcript_path() {
     assert_eq!(
         preload,
         vec!["--fork".to_string(), transcript.display().to_string()],
-        "fork wins over resume, and its argument is the staged transcript path"
+        "fork wins over resume, and its argument is the source snapshot's transcript path"
     );
     assert!(
         !preload.iter().any(|arg| arg == "--resume"),
