@@ -119,7 +119,10 @@ Rhei projects are driven by coding agents, and an agent dropped into a
 directory has no way to know it plans work with Rhei. Init creates
 `AGENTS.md` in the **host directory** — the directory `rhei init` was given —
 or appends to an existing one, with a short note between stable markers naming
-where the project lives. Init never writes above the host.
+where the project lives. Every path init writes is one it chose inside the
+host directory; where the user has symlinked a host instruction file to an
+ancestor, the bytes land wherever they pointed it, because following a pointer
+somebody set deliberately is honoring it, not escaping the host.
 
 One exception: when the host has no `AGENTS.md` but does have a `CLAUDE.md`,
 the note is appended to `CLAUDE.md` instead. A project whose agent
@@ -155,16 +158,25 @@ read. That walk cannot tell a plans subdirectory of the repository the agent
 works in from a host that merely happens to sit inside an unrelated
 repository, and in the second case init appended the note to a tracked,
 hand-written instruction file the user never named. An enclosing repository's
-`AGENTS.md` or `CLAUDE.md` is therefore never read for content and never
-modified.
+`AGENTS.md` or `CLAUDE.md` is therefore never modified; init reads one only to
+word the hint below.
 
 Discoverability from an enclosing root is the user's call, and init only
-prompts it: when the note is being written and the host lies strictly inside a
-git repository, init prints one hint line naming that root's instruction file,
-so a user who wants agents starting there to find the project can add a pointer
-themselves. The hint is a suggestion, never a write. It follows the layout, not
-the write: a re-run that changes nothing still prints it, because it describes
-where the project sits rather than a file init touched.
+prompts it: it prints one hint line naming that root's instruction file, so a
+user who wants agents starting there to find the project can add a pointer
+themselves. The hint is a suggestion, never a write. Three conditions have to
+hold together for it to print — the note is being written (`--no-agents` says
+nothing at all), the host lies strictly inside a git repository (a host that
+*is* the root has nothing above it to point from), and that root's instruction
+file does not already carry the note. The last is the upgrade case: a note an
+earlier revision wrote to the enclosing root is still sitting there, so the
+pointer the hint asks for already exists, and asking again for what is on the
+page is noise. Init leaves that stale note where it is — removing it is the
+user's call, in their own file. Deciding which of the root's `AGENTS.md` or
+`CLAUDE.md` to name, and whether one of them already carries the note, is the
+whole of what init reads above the host for. Otherwise the hint follows the
+layout, not the write: a re-run that changes nothing still prints it, because
+it describes where the project sits rather than a file init touched.
 
 The first sentence of the note names where the project is relative to the
 host: `panta/` in default mode, and "This directory is a Rhei (Panta)

@@ -273,19 +273,21 @@ fn write_agents_note(host: &Path, here: bool) -> MietteResult<(bool, PathBuf)> {
 fn agents_note_target(dir: &Path) -> PathBuf {
     let agents = dir.join("AGENTS.md");
     let claude = dir.join("CLAUDE.md");
-    let carries_note = |path: &Path| {
-        fs::read_to_string(path).is_ok_and(|content| strip_rhei_note(&content) != content)
-    };
-    if carries_note(&agents) {
+    if carries_rhei_note(&agents) {
         return agents;
     }
-    if carries_note(&claude) {
+    if carries_rhei_note(&claude) {
         return claude;
     }
     if !agents.exists() && claude.exists() {
         return claude;
     }
     agents
+}
+
+/// Whether `path` already holds an agent-discovery note this init would rewrite.
+fn carries_rhei_note(path: &Path) -> bool {
+    fs::read_to_string(path).is_ok_and(|content| strip_rhei_note(&content) != content)
 }
 
 /// The enclosing git repository root, if `dir` is inside one.
@@ -305,7 +307,14 @@ fn repository_root(dir: &Path) -> Option<PathBuf> {
 /// an agent starting at the enclosing root will not see a note that lives in
 /// the host, and only the user can decide to point it there. Printed whenever
 /// the layout calls for it, not only when the note changed — it describes
-/// where the project sits, not a file init touched. §FS-rhei-init.4
+/// where the project sits, not a file init touched.
+///
+/// Three things silence it: no enclosing repository, a host that *is* the
+/// root (nothing above it to point from), and a root whose instruction file
+/// already carries the note — plus `--no-agents` at the call site, where no
+/// note is written to advertise. The middle two overlap for a host that is
+/// its own root, since the note just written is in that root's own file; each
+/// is kept for the condition it states. §FS-rhei-init.4
 fn report_enclosing_repository_hint(host: &Path) {
     let Some(root) = repository_root(host) else {
         return;
@@ -316,13 +325,20 @@ fn report_enclosing_repository_hint(host: &Path) {
     if same_path(&root, host) {
         return;
     }
+    // The upgrade case: an earlier revision anchored the note *at* this root,
+    // so the pointer the hint asks for is already on the page. It stays there
+    // — removing it is the user's call, in the user's file. §FS-rhei-init.4
+    let target = agents_note_target(&root);
+    if carries_rhei_note(&target) {
+        return;
+    }
     // Absolute, not shortened: the whole point of the line is that this file
     // is in a *different* directory from the host, and a bare `AGENTS.md`
     // relative to the invocation directory reads as the one just written.
     println!(
-        "Hint: init writes nothing above the host. Add a pointer in {} yourself if agents \
-         starting at the enclosing repository root should find this project.",
-        agents_note_target(&root).display()
+        "Hint: init only writes files it chose inside the host directory. Add a pointer in {} \
+         yourself if agents starting at the enclosing repository root should find this project.",
+        target.display()
     );
 }
 
