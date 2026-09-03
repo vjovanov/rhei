@@ -23,6 +23,7 @@ mod run_lock_wait_tests;
 mod run_shell_program_tests;
 mod run_signals_tests;
 mod run_tests;
+mod snapshot_codex_session_tests;
 mod snapshot_tests;
 mod summary_tests;
 mod supervised_delivery_tests;
