@@ -110,6 +110,7 @@ fn preload_snapshot_inherit_before_spawn(
                     }
                     // A malformed locator key takes the same degrade path: this
                     // invocation loses emit for that agent, not the run.
+                    // §FS-rhei-snapshots.9.1.1
                     Err(err) => {
                         diag_warn!(
                             "warning: could not resolve snapshot session locator keys for agent '{}' ({}); fixed-location snapshot tracking disabled for this spawn",
