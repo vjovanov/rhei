@@ -311,10 +311,10 @@ fn repository_root(dir: &Path) -> Option<PathBuf> {
 ///
 /// Three things silence it: no enclosing repository, a host that *is* the
 /// root (nothing above it to point from), and a root whose instruction file
-/// already carries the note — plus `--no-agents` at the call site, where no
-/// note is written to advertise. The middle two overlap for a host that is
-/// its own root, since the note just written is in that root's own file; each
-/// is kept for the condition it states. §FS-rhei-init.4
+/// already reads as carrying a Rhei note — plus `--no-agents` at the call
+/// site, where no note is written to advertise. The middle two overlap for a
+/// host that is its own root, since the note just written is in that root's
+/// own file; each is kept for the condition it states. §FS-rhei-init.4
 fn report_enclosing_repository_hint(host: &Path) {
     let Some(root) = repository_root(host) else {
         return;
@@ -325,9 +325,9 @@ fn report_enclosing_repository_hint(host: &Path) {
     if same_path(&root, host) {
         return;
     }
-    // The upgrade case: an earlier revision anchored the note *at* this root,
-    // so the pointer the hint asks for is already on the page. It stays there
-    // — removing it is the user's call, in the user's file. §FS-rhei-init.4
+    // Anything that reads as a Rhei note silences this — init will not judge
+    // whose it is, in a file it has promised not to write. It stays put:
+    // removing it is the user's call, in the user's file. §FS-rhei-init.4
     let target = agents_note_target(&root);
     if carries_rhei_note(&target) {
         return;
