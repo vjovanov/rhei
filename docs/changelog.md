@@ -18,7 +18,7 @@
   naming the root's instruction file, so adding a pointer stays your decision.
   It stays quiet when that file already reads as carrying such a note: init
   will not judge whose note it is, so it leaves it where it is and removing it
-  is yours to do. (PR #N)
+  is yours to do. (PR #167)
 
 - **A detached run's console log is appended to, so one run can no longer
   overwrite another's diagnostic in it.** The launcher opened
