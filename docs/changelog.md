@@ -8,18 +8,18 @@
   spawn with `unsupported-snapshot-session`, `snapshot.inherit:` ran cold, and
   `rhei snapshot continue` refused — every visit to a codex state started from
   nothing and re-read the plan, the briefs and the exports from disk (#146).
-  The adapter spike the spec waited on is done. Two generic extensions carry
-  its result, neither of which knows what codex is: the `FlatById` layout takes
-  three optional locator keys (`nested`, `id_from_stem`, `confirm_cwd_path`)
-  that find a session in a shared, dated directory the agent names itself, and
-  the snapshot strategy flags now go before the `--` a `stdin_prompt` emits
-  rather than after it — past a `--` an argument is prompt text, which is why a
-  resume spelled as a positional subcommand did nothing. The keys default to
-  what every existing profile already does and stay out of the manifest and out
-  of compatibility matching, so older snapshots and older builds are
-  unaffected. `rhei snapshot continue` no longer requires a `session_dir_flag`,
-  and no longer hands the agent the result file of whatever run started it.
-  (PR #N)
+  Two generic extensions carry the adapter spike's result, neither of which
+  knows what codex is: the `FlatById` layout takes three optional locator keys
+  (`nested`, `id_from_stem`, `confirm_cwd_path`) that find a session in a
+  shared, dated directory the agent names itself, and the snapshot strategy
+  flags now go before the `--` a `stdin_prompt` emits rather than after it,
+  where an argument is prompt text rather than a subcommand. Pi feels that
+  reorder too: its `--session-dir` and `--fork` now precede its `--skill`
+  flags, and the observed provider and model are now read by one rule for
+  every agent, the two fields taken independently. The keys stay out of the
+  manifest, so older snapshots and older builds are unaffected. `rhei snapshot
+  continue` no longer requires a `session_dir_flag`, and no longer hands the
+  agent the result file of whatever run started it. (PR #N)
 - **The run report counts one invocation once now, however many times it
   reported its usage.** `UsageReported` arrives again for the same invocation as
   a streaming extractor observes further turns, and arrives once more after the
