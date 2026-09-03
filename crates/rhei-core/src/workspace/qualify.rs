@@ -19,11 +19,12 @@ use crate::parser::{self, ParseError};
 
 pub(super) fn rhei_id_for_entry(path: &Path) -> parser::Result<String> {
     if path.is_dir() {
-        return path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| ParseError::new(format!("invalid rhei path {}", path.display()), None));
+        // Spelling must not change the id, and `.`, `./`, and a trailing `..`
+        // carry no name: resolve those only, so a symlinked workspace keeps the
+        // id it has today. §FS-rhei-panta.6 §AR-rhei-panta.3
+        return dir_name(path)
+            .or_else(|| std::fs::canonicalize(path).ok().as_deref().and_then(dir_name))
+            .ok_or_else(|| nameless_dir_error(path));
     }
 
     let name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
@@ -42,6 +43,30 @@ pub(super) fn rhei_id_for_entry(path: &Path) -> parser::Result<String> {
         ));
     };
     Ok(stem.to_string())
+}
+
+/// The trailing component of `path` as a rhei id candidate.
+///
+/// `None` when the path carries no name of its own — `.`, `./`, anything ending
+/// in `..`, the filesystem root — or when that name is not UTF-8.
+fn dir_name(path: &Path) -> Option<String> {
+    path.file_name().and_then(|name| name.to_str()).map(ToOwned::to_owned)
+}
+
+/// The error for a directory that resolves to no usable name: the filesystem
+/// root, a name that is not UTF-8, or a path that would not canonicalize.
+///
+/// It names path resolution as what failed, because everything the reader
+/// authored is fine and it is the path that carries no id — the plan-authoring
+/// help would send them to edit a valid file. §FS-rhei-panta.6
+fn nameless_dir_error(path: &Path) -> ParseError {
+    ParseError::new(
+        format!(
+            "cannot derive a rhei id from {}: the path resolves to no usable directory name",
+            path.display()
+        ),
+        None,
+    )
 }
 
 pub(super) fn validate_rhei_id(id: &str, path: &Path) -> parser::Result<()> {
@@ -216,4 +241,35 @@ pub(super) fn qualify_task_metadata(metadata: Option<Metadata>, rhei_id: &str) -
         set_frontmatter_tasks(&mut metadata, qualified);
     }
     Some(metadata)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory named by a path with no name of its own still has an id:
+    /// `.` is the invocation directory, spelled. §FS-rhei-panta.6
+    #[test]
+    fn current_directory_derives_the_resolved_directory_name() {
+        let expected = std::env::current_dir()
+            .and_then(std::fs::canonicalize)
+            .expect("the invocation directory should resolve");
+        let expected = expected.file_name().expect("it should have a name").to_str().unwrap();
+
+        assert_eq!(rhei_id_for_entry(Path::new(".")).unwrap(), expected);
+        assert_eq!(rhei_id_for_entry(Path::new("./")).unwrap(), expected);
+    }
+
+    /// The one directory that resolves to no name is the filesystem root, and
+    /// its error blames the path rather than the plan. §FS-rhei-panta.6
+    #[test]
+    fn a_path_resolving_to_no_name_blames_resolution() {
+        let root = if cfg!(windows) { Path::new("C:\\") } else { Path::new("/") };
+        let err = rhei_id_for_entry(root).expect_err("the root names no rhei");
+        assert!(
+            err.message.contains("resolves to no usable directory name"),
+            "the message should name resolution; got: {}",
+            err.message
+        );
+    }
 }

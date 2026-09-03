@@ -352,6 +352,22 @@ pub fn implicit_panta_from_file_rhei(rhei: Rhei, file: &Path) -> parser::Result<
     wrap_rhei_as_implicit_panta(Workspace { rhei, task_sources }, file)
 }
 
+/// The rhei id the path `entry` names, with every rule that governs it: it is
+/// derived from the resolved directory name or the file stem, must be a valid
+/// single-segment id, and cannot be the reserved `basin`. §AR-rhei-panta.3
+///
+/// Public and separate from the wrapper below so a caller can tell an identity
+/// failure — where the path is wrong and the plan is fine — from the plan
+/// errors the same load reports. §FS-rhei-panta.6
+pub fn rhei_id_for_path(entry: &Path) -> parser::Result<String> {
+    let id = rhei_id_for_entry(entry)?;
+    validate_rhei_id(&id, entry)?;
+    if id == BASIN_RHEI_ID {
+        return Err(basin_id_reserved_error(entry));
+    }
+    Ok(id)
+}
+
 /// Wrap an already-loaded bare rhei as its implicit Panta. §AR-rhei-panta.2:
 /// the rhei is the sole level-1 child; §AR-rhei-panta.3: its id derives from
 /// the file stem or directory name and project-qualifies every ticket.
@@ -359,11 +375,7 @@ pub fn wrap_rhei_as_implicit_panta(
     loaded: Workspace,
     entry: &Path,
 ) -> parser::Result<PantaProject> {
-    let id = rhei_id_for_entry(entry)?;
-    validate_rhei_id(&id, entry)?;
-    if id == BASIN_RHEI_ID {
-        return Err(basin_id_reserved_error(entry));
-    }
+    let id = rhei_id_for_path(entry)?;
     let root = rhei_execution_root(entry);
     let mut rhei = loaded.rhei;
     let rhei_ids = vec![id.clone()];

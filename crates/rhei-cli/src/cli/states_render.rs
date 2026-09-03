@@ -908,6 +908,7 @@ fn load_plan_with(path: &Path, lenient: bool) -> MietteResult<LoadedPlan> {
         // §AR-rhei-panta.2: a bare Directory Workspace is the single rhei of
         // an implicit Panta; the graph shape matches an explicit project.
         let ws = workspace::load_workspace(&ws_dir).map_err(|err| nested_parse_report(&err))?;
+        check_rhei_identity(&ws_dir)?;
         let project = workspace::wrap_rhei_as_implicit_panta(ws, &ws_dir)
             .map_err(|err| nested_parse_report(&err))?;
         Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))
@@ -916,6 +917,7 @@ fn load_plan_with(path: &Path, lenient: bool) -> MietteResult<LoadedPlan> {
         let rhei = rhei_core::parse(&input).map_err(|err| parse_report(path, &input, &err))?;
         // §AR-rhei-panta.2/.3: a bare rhei file wraps as an implicit Panta
         // with its id derived from the file stem.
+        check_rhei_identity(path)?;
         let project = workspace::implicit_panta_from_file_rhei(rhei, path)
             .map_err(|err| nested_parse_report(&err))?;
         Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
@@ -972,6 +974,7 @@ fn load_plan_for_validation(path: &Path) -> MietteResult<LoadedPlan> {
     let (maybe_rhei, errs) = rhei_core::parser::parse_collect(&raw);
     match (maybe_rhei, errs.is_empty()) {
         (Some(rhei), true) => {
+            check_rhei_identity(path)?;
             let project = workspace::implicit_panta_from_file_rhei(rhei, path)
                 .map_err(|err| nested_parse_report(&err))?;
             Ok(implicit_loaded_plan(project, LoadedPlanKind::SingleFile))
@@ -1049,6 +1052,7 @@ fn load_workspace_for_validation(ws_dir: &Path) -> MietteResult<LoadedPlan> {
         },
         task_sources,
     };
+    check_rhei_identity(ws_dir)?;
     let project = workspace::wrap_rhei_as_implicit_panta(ws, ws_dir)
         .map_err(|err| nested_parse_report(&err))?;
     Ok(implicit_loaded_plan(project, LoadedPlanKind::Workspace))

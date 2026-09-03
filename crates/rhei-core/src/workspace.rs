@@ -24,7 +24,7 @@ pub use basin::BASIN_RHEI_ID;
 pub use panta::{
     discover_rhei_entries, implicit_panta_from_file_rhei, is_panta_project, load_implicit_panta,
     load_panta_project, load_panta_project_lenient, panta_member, panta_project_dir,
-    rhei_plan_file, wrap_rhei_as_implicit_panta, PantaProject, PANTA_INDEX_FILE,
+    rhei_id_for_path, rhei_plan_file, wrap_rhei_as_implicit_panta, PantaProject, PANTA_INDEX_FILE,
 };
 
 use std::collections::HashMap;
