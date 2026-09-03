@@ -30,7 +30,7 @@
   state is already visible: in brackets beside the child in the supervisor's
   own task list, and in `rhei list --parent <id>`. An end-to-end guard fails if
   any built-in template prints a `rhei transition` invocation without `--from`.
-  (PR #N)
+  (PR #170)
 
 - **A detached run's console log is appended to, so one run can no longer
   overwrite another's diagnostic in it.** The launcher opened
