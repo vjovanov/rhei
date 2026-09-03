@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **The run report counts one invocation once now, however many times it
+  reported its usage.** `UsageReported` arrives again for the same invocation as
+  a streaming extractor observes further turns, and arrives once more after the
+  slot is released; the run summary appended every report it saw. So an aborted
+  run's accounting strip and every run's per-task cost row read one invocation
+  as two and its tokens and cost as double: a run looked twice as expensive as
+  it was, and a guard built on those totals stopped at half the spend it was
+  given (#152). The two TUI frontends already upserted by invocation id, and the
+  run report was the last frontend that did not. It now keeps one record per
+  invocation and replaces an earlier report with the later one, and derives both
+  the run-level strip and each task row from that one list, so the two levels
+  cannot disagree and an invocation whose report names another task leaves no
+  row behind under the old one. The accounting artifacts under
+  `runtime/accounting/` and `rhei cost` read invocation-keyed records and were
+  never wrong, so nothing on disk needs re-reading. (PR #N)
 - **A supervising state in a Panta workspace resumes warm now, instead of
   rebuilding its context on every visit.** A state that pairs `snapshot.emit:`
   with `snapshot.inherit:` emitted into the project's cache but inherited from

@@ -112,6 +112,7 @@ include!("cli/run_agent_pool.rs");
 include!("cli/run_parallel_agent_exit.rs");
 include!("cli/run_callback_mode.rs");
 include!("cli/run_failure_transitions.rs");
+include!("cli/run_summary_usage.rs");
 include!("cli/run_summary.rs");
 include!("cli/ready_transition.rs");
 include!("cli/ready_halt_causes.rs");
