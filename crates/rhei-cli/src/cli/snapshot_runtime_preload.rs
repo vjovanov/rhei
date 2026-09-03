@@ -89,21 +89,35 @@ fn preload_snapshot_inherit_before_spawn(
             preload.extra_args.push(flag);
             preload.extra_args.push(dir.display().to_string());
             preload.session_dir = Some(dir);
-        } else if let Some(template) = snapshot_session_layout(session).and_then(snapshot_layout_dir_template) {
-            // §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1: Fixed-location emit.
-            // Never write into this directory, only read after exit; a resolution
-            // failure (e.g. no HOME) degrades to no tracking, never fails spawn.
+        } else if let Some((layout, template)) = snapshot_session_layout(session)
+            .and_then(|layout| snapshot_layout_dir_template(layout).map(|t| (layout, t)))
+        {
+            // §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1: Fixed-location emit,
+            // with the §9.1.1 locator keys. Read-only after exit; a resolution
+            // failure degrades to no tracking rather than failing the spawn.
             match resolve_snapshot_dir_template(&template, spawn_working_dir) {
-                Ok(dir) => {
-                    preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
-                    if let Some(flag) = snapshot_session_string(session, "assign_id_flag") {
-                        let id = generate_snapshot_session_id();
-                        preload.extra_args.push(flag);
-                        preload.extra_args.push(id.clone());
-                        preload.fixed_session_id = Some(id);
+                Ok(dir) => match resolve_snapshot_session_locator(layout, spawn_working_dir) {
+                    Ok(locator) => {
+                        preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
+                        if let Some(flag) = snapshot_session_string(session, "assign_id_flag") {
+                            let id = generate_snapshot_session_id();
+                            preload.extra_args.push(flag);
+                            preload.extra_args.push(id.clone());
+                            preload.fixed_session_id = Some(id);
+                        }
+                        preload.fixed_session_dir = Some(dir);
+                        preload.fixed_session_locator = locator;
                     }
-                    preload.fixed_session_dir = Some(dir);
-                }
+                    // A malformed locator key takes the same degrade path: this
+                    // invocation loses emit for that agent, not the run.
+                    Err(err) => {
+                        diag_warn!(
+                            "warning: could not resolve snapshot session locator keys for agent '{}' ({}); fixed-location snapshot tracking disabled for this spawn",
+                            resolved.agent.id(),
+                            err
+                        );
+                    }
+                },
                 Err(err) => {
                     diag_warn!(
                         "warning: could not resolve snapshot dir_template for agent '{}' ({}); fixed-location snapshot tracking disabled for this spawn",
