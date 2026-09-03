@@ -24,6 +24,16 @@ fn plan_authoring_help() -> &'static str {
      rhei validate <plan>"
 }
 
+/// Help for a rhei whose id cannot be derived from the path naming it.
+///
+/// The plan is not the problem here — it parsed — so the reader must be sent to
+/// the path they typed rather than to their task metadata. §FS-rhei-panta.6
+fn rhei_identity_help() -> &'static str {
+    "a rhei's id comes from the path naming it: the directory name of a Directory \
+     Workspace, or the `<id>` of `<id>.rhei.md`. Point the command at a path that \
+     carries that name — an absolute path always does."
+}
+
 /// Help for the snapshot store.
 fn snapshot_help() -> &'static str {
     "inspect the snapshot store with: rhei snapshot list"

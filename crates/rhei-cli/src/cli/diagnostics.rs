@@ -482,6 +482,25 @@ fn nested_parse_report(err: &rhei_core::parser::ParseError) -> Report {
     parse_report(path, &source, err)
 }
 
+/// Report a failure to derive a rhei's identity from the path it was named by.
+///
+/// Its own report because the plan already parsed: what is wrong is the path,
+/// and the plan-authoring help would send the reader to edit a file that is
+/// perfectly fine. §FS-rhei-panta.6
+fn rhei_identity_report(err: &rhei_core::parser::ParseError) -> Report {
+    miette!(help = rhei_identity_help(), "{}", err.message)
+}
+
+/// Settle the id `entry` names before the wrap that would derive it anyway.
+///
+/// The wrap reports two unrelated failures through one `Result` — the path
+/// names no usable id, or the plan it loaded is malformed — and they need
+/// opposite help. Asking for the id first is what keeps a duplicate ticket id
+/// from being reported as a path problem. §FS-rhei-panta.6
+fn check_rhei_identity(entry: &Path) -> MietteResult<()> {
+    workspace::rhei_id_for_path(entry).map(|_| ()).map_err(|err| rhei_identity_report(&err))
+}
+
 /// Re-parse `path` with the error-collecting parser that matches its role in a
 /// project, so a nested failure can be reported with the same completeness as
 /// `rhei validate <path>`.

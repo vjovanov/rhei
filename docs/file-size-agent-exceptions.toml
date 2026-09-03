@@ -387,3 +387,13 @@ until = "the snapshot declaration structs move to a module of their own, leaving
 reason = """
 Adding poll.waiting_on and its two accessors carried the file 491 -> 516. The split this file wants is not the poll schema, which belongs beside StateDef: it is the four snapshot declaration structs (StateSnapshotConfig, SnapshotEmitConfig, SnapshotInheritConfig and their serde contracts), a cohesive group with its own spec that reads as a second subject here. There is no module for them yet, and carving one inside a feature change would put an unrelated refactor in the same diff.
 """
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/diagnostics.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 700, unit = "lines" }
+until = "The report builders that re-parse a file to widen an error move to a module of their own, leaving this file the report constructors and their help."
+reason = """
+Over budget before this change; the touch that surfaced it added seventeen lines. The install-skills file surgery, the path helpers, and the parse-report builders share the file because the error-widening re-parse (collect_parse_errors, owning_structure) sits between the constructors and the renderers with no boundary of its own.
+"""

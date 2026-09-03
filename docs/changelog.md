@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **A workspace can be named by the directory you are standing in: `.`, `./`,
+  and its bare `index.rhei.md` all work now.** Every command that takes a plan
+  path derives the rhei id from the last component of that path, and `.`, `./`,
+  and a trailing `..` have no last component of their own — a bare
+  `index.rhei.md` is reduced to `.` before it gets there. So the spelling an
+  author reaches for first, from inside the workspace they are already in,
+  was the one spelling that failed: `rhei list .` exited 1 with "invalid rhei
+  path .", and so did `validate` and `next`, while the same workspace listed
+  fine from its parent or by absolute path. A nameless path is now resolved
+  before its name is read, so all four spellings name one rhei with one set of
+  ids; paths that already carry a name are untouched, so a symlinked workspace
+  keeps the id it has. And where a path genuinely names no id — it resolves to
+  no usable directory name, the name it carries is not a valid id, or it is the
+  reserved `basin` — the error now points at the path instead of sending the
+  reader to check task metadata in a plan that is perfectly valid. (PR #N)
 - **`rhei init` no longer writes outside the directory you gave it.** The
   agent-discovery note was anchored at the enclosing git repository root, so
   `rhei init <subdir>` inside somebody else's repository appended the note to
