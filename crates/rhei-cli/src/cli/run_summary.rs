@@ -1750,4 +1750,5 @@ impl Palette {
 #[cfg(test)]
 mod run_summary_tests {
     include!("tests_run_summary.rs");
+    include!("tests_run_summary_accounting.rs");
 }

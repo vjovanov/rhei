@@ -485,7 +485,13 @@ UI.
 The end-of-run console summary and durable run report include the same run-level
 accounting strip. Task rows may show a compact direct task cost only; the direct
 task cost is the sum of usage reported for all agent states spawned for that
-task in the run. [§FS-rhei-run-report](rhei-run-report.spec.md#fs-rhei-run-report-per-run-report)
+task in the run. Both are frontends under [Run Events](#7-run-events), and the
+rule reaches both of their levels: the run-level strip and each task row are
+built by upserting on invocation id, so one invocation counts once however many
+reports it sent and whether or not its slot was still active when the last one
+arrived. Where two reports for one invocation differ, the later one replaces
+the earlier one; it is neither added to it nor discarded in favour of it.
+[§FS-rhei-run-report](rhei-run-report.spec.md#fs-rhei-run-report-per-run-report)
 
 The browser dashboard adds a **Cost** tab before **Journal**. Its live summary
 shows:
