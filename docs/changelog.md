@@ -19,7 +19,7 @@
   `runtime/snapshot-sessions/`, so a narrowed `rhei reset` still sweeps it. A
   path-form `--from-snapshot` reference is now read relative to the project
   root too, the same root `rhei snapshot show` already reads it against.
-  (PR #N)
+  (PR #177)
 - **A workspace can be named by the directory you are standing in: `.`, `./`,
   and its bare `index.rhei.md` all work now.** Every command that takes a plan
   path derives the rhei id from the last component of that path, and `.`, `./`,
