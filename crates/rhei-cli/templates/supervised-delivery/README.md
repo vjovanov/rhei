@@ -182,8 +182,10 @@ share one contract and each state adds only its own scope.
 
 Rules the supervisor does not bend: brief one phase at a time; never cancel a
 step that has already started; every cancel carries
-`rhei transition <id> --to cancelled --result "<why>"`; never transition its own
-task.
+`rhei transition <id> --from <current-state> --to cancelled --result "<why>"`;
+never transition its own task. `--from` is the compare-and-swap guard and is
+required — the child's current state is the one in brackets beside it in the
+supervisor's task list, so a cancel needs no extra read.
 
 **`fix-1` and `coverage-fix-1` are never cancelled.** A cancelled task does not
 satisfy anyone's prerequisite (§FS-rhei-states.1.4), so the coverage phase is

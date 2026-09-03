@@ -103,7 +103,10 @@ briefs, exports, results, the preparation note — stay under this workspace.
 - `rhei run` releases the subtree only between supervisor visits, so a run with
   `--parallel 1` still works; it just serializes the two reviews of a round and
   costs the supervisor one extra visit per round.
-- The supervisor cancels with `rhei transition <id> --to cancelled --result
-  "<why>"`. A cancelled ticket does not satisfy anyone's prerequisite, which is
-  why the later phases are chained to the round-1 fixers (`fix-1`,
-  `coverage-fix-1`) — the two steps the supervisor never cancels.
+- The supervisor cancels with `rhei transition <id> --from <current-state>
+  --to cancelled --result "<why>"`. `--from` is the compare-and-swap guard and
+  is required; the child's current state is the one in brackets beside it in
+  the supervisor's task list. A cancelled ticket does not satisfy anyone's
+  prerequisite, which is why the later phases are chained to the round-1
+  fixers (`fix-1`, `coverage-fix-1`) — the two steps the supervisor never
+  cancels.

@@ -19,6 +19,18 @@
   It stays quiet when that file already reads as carrying such a note: init
   will not judge whose note it is, so it leaves it where it is and removing it
   is yours to do. (PR #167)
+- **The supervised-delivery supervisor is handed a cancel command that
+  actually runs.** Its prompt, its plan notes and the template README all
+  printed `rhei transition <id> --to cancelled --result "<why>"`, which clap
+  rejects with exit 2 because `--from` is required — it is the compare-and-swap
+  guard the command is built on, so inferring it from the task would give up
+  the race protection the command exists for. Every cancel therefore cost a
+  failed command and then a read of the child's task file to find the state to
+  pass. The guidance now shows `--from <current-state>` and says where that
+  state is already visible: in brackets beside the child in the supervisor's
+  own task list, and in `rhei list --parent <id>`. An end-to-end guard fails if
+  any built-in template prints a `rhei transition` invocation without `--from`.
+  (PR #N)
 
 - **A detached run's console log is appended to, so one run can no longer
   overwrite another's diagnostic in it.** The launcher opened

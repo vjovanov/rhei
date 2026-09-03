@@ -342,6 +342,41 @@ fn the_supervisor_sends_every_step_and_finishes_after_the_last_one() {
     );
 }
 
+/// The cancel command the supervisor is handed must be one the CLI accepts:
+/// `--from` is required, so a prompt that omits it costs a failed command and a
+/// read of the child's task file before the cancel lands (#117).
+/// §FS-rhei-transition-cmd.2
+#[test]
+fn the_supervisor_prompt_cancels_with_the_required_from() {
+    let dir = unique_temp_dir("supervised-delivery-cancel-guidance");
+    let (workspace, instantiated) =
+        instantiate(&dir, &["spec_path=docs/functional-spec/rhei-supervision.spec.md"]);
+    assert!(instantiated.status.success(), "instantiate failed:\n{}", instantiated.stderr);
+
+    let machine = workspace.join("states.yaml");
+    let peeked = run_cli("next", &workspace, &machine, &["--task", "deliver", "--peek"]);
+    assert_success(&peeked);
+
+    // The prompt wraps its commands, so read it as one line before matching.
+    let prompt = peeked.stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    for (offset, _) in prompt.match_indices("rhei transition") {
+        let rest = &prompt[offset..];
+        let end = rest.find('`').unwrap_or(rest.len()).min(240).min(rest.len());
+        let command = &rest[..end];
+        assert!(
+            !command.contains("--to") || command.contains("--from"),
+            "the supervisor prompt shows a transition the CLI rejects: {command}"
+        );
+    }
+    assert!(
+        prompt.contains("rhei transition <task-id> --from <current-state> --to cancelled"),
+        "the cancel rule spells the guard out; got:\n{}",
+        peeked.stdout
+    );
+
+    fs::remove_dir_all(dir).expect("cleanup");
+}
+
 /// The `snapshot:` block that carries a supervisor's session between visits is
 /// legal only on a session-capable agent, so the template emits it only when
 /// asked and otherwise defaults to the shape `claude-code` accepts.
