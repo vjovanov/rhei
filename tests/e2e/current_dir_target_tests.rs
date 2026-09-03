@@ -7,6 +7,7 @@
 
 use std::path::Path;
 
+use super::new_tests::{assert_failure, flattened_output};
 use super::*;
 
 const ONE_TICKET: &str = "### Task 1: First\n**State:** draft\n";
@@ -79,4 +80,55 @@ fn validate_accepts_the_current_directory() {
             result.stderr
         );
     }
+}
+
+/// A path that names no usable id is the path's problem, and the help says so
+/// instead of sending the reader into a plan that parsed. §FS-rhei-panta.6
+#[test]
+fn a_path_that_names_no_id_is_reported_against_the_path() {
+    let (dir, ws, machine) =
+        create_workspace("cwd-target-bad-id", "# Rhei: Bad Id\n", &[("a.md", ONE_TICKET)]);
+    let home = dir.join(".home");
+    let renamed = dir.join("not.an.id");
+    std::fs::rename(&ws, &renamed).expect("the workspace should be renamable");
+
+    let result = run_from(&dir, &home, &machine, "list", &renamed.display().to_string());
+    assert_failure(&result, "rhei id");
+    let said = flattened_output(&result);
+    assert!(
+        said.contains("rhei id 'not.an.id'") && said.contains("is not valid"),
+        "the message should name the id the path gave; got:\n{said}"
+    );
+    assert!(
+        said.contains("a rhei's id comes from the path naming it"),
+        "the help should point at the path; got:\n{said}"
+    );
+}
+
+/// And the plan errors the same load reports keep the authoring help and the
+/// code frame that go with them — a duplicate ticket id is not a path problem.
+/// §FS-rhei-panta.6
+#[test]
+fn a_plan_error_keeps_its_authoring_help() {
+    let dir = unique_temp_dir("cwd-target-duplicate");
+    let plan = write_fixture_file(
+        &dir,
+        "duplicates.rhei.md",
+        "# Rhei: Duplicates\n\n## Tasks\n\n### Task 1: First\n**State:** draft\n\n\
+         ### Task 1: Again\n**State:** draft\n",
+    );
+    let machine = write_fixture_file(&dir, "states.yaml", STATE_MACHINE);
+    let home = dir.join(".home");
+
+    let result = run_from(&dir, &home, &machine, "list", &plan.display().to_string());
+    assert_failure(&result, "duplicate task ID '1'");
+    let said = flattened_output(&result);
+    assert!(
+        said.contains("check the plan's task metadata"),
+        "a plan error keeps the authoring help; got:\n{said}"
+    );
+    assert!(
+        !said.contains("a rhei's id comes from the path naming it"),
+        "a plan error is not a path problem; got:\n{said}"
+    );
 }
