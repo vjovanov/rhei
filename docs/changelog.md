@@ -19,7 +19,7 @@
   reported missing. And where a path genuinely names no id — it resolves to
   no usable directory name, the name it carries is not a valid id, or it is the
   reserved `basin` — the error now points at the path instead of sending the
-  reader to check task metadata in a plan that is perfectly valid. (PR #N)
+  reader to check task metadata in a plan that is perfectly valid. (PR #171)
 - **`rhei init` no longer writes outside the directory you gave it.** The
   agent-discovery note was anchored at the enclosing git repository root, so
   `rhei init <subdir>` inside somebody else's repository appended the note to
