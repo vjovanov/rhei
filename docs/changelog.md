@@ -10,13 +10,15 @@
   host files it said it had changed (#116). The walk-up could not tell a plans
   subdirectory of the repository the agent works in from a host that merely
   happens to sit inside an unrelated one. The note now always lands in the
-  host directory, where it is reported like every other host change, and an
-  enclosing repository's instruction file is never modified — init reads one
-  only to word its hint. Where the host does sit inside a repository, init
-  prints that hint naming the root's instruction file, so adding a pointer
-  stays the user's decision. It stays quiet when that file already carries a
-  note an earlier version wrote there: that note stays where it is, and
-  removing it is yours to do. (PR #N)
+  host directory, where it is reported like every other host change, and every
+  path init writes is one it chose inside that directory — an enclosing
+  repository's instruction file is read only to word the hint, never picked as
+  a place to write, and takes bytes only where you symlinked a host file to it
+  yourself. Where the host does sit inside a repository, init prints that hint
+  naming the root's instruction file, so adding a pointer stays your decision.
+  It stays quiet when that file already reads as carrying such a note: init
+  will not judge whose note it is, so it leaves it where it is and removing it
+  is yours to do. (PR #N)
 
 - **A detached run's console log is appended to, so one run can no longer
   overwrite another's diagnostic in it.** The launcher opened

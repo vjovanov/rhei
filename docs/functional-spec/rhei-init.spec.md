@@ -168,15 +168,22 @@ themselves. The hint is a suggestion, never a write. Three conditions have to
 hold together for it to print — the note is being written (`--no-agents` says
 nothing at all), the host lies strictly inside a git repository (a host that
 *is* the root has nothing above it to point from), and that root's instruction
-file does not already carry the note. The last is the upgrade case: a note an
-earlier revision wrote to the enclosing root is still sitting there, so the
-pointer the hint asks for already exists, and asking again for what is on the
-page is noise. Init leaves that stale note where it is — removing it is the
-user's call, in their own file. Deciding which of the root's `AGENTS.md` or
-`CLAUDE.md` to name, and whether one of them already carries the note, is the
-whole of what init reads above the host for. Otherwise the hint follows the
-layout, not the write: a re-run that changes nothing still prints it, because
-it describes where the project sits rather than a file init touched.
+file does not already read as carrying a Rhei note — a marker-delimited
+region, or a `## Rhei` section whose body still carries the note's own
+sentence. That last one is a test on the text, not a claim about who wrote it.
+The case it is for is the upgrade: a note an earlier revision wrote to the
+enclosing root is still sitting there, and asking again for a pointer that is
+already on the page is noise. But init cannot tell that note from one a user
+wrote by hand, or from one pointing at a different project, and it does not
+try — judging whose note it is means ruling a user's own words about Rhei out
+of a file init has just promised not to write. A root that already reads as
+spoken for gets no hint, whoever spoke for it. Init leaves what it found where
+it is — removing it is the user's call, in their own file. Deciding which of
+the root's `AGENTS.md` or `CLAUDE.md` to name, and whether one of them reads
+as carrying a note, is the whole of what init reads above the host for.
+Otherwise the hint follows the layout, not the write: a re-run that changes
+nothing still prints it, because it describes where the project sits rather
+than a file init touched.
 
 The first sentence of the note names where the project is relative to the
 host: `panta/` in default mode, and "This directory is a Rhei (Panta)
