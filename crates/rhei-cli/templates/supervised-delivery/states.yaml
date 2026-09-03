@@ -164,8 +164,12 @@ states:
           `{task_id}.fix-1` or `{task_id}.coverage-fix-1`: the coverage and
           documentation phases are chained to those two, and a cancelled task
           does not satisfy anyone's prerequisite.
-        - Every cancel carries a reason:
-          `rhei transition <task-id> --to cancelled --result "<why>"`.
+        - Every cancel carries a reason, and `--from` is required — it is the
+          compare-and-swap guard, so it names the child's current state:
+          `rhei transition <task-id> --from <current-state> --to cancelled
+          --result "<why>"`. That state is the one in brackets beside the child
+          in this prompt's task list and in `rhei list --parent {task_id}`, so
+          a cancel never costs a read of the child's task file.
         - Do not transition your own task. The orchestrator owns that edge.
         - Write `## Result` only on the visit where every child is terminal and
           you intend to finish. On every other visit, return without one and

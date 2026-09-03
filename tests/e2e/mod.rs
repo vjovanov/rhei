@@ -33,6 +33,7 @@ mod supervision_release_rule_tests;
 mod supervision_surfaces_tests;
 mod supervision_tests;
 mod template_example_sync_tests;
+mod template_transition_guard_tests;
 mod templates_render_tests;
 mod templates_tests;
 mod terminal_result_attempt_tests;
