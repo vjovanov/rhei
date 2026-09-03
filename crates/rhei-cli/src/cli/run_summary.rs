@@ -74,9 +74,9 @@ struct SummaryState {
     ledger: Vec<LedgerRecord>,
     /// Usage reported during the run, used before `RunFinished` publishes the
     /// authoritative rollup or on an early-error fallback. §FS-rhei-cost-accounting.7
-    usages: Vec<rhei_tui::UsageSummary>,
-    /// Usage grouped by direct task id for task-row cost display.
-    usage_by_task: HashMap<String, Vec<rhei_tui::UsageSummary>>,
+    /// One record per invocation id, and the source of the task rows too, so the
+    /// two levels of the report cannot disagree. §FS-rhei-cost-accounting.9
+    usages: UsageLedger,
     /// The finalized run rollup from `RunFinished`, when available.
     accounting: Option<rhei_tui::AccountingRunSummary>,
 }
@@ -106,10 +106,7 @@ impl SummarySink {
             .lock()
             .ok()
             .and_then(|state| {
-                state
-                    .accounting
-                    .clone()
-                    .or_else(|| rhei_tui::summarize_usage_summaries(state.usages.iter()))
+                state.accounting.clone().or_else(|| state.usages.run_rollup())
             })
     }
 }
@@ -169,16 +166,16 @@ impl rhei_tui::EventSink for SummarySink {
                     outcome,
                 });
             }
-            rhei_tui::RunEvent::UsageReported { task, usage, .. } => {
-                state.usages.push(usage.clone());
-                state.usage_by_task.entry(task.clone()).or_default().push(usage);
-                let accounting = state
-                    .usage_by_task
-                    .get(&task)
-                    .and_then(|usages| rhei_tui::summarize_usage_summaries(usages.iter()));
-                if let Some(accounting) = accounting {
-                    state.tasks.entry(task).or_default().accounting = Some(accounting);
+            // Upsert by invocation id, then rebuild the rows the report touched:
+            // the task it now names, and the one it left if it moved.
+            // §FS-rhei-cost-accounting.9
+            rhei_tui::RunEvent::UsageReported { task, invocation_id, usage, .. } => {
+                if let Some(left) = state.usages.report(&task, &invocation_id, usage) {
+                    let accounting = state.usages.task_rollup(&left);
+                    state.tasks.entry(left).or_default().accounting = accounting;
                 }
+                let accounting = state.usages.task_rollup(&task);
+                state.tasks.entry(task).or_default().accounting = accounting;
             }
             // The classification needs the names, not the sentence; a later
             // invocation replaces the list, so it is the last attempt's, and it
@@ -188,9 +185,8 @@ impl rhei_tui::EventSink for SummarySink {
                     Some((stalled_in, entries));
             }
             rhei_tui::RunEvent::RunFinished { summary } => {
-                state.accounting = summary.accounting.clone().or_else(|| {
-                    rhei_tui::summarize_usage_summaries(state.usages.iter())
-                });
+                state.accounting =
+                    summary.accounting.clone().or_else(|| state.usages.run_rollup());
             }
             _ => {}
         }
