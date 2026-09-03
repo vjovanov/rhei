@@ -13,7 +13,10 @@
   fine from its parent or by absolute path. A nameless path is now resolved
   before its name is read, so all four spellings name one rhei with one set of
   ids; paths that already carry a name are untouched, so a symlinked workspace
-  keeps the id it has. And where a path genuinely names no id — it resolves to
+  keeps the id it has. The same resolution now decides which project encloses a
+  target, so a member rhei addressed as `..` from its own `tasks/` loads through
+  its project instead of alone, where its cross-rhei `**Prior:**` would be
+  reported missing. And where a path genuinely names no id — it resolves to
   no usable directory name, the name it carries is not a valid id, or it is the
   reserved `basin` — the error now points at the path instead of sending the
   reader to check task metadata in a plan that is perfectly valid. (PR #N)
