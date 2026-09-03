@@ -1,9 +1,9 @@
 // What the run report knows about spend: one record per invocation id, upserted
-// as reports arrive, from which both the run-level accounting strip and every
-// task cost row are derived.
+// as reports arrive. Every task cost row is derived from it, and so is the
+// run-level accounting strip whenever a run ends without publishing its own.
 //
 // Its own part because the strip and the rows next door are renderers over this
-// list, and one list is what keeps the two levels from disagreeing.
+// list, wherever they read from it.
 
 // §AR-source-file-size.3 §FS-rhei-cost-accounting.9
 
