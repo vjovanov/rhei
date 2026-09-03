@@ -285,6 +285,11 @@ fn spawn_and_wait_agent(
     let cli_session_capture =
         usage_capture.as_ref().map(|capture| Arc::clone(&capture.cli_session));
 
+    // The strategy flags go through `build_agent_command`, which owns the one
+    // slot they belong in; appending them here would put them past the `--`.
+    // §FS-rhei-snapshots.10.1
+    let snapshot_args =
+        snapshot_preload.map(|preload| preload.extra_args.as_slice()).unwrap_or_default();
     let mut cmd = build_agent_command(
         resolved,
         prompt,
@@ -300,12 +305,10 @@ fn spawn_and_wait_agent(
         tooling,
         runtime_dir,
         result_identity,
+        snapshot_args,
     );
     configure_accounting_capture(&mut cmd, usage_capture_path.as_deref());
     if let Some(snapshot_preload) = snapshot_preload {
-        for arg in &snapshot_preload.extra_args {
-            cmd.arg(arg);
-        }
         if let Some(session_dir) = snapshot_preload.session_dir.as_ref() {
             cmd.env("RHEI_SNAPSHOT_SESSION_DIR", session_dir);
         }

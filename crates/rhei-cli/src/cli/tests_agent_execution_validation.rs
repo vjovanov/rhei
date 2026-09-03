@@ -769,6 +769,7 @@ for line in sys.stdin:
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
