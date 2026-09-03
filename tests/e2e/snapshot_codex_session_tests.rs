@@ -524,9 +524,8 @@ transitions:
         argv.windows(2).any(|pair| pair[0] == "--resume"),
         "the continuation must resume the source session: {argv:?}"
     );
-    // vjovanov/rhei#146 R1-03: `continue` clears the per-attempt output paths
-    // of whatever run launched it, so a continuation started from inside a
-    // rhei run cannot write into that run's result file.
+    // `continue` clears the per-attempt output paths of whatever run launched
+    // it, so it cannot write into that run's result file.
     // §FS-rhei-snapshot-operations.1.5
     assert_eq!(
         interactive["result_path"].as_str().unwrap_or_default(),

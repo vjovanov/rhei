@@ -254,6 +254,20 @@ fn snapshot_continue_staged_source(path: &Path) -> MietteResult<SnapshotContinue
     })
 }
 
+/// Inherited variables a continuation must not carry: each names a
+/// per-attempt output path or counter belonging to whichever task's agent
+/// happened to launch this command, and the continuation is not that attempt.
+/// A continuation started from inside a `rhei run` would otherwise hand the
+/// interactive agent that run's result file to write into.
+/// §FS-rhei-snapshot-operations.1.5
+const CONTINUE_CLEARED_ATTEMPT_VARS: [&str; 5] = [
+    "RHEI_RESULT_PATH",
+    "RHEI_ATTEMPT",
+    "RHEI_VISIT_COUNT",
+    "RHEI_ACCOUNTING_USAGE_PATH",
+    "RHEI_ACCOUNTING_USAGE_SCHEMA",
+];
+
 fn spawn_snapshot_continue_agent(
     ctx: &SnapshotCommandContext,
     record: &SnapshotRecord,
@@ -297,6 +311,9 @@ fn spawn_snapshot_continue_agent(
     }
     for arg in &preload.extra_args {
         cmd.arg(arg);
+    }
+    for name in CONTINUE_CLEARED_ATTEMPT_VARS {
+        cmd.env_remove(name);
     }
     cmd.env("RHEI_PLAN_PATH", &ctx.plan_path)
         .env("RHEI_TASK_ID", &record.task_id)

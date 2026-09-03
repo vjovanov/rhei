@@ -234,6 +234,21 @@ session-capable profile.
 If the referenced manifest has `completion: timeout`, `continue` may proceed
 only after warning that the native transcript may be truncated.
 
+**The continuation inherits no other task's output contract.** The
+environment `continue` builds for the interactive agent is additive — it sets
+the plan, task, state, agent and target variables and lets the operator's own
+environment through — with one exception: every inherited `RHEI_*` variable
+that names a *per-attempt output path or counter* of some task is cleared
+before spawn, because the continuation is not that attempt. Today that is
+`RHEI_RESULT_PATH`, `RHEI_ATTEMPT`, `RHEI_VISIT_COUNT`, and the
+`RHEI_ACCOUNTING_USAGE_PATH`/`RHEI_ACCOUNTING_USAGE_SCHEMA` pair. The case is
+not hypothetical: an agent running under `rhei run` carries its own
+`RHEI_RESULT_PATH`, and any `continue` started from its process tree would
+otherwise hand a compliant interactive agent that file to write its result
+into, destroying the running task's result. An unset `RHEI_RESULT_PATH` is
+already the documented signal that no run owns the invocation, so clearing it
+is what tells the truth rather than a special case.
+
 **Live-run interlock.** `continue` takes the same `.rhei/run.lock` the
 orchestrator uses for `rhei run`. If the lock is held, `continue` exits
 with a clear error directing the operator to stop the run first. No
