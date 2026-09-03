@@ -19,7 +19,7 @@
   every agent, the two fields taken independently. The keys stay out of the
   manifest, so older snapshots and older builds are unaffected. `rhei snapshot
   continue` no longer requires a `session_dir_flag`, and no longer hands the
-  agent the result file of whatever run started it. (PR #N)
+  agent the result file of whatever run started it. (PR #182)
 - **The run report counts one invocation once now, however many times it
   reported its usage.** `UsageReported` arrives again for the same invocation as
   a streaming extractor observes further turns, and arrives once more after the
