@@ -16,7 +16,9 @@
   snapshot list|show|gc|continue` and orphan validation already read it, so
   nothing moved on disk and caches from earlier runs keep working. The snapshot
   session directory is unchanged, still under the owning rhei's
-  `runtime/snapshot-sessions/`, so a narrowed `rhei reset` still sweeps it.
+  `runtime/snapshot-sessions/`, so a narrowed `rhei reset` still sweeps it. A
+  path-form `--from-snapshot` reference is now read relative to the project
+  root too, the same root `rhei snapshot show` already reads it against.
   (PR #N)
 - **A workspace can be named by the directory you are standing in: `.`, `./`,
   and its bare `index.rhei.md` all work now.** Every command that takes a plan
