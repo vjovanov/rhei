@@ -767,23 +767,126 @@ where available — it turns emit into a scan of an empty, invocation-private
 directory instead of a shared one — but it is an optimization: §9.2's emit
 requirement is a `SessionLayout` alone.
 
+`interactive.command`, when a profile declares one, replaces the profile's
+`command` **and its mode flags**: the interactive flag surface is
+`interactive.args` alone. A different command is a different flag surface — an
+agent's autonomous mode flags are chosen for its headless subcommand and need
+not parse under another one — and the posture is wrong besides, because
+`rhei snapshot continue` hands the terminal to the operator, who is there to
+answer the approvals the autonomous posture exists to skip. A profile that
+leaves `interactive.command` unset keeps its mode flags, since the command they
+were written for is the one being spawned.
+
+#### 9.1.1. Optional `FlatById` Locator Keys
+
+`FlatById` says one file per session. It does not say that the file sits
+directly under `dir_template`, that the file's name is the session id, or that
+the directory holds this invocation's transcripts and no one else's. An agent
+that writes one file per session into a shared, date-partitioned directory it
+derives for itself needs all three loosened, so `FlatById` carries three
+optional keys:
+
+```rust
+pub enum SessionLayout {
+    FlatById {
+        dir_template: String,
+        ext: String,
+        /// Descend below `dir_template` instead of reading it flat.
+        nested: bool,
+        /// How the session id is recovered from a matched file's stem.
+        id_from_stem: StemSessionId,
+        /// JSON key path at which the agent records, in the transcript's
+        /// first record, the working directory the session ran in.
+        confirm_cwd_path: Option<Vec<String>>,
+    },
+    PerProjectJson { /* unchanged */ },
+}
+
+pub enum StemSessionId {
+    /// The whole file stem is the session id. The default, and v1 behavior.
+    Whole,
+    /// The last RFC-4122-shaped `8-4-4-4-12` hex run in the stem is the
+    /// session id; a stem carrying none is not a candidate.
+    TrailingUuid,
+}
+```
+
+In settings the two `id_from_stem` values are spelled `whole` and
+`trailing_uuid`, with the Rust variant names accepted as well — the same
+tolerance `kind` already extends to `FlatById` and `flat_by_id`. All three keys
+default to the v1 behavior, so a profile that omits them — every profile
+written before they existed — keeps reading `<dir>/<id>.<ext>` exactly as it
+did. They govern the *scan* branch only: `session_dir_flag` redirects the
+transcript into a directory rhei owns, and `assign_id_flag` names the file
+outright, so neither has anything to search for.
+
+**`nested`.** With `nested: true` the scan walks `dir_template` recursively and
+considers every file below it whose extension is the layout's `ext`. The rule
+that ranks candidates is unchanged — the newest file written at or after the
+spawn — and only the set it ranks grows. Symbolic links are not followed, so a
+link pointing back up the tree cannot make the walk unbounded.
+
+**`id_from_stem`.** The session id is what a `ResumeStrategy` hands back to the
+agent, so it has to be the agent's own id rather than whatever it named the
+file. `TrailingUuid` takes the last `8-4-4-4-12` hex run in the stem: a stem of
+`rollout-2026-09-01T00-19-57-01a059e8-64e0-78c3-8110-e683296f50a2` yields
+`01a059e8-64e0-78c3-8110-e683296f50a2`. A candidate whose stem carries no such
+run is rejected rather than accepted under a wrong id — an id that does not
+resume is worse than no snapshot, because it fails at the next spawn instead of
+this one.
+
+**`confirm_cwd_path`.** A fixed directory an agent derives for itself is shared
+by every run on the machine, so "the newest file written since the spawn" can
+just as easily be another project's run or the operator's own interactive
+session. When `confirm_cwd_path` is set, a candidate is accepted only if its
+**first non-empty record** parses as JSON, carries a string at that key path,
+and that string names this spawn's working directory — both sides canonicalized
+first, so the comparison is against the cwd the child process itself observes.
+A candidate whose first record is missing, unreadable, unparsable, carries
+nothing at the path, or names a different directory is **rejected**, and the
+scan moves on to the next-newest candidate. Rejection is the only outcome an
+unconfirmable candidate has: capturing a transcript that belongs to someone
+else's session is worse than emitting none, because the snapshot is wrong
+rather than absent and every inheritor of it is wrong too.
+
+#### 9.1.2. What the Locator Keys Do Not Change
+
+The three keys describe how rhei *found* a transcript, not what the transcript
+is. They are therefore not recorded in the manifest's `session_layout` object
+([Manifest Schema](#8-manifest-schema)), and they take no part in
+`native_compatible` matching ([Compatibility Predicates](#5-compatibility-predicates)):
+two `FlatById` layouts still match on `kind` and `ext` alone. A snapshot
+written before these keys existed stays native-compatible with the profile that
+wrote it, a profile that adopts them stays compatible with its own older
+snapshots, and a build that predates them still reads every manifest written
+after them. That is the whole reason these are keys on `FlatById` rather than a
+third `SessionLayout` kind: `session_layout.kind` is a required manifest field
+whose enum this spec fixes at `FlatById | PerProjectJson`, and a third value
+would be a schema change that every older reader sees as an unsupported layout.
+Codex writes one file per session like everything else `FlatById` describes;
+only the lookup differs.
+
 ### 9.2. Built-in Profiles
 
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
 |-------|----------|--------|---------------|------------------|--------------------|--------------------|----------|
 | claude-code | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
-| codex | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
+| codex | `Native { flag: resume }` | `Native { flag: fork }` | `command: [codex]`, no args | none | none | `--ephemeral` | `FlatById { dir: ~/.codex/sessions, ext: jsonl, nested, id_from_stem: TrailingUuid, confirm_cwd_path: [payload, cwd] }` |
 | cursor | unsupported in v1 | unsupported | unsupported | none | none | none | none |
 | gemini | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
 | kilocode | unsupported in v1 | unsupported | unsupported | none | none | none | none |
 | pi | `Native { flag: --continue }` | `Native { flag: --fork }` | base `pi` TTY command with no extra args | none | `--session-dir` | `--no-session` | `FlatById { dir: <session_dir>/, ext: jsonl }` |
 
-The v1 built-in support boundary is intentionally conservative. Pi has a
-complete native surface for Rhei-managed snapshot sessions: an interactive TTY
-mode, `--fork <path>`, `--session-dir <dir>`, and a flat JSONL transcript
-layout. Other built-in agents remain usable through custom session-capable
-profiles, but their built-in profiles do not declare snapshot sessions until a
-Rhei-readable transcript layout and safe continuation transport are proven.
+The built-in support boundary is proof-driven, not conservative for its own
+sake: a built-in profile declares a session block once an adapter spike has
+established a Rhei-readable transcript layout and a safe continuation
+transport, and not before. Two have. Pi has a complete native surface — an
+interactive TTY mode, `--fork <path>`, `--session-dir <dir>`, and a flat JSONL
+transcript layout. Codex reaches the same place by a different route: no
+`--session-dir` analogue at all, but a fixed transcript root the locator keys
+of §9.1.1 can search and confirm, and `resume`/`fork` as `codex exec`
+subcommands ([Codex](#934-codex)). The rest remain usable through custom
+session-capable profiles.
 
 Emit and preload have independent profile requirements:
 
@@ -803,11 +906,11 @@ preload follows the same rule as a missing or incompatible snapshot:
 before spawn. Unsupported emit fails the spawn with
 `unsupported-snapshot-session`.
 
-Claude Code, Codex, Gemini, Cursor, and Kilocode have no built-in snapshot
-session profile in v1. Auto-emit is skipped for their built-in profiles, and
-explicit `snapshot.emit:`, required preload, or `rhei snapshot continue` fails
-with `unsupported-snapshot-session` unless the user replaces the built-in
-profile with a custom snapshot-capable session block.
+Claude Code, Gemini, Cursor, and Kilocode have no built-in snapshot session
+profile. Auto-emit is skipped for their built-in profiles, and explicit
+`snapshot.emit:`, required preload, or `rhei snapshot continue` fails with
+`unsupported-snapshot-session` unless the user replaces the built-in profile
+with a custom snapshot-capable session block.
 
 ### 9.3. Per-Agent Runtime Behavior
 
@@ -825,13 +928,11 @@ Pi has the most complete native session surface. The flow on inheritance:
    `transcript.jsonl`, compute its sha256, write `manifest.json`, rename
    `g<N>.tmp-*` to `g<N>`, and update `current`.
 
-Pi's session JSONL header carries the underlying provider and model. The emit
-path parses that header to populate `observed_provider` and `observed_model`.
-The parser scans a small leading window and skips ordinary non-header JSONL
-records until a provider/model header is found. If the header is absent or
-unparsable, the snapshot is still written with `observed_*` set equal to
-`declared_*` and a warning is logged; downstream inheritors that require
-`cache_beneficial` will see the same advisory.
+Pi's session JSONL header carries the underlying provider and model in one
+record, which the emit path reads to populate `observed_provider` and
+`observed_model`. That read is not pi-specific — see
+[Observed Provider and Model](#1021-observed-provider-and-model) for the rule
+and its fallback.
 
 Interactive continuation uses the same built-in session profile but spawns the
 base `pi` command without the headless `-p` prompt flag. Rhei appends the model
@@ -868,24 +969,71 @@ fails with the same diagnostic.
 
 #### 9.3.4. Codex
 
-The current rhei transport for codex is `codex exec` ([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)). The
-adapter spike must determine whether `codex exec` supports session resume,
-or whether snapshot integration requires a separate transport variant
-(`codex resume`, or a future explicit subcommand).
+The adapter spike this section called for is done, measured against
+`codex-cli 0.149.0`. Both of its questions have answers, and neither answer
+needs a separate transport variant: `codex exec` stays the rhei transport
+([§FS-rhei-agents](rhei-agents.spec.md#fs-rhei-agents-rhei-agents-specification)).
 
-Emit and inherit have independent dependencies for codex:
+**Codex writes a transcript to a known location.** Every run leaves a JSONL
+rollout under `~/.codex/sessions`, partitioned by calendar date, at
+`<year>/<month>/<day>/rollout-<ISO-timestamp>-<uuid>.jsonl`. The first record
+is a `session_meta` carrying `session_id`, `cwd`, `originator`, and
+`model_provider`; the model is not there, and first appears in the following
+`turn_context` record. That is one file per session — `FlatById` — reached
+through all three locator keys of §9.1.1. `nested`, because the file sits three
+directories below the root and no `dir_template` placeholder can name a
+calendar date in advance. `id_from_stem: TrailingUuid`, because the stem is
+`rollout-<timestamp>-<uuid>` while it is the bare `<uuid>` that `codex exec
+resume` takes back. And `confirm_cwd_path: ["payload", "cwd"]`, because
+`~/.codex/sessions` is machine-global — it holds every project's runs and the
+operator's own interactive sessions, any of which can be the newest file
+written since a spawn. Codex names `cwd` as its own discriminator:
+`codex exec resume --all` is documented as disabling cwd filtering.
 
-- *Emit* requires only that `codex exec` writes a session transcript to a
-  known location. If it does, `SessionLayout` can be populated after the spike
-  and `snapshot.emit:` becomes supported for codex without any resume work.
-- *Inherit* requires a working `ResumeStrategy`, which is the unknown the
-  spike is investigating.
+**Codex supports resume, and does it non-interactively.** `resume` and `fork`
+are positional subcommands of `codex exec`, not interactive-only commands:
+`codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` and `codex exec fork
+<SESSION_ID> [PROMPT]`, where `SESSION_ID` is the UUID a manifest's
+`session_id` holds. So the existing `ResumeStrategy::Native { flag }` shape
+already emits the two tokens codex wants, `resume <uuid>`, and no new strategy
+kind is needed. What the spike found is that the tokens have to be *placed*
+correctly, which is the rule in [Spawn-Time Preload](#101-spawn-time-preload)
+step 8: after `exec`'s own options and before the `--`. Ahead of the mode flags
+does not parse, because `codex exec resume` accepts `-c`, `-m/--model`,
+`--skip-git-repo-check` and `--ephemeral` but not `--sandbox`; past the `--`
+the subcommand is read as prompt text and silently does nothing. Placed
+correctly, the prompt still arrives on stdin under the subcommand, so
+`stdin_prompt` is unaffected. A resumed session appends to the source rollout
+file rather than opening a new one, so an emit that follows an inherit
+captures the file it resumed, grown.
 
-The built-in codex profile leaves the `session` block unset in v1, which makes
-emit, inherit, and `rhei snapshot continue` unsupported (per the rules in
-[Built-in Profiles](#92-built-in-profiles)). Codex exposes interactive
-`resume` and `fork` subcommands, but the built-in Rhei adapter does not yet
-have a stable transcript capture layout or `session_dir_flag` equivalent.
+**There is an off switch but no redirect.** `codex exec --ephemeral` runs
+without persisting a session file, which is codex's `no_session_flag`. There is
+no `session_dir_flag` analogue: nothing redirects one invocation's transcript
+elsewhere. Relocating `CODEX_HOME` per spawn is not a substitute, because it
+also relocates `auth.json` and `config.toml` and would break the child's
+authentication.
+
+The built-in codex profile therefore declares a session block (§9.2): `resume`
+and `fork` as the subcommand names, `--ephemeral` as `no_session_flag`, no
+`session_dir_flag` and no `assign_id_flag`, an `interactive` command of
+`codex`, and a `FlatById` layout over `~/.codex/sessions` carrying the three
+locator keys. `snapshot.emit:`, `snapshot.inherit:` and auto-emit all follow
+from that block; nothing in the code branches on the agent being codex.
+
+**`rhei snapshot continue` no longer requires a `session_dir_flag`.**
+Capture-enabled continuation used to refuse any profile without one, because
+staging the transcript into a directory rhei owns was the only way it knew to
+find it again. That is no longer true: the fixed-location locator §9.1 defines
+for emit — the layout's `dir_template`, the newest file written at or after the
+spawn, confirmed through `confirm_cwd_path` where the profile declares one —
+finds a continuation's transcript exactly as it finds a run's. So a
+capture-enabled `rhei snapshot continue` falls back to that locator when the
+profile has no `session_dir_flag`, and refuses with
+`unsupported-snapshot-session` only when the profile has neither. One agent
+gets one answer: whatever `snapshot.emit:` can capture for a profile,
+`rhei snapshot continue` can capture too, and an operator never has to reach
+for `--no-capture` to continue a codex session.
 
 ## 10. Runtime Behavior
 
@@ -899,7 +1047,11 @@ directory and appends the flag; otherwise, if the layout carries
 `dir_template`, it resolves that fixed directory — expanding a leading `~/`
 against the home directory and a `{cwd_dashed}` placeholder against this
 spawn's own working directory, in that order — and, when `assign_id_flag` is
-set, generates a session id and appends the flag. Neither step touches the
+set, generates a session id and appends the flag. The layout's optional locator
+keys (§9.1.1) are resolved with it: `nested` and `id_from_stem` decide how the
+later scan searches and what it reads back as the session id, and
+`confirm_cwd_path` is paired with this spawn's own canonicalized working
+directory, which is the value a candidate's header has to name. Neither step touches the
 agent's real session storage beyond appending the declared flags — the
 `session_dir_flag` redirect is the only case that stages a transcript into a
 directory rhei manages, and it never writes into a `dir_template` fixed
@@ -935,7 +1087,16 @@ For each spawn of a state declaring `snapshot.inherit:`:
    and proceed without preload.
 7. Apply the agent's `ResumeStrategy` / `ForkStrategy` to stage the session
    into the inheritor's generation directory.
-8. Spawn the subprocess with the strategy-defined flags appended.
+8. Spawn the subprocess with the strategy-defined flags placed after the
+   agent's own mode, prompt and model flags and **before** the `--` separator
+   a `stdin_prompt` profile emits — never after it. Past a `--`, an argument
+   is prompt text rather than a flag or a subcommand, so a resume that lands
+   there is read as part of the prompt and does nothing. For a profile with
+   no `stdin_prompt` there is no separator, and the same insertion point puts
+   the strategy flags ahead of the MCP and skill flags. The position is a
+   property of the spawn rather than of any one agent: it is the same slot for
+   `--session-dir <dir>`, `--fork <path>`, `--continue <id>`, and for a resume
+   the agent spells as a positional subcommand.
 
 ### 10.2. Emit on Exit
 
@@ -991,6 +1152,39 @@ terminal exit transition, matching the rule in
 The orchestrator owns this step; agents do not invoke snapshot emit
 directly. This matches [§FS-rhei-run](rhei-run.spec.md#fs-rhei-run-rhei-run)'s invariant that the subprocess never
 calls `rhei transition`.
+
+#### 10.2.1. Observed Provider and Model
+
+`observed_provider` and `observed_model` are required manifest fields
+([Manifest Schema](#8-manifest-schema)) and no agent hands them back to rhei:
+they are read out of the transcript emit has just located. The read is one rule
+for every agent, because "which agent is this" is not a question the emit path
+is allowed to ask — a profile declares a layout, and rhei reads what that
+layout produced.
+
+For any layout whose `ext` is `jsonl`, emit parses the transcript's first **32**
+lines and takes the first provider it finds and the first model it finds,
+**independently**. One agent writes both in a single session header; another
+writes the provider in its session header and the model only when the first
+turn opens, so requiring one record to carry the pair would find neither. A
+provider is read from `provider`, `model.provider`, `target.provider`,
+`session.provider`, or `payload.model_provider`; a model from `model`,
+`model_name`, `model.name`, `model.model`, `target.model`, `session.model`, or
+`payload.model`. Records that carry neither are skipped rather than ending the
+scan.
+
+Thirty-two lines is four times the deepest position observed in practice: a
+codex rollout puts its `turn_context` at line 6 or 8, behind a session header,
+an event, and a handful of response items. A window sized to what was measured
+would be one preamble record away from silently losing the observed target, and
+32 is still a bounded read of the head of one file rather than a scan of a
+transcript that may be tens of megabytes.
+
+When the window yields no provider, no model, or neither, each missing field
+falls back to its `declared_*` counterpart and the run warns, naming the
+transcript. The snapshot is still written: a manifest whose observed target is
+merely its declared target is a weaker `cache_beneficial` signal
+([Compatibility Predicates](#5-compatibility-predicates)), not a failed emit.
 
 ### 10.3. Counted Loops, Fanout, and Polling
 
