@@ -1371,8 +1371,8 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
         .expect("transcript");
 
         assert_eq!(
-            pi_jsonl_observed_target(&transcript),
-            Some(("anthropic".to_string(), "claude-sonnet-4-6".to_string()))
+            jsonl_observed_target(&transcript),
+            (Some("anthropic".to_string()), Some("claude-sonnet-4-6".to_string()))
         );
     }
 

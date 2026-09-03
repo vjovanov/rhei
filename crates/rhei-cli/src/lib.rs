@@ -84,6 +84,7 @@ include!("cli/summary_command.rs");
 include!("cli/programs.rs");
 include!("cli/snapshot_pointer.rs");
 include!("cli/snapshot_records.rs");
+include!("cli/snapshot_session_locator.rs");
 include!("cli/snapshot_list_show.rs");
 include!("cli/snapshot_refs_gc.rs");
 include!("cli/snapshot_continue_lock.rs");

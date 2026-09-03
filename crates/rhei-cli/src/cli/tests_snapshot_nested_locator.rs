@@ -1,8 +1,9 @@
 // vjovanov/rhei#146: the optional `FlatById` locator keys — nested search,
 // trailing-UUID session ids, and `cwd`-confirmed candidates — plus the
-// observed-target header scan they depend on. Split from
-// tests_snapshot_runtime_fixed_location.rs to stay under the file-size
-// budget. §AR-source-file-size.3
+// observed-target header scan they depend on.
+
+// Split from tests_snapshot_runtime_fixed_location.rs to stay under the
+// file-size budget. §AR-source-file-size.3
 
 /// A rollout laid out the way codex writes one: a `session_meta` first record
 /// carrying the working directory and the provider, filler records, and a
@@ -191,10 +192,10 @@ impl NestedEmitFixture {
 const REAL_UUID: &str = "01a059e8-64e0-78c3-8110-e683296f50a2";
 const DECOY_UUID: &str = "01a04a76-4058-7a82-8ede-a2c0b9c7e527";
 
-// vjovanov/rhei#146 acceptance 2: the scan descends below `dir_template`, and
-// the session id recorded is the bare UUID out of the `rollout-<stamp>-<uuid>`
-// stem — the value `resume` takes back, not the file's name.
-// §FS-rhei-snapshots.9.1.1 §FS-rhei-snapshots.10.2
+/// vjovanov/rhei#146 acceptance 2: the scan descends below `dir_template`, and
+/// the session id recorded is the bare UUID out of the `rollout-<stamp>-<uuid>`
+/// stem — the value `resume` takes back, not the file's name.
+/// §FS-rhei-snapshots.9.1.1 §FS-rhei-snapshots.10.2
 #[test]
 fn nested_locator_finds_a_dated_rollout_and_records_its_trailing_uuid() {
     let fixture = nested_emit_fixture();
@@ -217,10 +218,10 @@ fn nested_locator_finds_a_dated_rollout_and_records_its_trailing_uuid() {
     assert_eq!(fs::read_to_string(named.transcript_path()).expect("transcript"), body);
 }
 
-// vjovanov/rhei#146 acceptance 3: a shared session root holds other projects'
-// runs. The decoy here wins on every axis the scan ranks by — newer mtime, a
-// later date directory, a bigger file — and loses only on the `cwd` its header
-// names, which is the one that decides. §FS-rhei-snapshots.9.1.1
+/// vjovanov/rhei#146 acceptance 3: a shared session root holds other projects'
+/// runs. The decoy here wins on every axis the scan ranks by — newer mtime, a
+/// later date directory, a bigger file — and loses only on the `cwd` its header
+/// names, which is the one that decides. §FS-rhei-snapshots.9.1.1
 #[test]
 fn cwd_confirmation_rejects_a_newer_rollout_from_another_working_directory() {
     let fixture = nested_emit_fixture();
@@ -253,10 +254,10 @@ fn cwd_confirmation_rejects_a_newer_rollout_from_another_working_directory() {
     assert_eq!(fs::read_to_string(named.transcript_path()).expect("transcript"), mine);
 }
 
-// vjovanov/rhei#146 acceptance 3: a header that cannot be read is a rejection,
-// not a silent accept — neither an unparsable first record nor a well-formed
-// one with nothing at `confirm_cwd_path` may be taken for this spawn's
-// transcript. §FS-rhei-snapshots.9.1.1
+/// vjovanov/rhei#146 acceptance 3: a header that cannot be read is a rejection,
+/// not a silent accept — neither an unparsable first record nor a well-formed
+/// one with nothing at `confirm_cwd_path` may be taken for this spawn's
+/// transcript. §FS-rhei-snapshots.9.1.1
 #[test]
 fn cwd_confirmation_rejects_candidates_whose_header_cannot_be_read() {
     let fixture = nested_emit_fixture();
@@ -295,10 +296,10 @@ fn cwd_confirmation_rejects_candidates_whose_header_cannot_be_read() {
     assert_eq!(fs::read_to_string(named.transcript_path()).expect("transcript"), mine);
 }
 
-// vjovanov/rhei#146 acceptance 4: the model is not in the session header — it
-// arrives with the first turn, past the eight-line window pi needed. The scan
-// takes the provider and the model independently, from wherever in the
-// documented window each first appears. §FS-rhei-snapshots.10.2.1
+/// vjovanov/rhei#146 acceptance 4: the model is not in the session header — it
+/// arrives with the first turn, past the eight-line window pi needed. The scan
+/// takes the provider and the model independently, from wherever in the
+/// documented window each first appears. §FS-rhei-snapshots.10.2.1
 #[test]
 fn observed_target_reads_the_model_from_a_turn_context_past_the_pi_window() {
     let fixture = nested_emit_fixture();

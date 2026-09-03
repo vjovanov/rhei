@@ -50,6 +50,10 @@ struct SnapshotPreload {
     // written at or after this instant, so a leftover transcript from an
     // earlier invocation is never mistaken for this one's.
     fixed_session_scan_floor: Option<std::time::SystemTime>,
+    // The layout's optional locator keys, resolved at spawn with the directory
+    // they search; the default is the v1 flat lookup.
+    // §FS-rhei-snapshots.9.1.1 §FS-rhei-snapshots.10.1
+    fixed_session_locator: SnapshotSessionLocator,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -378,135 +382,12 @@ fn snapshot_nonce() -> String {
     format!("{}-{nanos}", std::process::id())
 }
 
-fn newest_snapshot_session_file(
-    dir: &Path,
-    ext: &str,
-    not_before: Option<std::time::SystemTime>,
-) -> Option<PathBuf> {
-    let entries = fs::read_dir(dir).ok()?;
-    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() || path.extension().and_then(OsStr::to_str) != Some(ext) {
-            continue;
-        }
-        let modified = entry.metadata().and_then(|metadata| metadata.modified()).ok()?;
-        if not_before.is_some_and(|floor| modified < floor) {
-            continue;
-        }
-        if newest.as_ref().is_none_or(|(existing, _)| modified > *existing) {
-            newest = Some((modified, path));
-        }
-    }
-    newest.map(|(_, path)| path)
-}
-
-// §FS-rhei-snapshots.10.2: redirected `session_dir`, else the fixed
-// `dir_template` dir read at an exact assigned-id path or scanned for the
-// newest file no earlier than the spawn (mirrors the §10.1 preload).
-fn transcript_source_for_snapshot(
-    preload: &SnapshotPreload,
-    layout: &serde_json::Value,
-) -> Option<(PathBuf, String, String)> {
-    let ext = snapshot_layout_ext(layout)?;
-    if snapshot_layout_kind(layout).as_deref() != Some("FlatById") {
-        return None;
-    }
-    if let Some(session_dir) = preload.session_dir.as_deref() {
-        let path = newest_snapshot_session_file(session_dir, &ext, None)?;
-        let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
-        return Some((path, ext, session_id));
-    }
-    let fixed_dir = preload.fixed_session_dir.as_deref()?;
-    if let Some(id) = preload.fixed_session_id.as_deref() {
-        let path = fixed_dir.join(format!("{id}.{ext}"));
-        return path.is_file().then_some((path, ext, id.to_string()));
-    }
-    let path = newest_snapshot_session_file(fixed_dir, &ext, preload.fixed_session_scan_floor)?;
-    let session_id = path.file_stem().and_then(OsStr::to_str)?.to_string();
-    Some((path, ext, session_id))
-}
-
 fn snapshot_declared_provider(resolved: &ResolvedAgent) -> &str {
     resolved.model_provider.as_deref().unwrap_or_default()
 }
 
 fn snapshot_declared_model(resolved: &ResolvedAgent) -> &str {
     resolved.model_name.as_deref().or(resolved.model.as_deref()).unwrap_or_default()
-}
-
-fn pi_jsonl_observed_target(transcript_source: &Path) -> Option<(String, String)> {
-    // Scan a small leading slice of the transcript for the first object that
-    // carries a provider/model pair. The pi format puts this header within the
-    // first few lines; cap the search so a transcript without a header doesn't
-    // turn into a full-file read.
-    const PI_HEADER_LOOKBACK_LINES: usize = 8;
-    let file = fs::File::open(transcript_source).ok()?;
-    let mut reader = std::io::BufReader::new(file);
-    let mut line = String::new();
-    for _ in 0..PI_HEADER_LOOKBACK_LINES {
-        line.clear();
-        if reader.read_line(&mut line).ok()? == 0 {
-            break;
-        }
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str(trimmed) else {
-            continue;
-        };
-        if let Some(target) = pi_header_target_from_value(&value) {
-            return Some(target);
-        }
-    }
-    None
-}
-
-fn pi_header_target_from_value(value: &serde_json::Value) -> Option<(String, String)> {
-    fn string_at<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
-        let mut cursor = value;
-        for key in keys {
-            cursor = cursor.get(*key)?;
-        }
-        cursor.as_str().filter(|text| !text.trim().is_empty())
-    }
-
-    let candidates = [
-        (["provider"].as_slice(), ["model"].as_slice()),
-        (["provider"].as_slice(), ["model_name"].as_slice()),
-        (["model", "provider"].as_slice(), ["model", "name"].as_slice()),
-        (["model", "provider"].as_slice(), ["model", "model"].as_slice()),
-        (["target", "provider"].as_slice(), ["target", "model"].as_slice()),
-        (["session", "provider"].as_slice(), ["session", "model"].as_slice()),
-    ];
-    candidates.iter().find_map(|(provider_path, model_path)| {
-        let provider = string_at(value, provider_path)?;
-        let model = string_at(value, model_path)?;
-        Some((provider.to_string(), model.to_string()))
-    })
-}
-
-fn observed_snapshot_target(
-    resolved: &ResolvedAgent,
-    transcript_source: &Path,
-    transcript_ext: &str,
-) -> (String, String) {
-    let declared_provider = snapshot_declared_provider(resolved).to_string();
-    let declared_model = snapshot_declared_model(resolved).to_string();
-    if resolved.agent.id() != "pi" || transcript_ext != "jsonl" {
-        return (declared_provider, declared_model);
-    }
-    if let Some((provider, model)) = pi_jsonl_observed_target(transcript_source) {
-        return (provider, model);
-    }
-    diag_warn!(
-        "warning: pi snapshot transcript '{}' has no parseable provider/model header; falling back to declared target {}:{}",
-        transcript_source.display(),
-        declared_provider,
-        declared_model
-    );
-    (declared_provider, declared_model)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
