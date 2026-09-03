@@ -473,6 +473,24 @@ reading a pointer is not necessarily the one that wrote it. A reader that knows
 only the symlink form reports every generation in a file-spelled cache as not
 current, and `inherit:` then resolves nothing at all.
 
+The cache root is resolved against the **project** workspace root — the
+directory the command was given, the one holding `index.panta.md` in a Panta
+project — and never against the execution root of the rhei that owns the
+ticket. A project therefore has one snapshot cache, shared by every rhei in it,
+so a ticket's `emit:` and a later visit's `inherit:` meet in the same cache
+whichever rhei owns them, and `rhei snapshot list|show|gc|continue` see
+everything the project produced. Resolving it against an execution root instead
+would leave an inheriting state reading a cache nothing ever wrote to, and it
+would run cold without failing.
+
+What the execution root does hold is the snapshot **session** directory,
+`runtime/snapshot-sessions/` (§9.1): a session is one ticket's live agent
+transcript, not a stored generation, so it belongs to the rhei that ran the
+ticket and a narrowed `rhei reset` sweeps it with that ticket's other runtime
+artifacts ([§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz)).
+The cache is shared and the session is per-rhei; the two roots coincide only in
+a single-file layout.
+
 The cache root is gitignored by default. Plans may opt to commit selected
 snapshots; this is a workspace-level decision outside the scope of `rhei run`.
 
