@@ -74,8 +74,9 @@ struct SummaryState {
     ledger: Vec<LedgerRecord>,
     /// Usage reported during the run, used before `RunFinished` publishes the
     /// authoritative rollup or on an early-error fallback. §FS-rhei-cost-accounting.7
-    /// One record per invocation id, and the source of the task rows too, so the
-    /// two levels of the report cannot disagree. §FS-rhei-cost-accounting.9
+    /// One record per invocation id: the source of every task row, and of the
+    /// run-level strip whenever `RunFinished` publishes none of its own.
+    /// §FS-rhei-cost-accounting.9
     usages: UsageLedger,
     /// The finalized run rollup from `RunFinished`, when available.
     accounting: Option<rhei_tui::AccountingRunSummary>,

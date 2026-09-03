@@ -11,12 +11,14 @@
   it was, and a guard built on those totals stopped at half the spend it was
   given (#152). The two TUI frontends already upserted by invocation id, and the
   run report was the last frontend that did not. It now keeps one record per
-  invocation and replaces an earlier report with the later one, and derives both
-  the run-level strip and each task row from that one list, so the two levels
-  cannot disagree and an invocation whose report names another task leaves no
+  invocation and replaces an earlier report with the later one. It is the
+  source of every task row, and of the run-level strip whenever a run ends
+  without publishing its own rollup; wherever it feeds a number, one invocation
+  now counts once, and an invocation whose report names another task leaves no
   row behind under the old one. The accounting artifacts under
-  `runtime/accounting/` and `rhei cost` read invocation-keyed records and were
-  never wrong, so nothing on disk needs re-reading. (PR #N)
+  `runtime/accounting/` and `rhei cost` were never wrong: one record is written
+  per completed agent spawn, and a streaming extractor's repeat `UsageReported`
+  writes none, so nothing on disk needs re-reading. (PR #N)
 - **A supervising state in a Panta workspace resumes warm now, instead of
   rebuilding its context on every visit.** A state that pairs `snapshot.emit:`
   with `snapshot.inherit:` emitted into the project's cache but inherited from
