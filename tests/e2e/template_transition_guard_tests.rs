@@ -19,14 +19,17 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The lines one invocation may occupy: a single source line, except that a
-/// line leaving an inline code span open takes the lines that close it, which
-/// is how prose wraps a command it shows. A fenced block's ``` delimiter opens
-/// no span, so commands inside a fence stay one to a line and can never lend
-/// each other a flag.
+/// The lines one invocation may occupy. A line ending in a backslash is a shell
+/// continuation and takes the line under it, which is how every template README
+/// writes a command too long to fit on one. Outside a fence a line leaving an
+/// inline code span open likewise takes the lines that close it, which is how
+/// prose wraps a command it shows; inside a fence there are no code spans, only
+/// those continuations, so an unmatched backtick joins nothing there. A blank
+/// line ends whatever is pending, because a code span cannot cross one.
 fn logical_lines(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut pending = String::new();
+    let mut fenced = false;
     let mut flush = |pending: &mut String| {
         if !pending.is_empty() {
             lines.push(normalize_whitespace(pending));
@@ -36,13 +39,20 @@ fn logical_lines(text: &str) -> Vec<String> {
     for line in text.lines() {
         if line.trim_start().starts_with("```") {
             flush(&mut pending);
+            fenced = !fenced;
+            continue;
+        }
+        if line.trim().is_empty() {
+            flush(&mut pending);
             continue;
         }
         if !pending.is_empty() {
             pending.push(' ');
         }
-        pending.push_str(line);
-        if pending.matches('`').count() % 2 == 0 {
+        let continued = line.trim_end().ends_with('\\');
+        pending.push_str(line.trim_end().trim_end_matches('\\'));
+        let open_span = !fenced && pending.matches('`').count() % 2 == 1;
+        if !continued && !open_span {
             flush(&mut pending);
         }
     }
@@ -154,4 +164,55 @@ fn the_guard_reads_one_invocation_at_a_time() {
             "a multi-byte character is not a boundary"
         );
     }
+}
+
+/// A command the shell continued across source lines is one invocation: a
+/// `--from` on the continuation belongs to it, and a missing one is still the
+/// defect #117 reports. Inside a fence an unmatched backtick joins nothing.
+#[test]
+fn the_guard_reads_a_continued_command_whole() {
+    let split_cancel = r#"
+        ```bash
+        rhei transition <plan> --task <child> \
+          --to cancelled --result "why"
+        ```
+    "#;
+    assert_eq!(
+        offending_invocations(split_cancel),
+        vec![r#"rhei transition <plan> --task <child> --to cancelled --result "why""#.to_string()],
+        "a defective invocation the shell continued is still one invocation"
+    );
+
+    let split_correct = r#"
+        ```bash
+        rhei transition <id> --to cancelled \
+          --from review
+        ```
+    "#;
+    assert!(
+        offending_invocations(split_correct).is_empty(),
+        "the `--from` on a continuation line belongs to the command it continues"
+    );
+
+    let commented_fence = r#"
+        ```bash
+        # see ` for details
+        rhei transition <a> --to cancelled
+        # --from is required
+        ```
+    "#;
+    assert_eq!(
+        offending_invocations(commented_fence),
+        vec!["rhei transition <a> --to cancelled".to_string()],
+        "an unmatched backtick in a fence must not lend the comment's flag to the command"
+    );
+
+    let stray_tick = "A stray ` tick in prose.\n\
+        rhei transition <id> --to cancelled\n\n\
+        Later prose mentions --from <state>.\n";
+    assert_eq!(
+        offending_invocations(stray_tick),
+        vec!["rhei transition <id> --to cancelled".to_string()],
+        "a paragraph the command does not belong to cannot excuse it"
+    );
 }
