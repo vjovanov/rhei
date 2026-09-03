@@ -40,13 +40,18 @@ fn stdin_message_bytes(format: AgentStdinFormat, message: &str) -> Vec<u8> {
 ///
 /// Flag order:
 /// `<command...> <mode flags...> <autonomous_args...> <prompt_flag> <prompt>?
-///  <model_flag> <model>? <mcp/skill flags...>`
-/// `-- ` is appended after the model flag when `stdin_prompt` is `true`, to
+///  <model_flag> <model>? <snapshot_args...> <mcp/skill flags...>`
+/// `-- ` is appended after `snapshot_args` when `stdin_prompt` is `true`, to
 /// match `codex exec -- `-style invocations that expect stdin. MCP and skill
 /// flags follow after the `--` so the optional positional stdin separator
 /// stays adjacent to the model flag. `intervene_stdin` also requests a stdin
 /// pipe. For `claude-code`, opting into `intervene_stdin` switches the command
 /// to stream-json stdin so the running process actually consumes interventions.
+///
+/// `snapshot_args` are the resolved snapshot preload's strategy flags —
+/// `--session-dir <dir>`, `--fork <path>`, `--continue <id>`, or a resume the
+/// agent spells as a positional subcommand. They go in one slot, ahead of the
+/// separator and of the MCP and skill flags. §FS-rhei-snapshots.10.1
 ///
 /// `runtime_dir` is used to materialize an MCP config file for agents that
 /// declare `mcp_config_flag` (e.g. `claude-code --mcp-config <path>`). The
@@ -70,6 +75,9 @@ fn build_agent_command(
     // Fan-out key of this invocation, when the state fans out: it decides which
     // result file this subprocess is asked to write. §FS-rhei-states.3.3
     result_identity: Option<&str>,
+    // The snapshot preload's strategy flags, emitted at the one slot the spawn
+    // sequence reserves for them. §FS-rhei-snapshots.10.1
+    snapshot_args: &[String],
 ) -> std::process::Command {
     let profile = &resolved.profile;
     let id = resolved.agent.id();
@@ -129,6 +137,13 @@ fn build_agent_command(
     let model_flag_value = resolved.model_name.as_deref().or(resolved.model.as_deref());
     if let (Some(flag), Some(model)) = (&profile.model_flag, model_flag_value) {
         cmd.arg(flag).arg(model);
+    }
+
+    // After the mode, prompt and model flags and before the separator: past a
+    // `--` an argument is prompt text, so a resume that lands there is read as
+    // part of the prompt and does nothing. §FS-rhei-snapshots.10.1
+    for arg in snapshot_args {
+        cmd.arg(arg);
     }
 
     if profile.stdin_prompt {

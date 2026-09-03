@@ -200,6 +200,7 @@
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -254,6 +255,7 @@
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -300,6 +302,7 @@
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -350,6 +353,7 @@
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
@@ -501,6 +505,7 @@
             &tooling,
             runtime_dir.path(),
             None,
+            &[],
         );
         let args: Vec<String> =
             command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
