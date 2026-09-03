@@ -367,8 +367,8 @@ fn built_in_codex_profile_declares_the_nested_session_locator() {
     assert!(
         snapshot_strategy_flag(session, "fork").is_none(),
         "codex's `fork` takes a session id, which `ForkStrategy::Native` cannot express: it \
-         hands the agent the staged transcript path, and the preload prefers fork over resume \
-         whenever both are declared, so declaring it would defeat the resume"
+         hands the agent the source snapshot's transcript path, and the preload prefers fork \
+         over resume whenever both are declared, so declaring it would defeat the resume"
     );
     assert_eq!(
         snapshot_session_string(session, "no_session_flag").as_deref(),
