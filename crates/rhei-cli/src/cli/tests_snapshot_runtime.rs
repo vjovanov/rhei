@@ -1,3 +1,11 @@
+    /// A single-file layout, where the project workspace root and the owning
+    /// rhei's execution root are one directory. These tests are the regression
+    /// guard for that case; the split of the two roots is pinned end to end by
+    /// the e2e tests in `tests/e2e/snapshot_tests.rs`. §FS-rhei-snapshots.7
+    fn single_root_preload(root: &Path) -> SnapshotPreloadRoots<'_> {
+        SnapshotPreloadRoots { project: root, execution: root }
+    }
+
     fn single_execution_machines(machine: &rhei_validator::StateMachine) -> ExecutionMachines {
         ExecutionMachines {
             set: rhei_validator::MachineSet::single(machine.clone()),
@@ -23,7 +31,7 @@
 
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -121,7 +129,7 @@ transitions:
         let task = loaded.rhei.tasks.first().expect("task");
         let err = preload_snapshot_inherit_before_spawn(
             inherit_dir.path(),
-            inherit_dir.path(),
+            single_root_preload(inherit_dir.path()),
             inherit_dir.path(),
             &machine,
             task,
@@ -494,7 +502,7 @@ transitions:
 
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -606,7 +614,7 @@ transitions:
 
             match preload_snapshot_inherit_before_spawn(
                 dir.path(),
-                dir.path(),
+                single_root_preload(dir.path()),
                 dir.path(),
                 &machine,
                 task,
@@ -666,7 +674,7 @@ transitions:
 
         let err = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -719,7 +727,7 @@ transitions:
 
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -920,7 +928,7 @@ transitions:
 
         let preload_a = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -943,7 +951,7 @@ transitions:
 
         let preload_b = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,
@@ -1063,7 +1071,7 @@ transitions:
 
         let preload = preload_snapshot_inherit_before_spawn(
             dir.path(),
-            dir.path(),
+            single_root_preload(dir.path()),
             dir.path(),
             &machine,
             task,

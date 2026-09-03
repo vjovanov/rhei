@@ -99,6 +99,13 @@ fn spawn_parallel_agent_work_item(
         );
         return Ok(ParallelAgentSpawnOutcome::Skipped);
     }
+    // Bound while both roots still have their own names: the rebind below
+    // shadows the project root, and the two differ only in a Panta project.
+    // §FS-rhei-snapshots.7
+    let snapshot_roots = SnapshotPreloadRoots {
+        project: workspace_root,
+        execution: task_workspace_root.as_path(),
+    };
     let workspace_root = task_workspace_root.as_path();
 
     let tooling = resolve_tooling(machine, &item.current_state, settings);
@@ -238,7 +245,7 @@ fn spawn_parallel_agent_work_item(
 
     let snapshot_preload = preload_snapshot_inherit_before_spawn(
         input,
-        workspace_root,
+        snapshot_roots,
         &working_dir,
         machine,
         task,

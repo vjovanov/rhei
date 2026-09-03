@@ -1,4 +1,16 @@
 
+/// The two roots a snapshot preload resolves against: `project` is the project
+/// workspace root the shared snapshot cache lives under, `execution` the owning
+/// rhei's execution root the per-ticket session directory lives under. One
+/// directory in a single-file layout, two in a Panta project — which is when
+/// passing either for the other goes unnoticed.
+/// §FS-rhei-snapshots.7 §FS-rhei-panta.6.4
+#[derive(Clone, Copy)]
+struct SnapshotPreloadRoots<'a> {
+    project: &'a Path,
+    execution: &'a Path,
+}
+
 /// Orchestration hook for snapshot inheritance preload, invoked before
 /// spawning the agent subprocess for a state that declares
 /// `snapshot.inherit:`.
@@ -21,7 +33,7 @@
 #[allow(clippy::too_many_arguments)]
 fn preload_snapshot_inherit_before_spawn(
     input: &Path,
-    workspace_root: &Path,
+    roots: SnapshotPreloadRoots<'_>,
     spawn_working_dir: &Path,
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
@@ -63,8 +75,10 @@ fn preload_snapshot_inherit_before_spawn(
     }
     if let Some(session) = snapshot_session(resolved) {
         if let Some(flag) = snapshot_session_string(session, "session_dir_flag") {
+            // The session belongs to the rhei that ran the ticket, not to the
+            // project: `rhei reset --rhei` sweeps it there. §FS-rhei-snapshots.7
             let dir = snapshot_session_dir(
-                workspace_root,
+                roots.execution,
                 &task.id.to_string(),
                 current_state,
                 &target_slug,
@@ -123,7 +137,9 @@ fn preload_snapshot_inherit_before_spawn(
         return Ok(preload);
     }
 
-    let cache_root = snapshot_cache_dir(settings, workspace_root);
+    // The project root, so inherit reads the cache emit wrote — an execution
+    // root would be a cache nothing writes to. §FS-rhei-snapshots.7
+    let cache_root = snapshot_cache_dir(settings, roots.project);
     let source = if override_applies {
         let reference = opts.snapshot_override_ref().ok_or_else(|| {
             miette!(
@@ -133,7 +149,7 @@ fn preload_snapshot_inherit_before_spawn(
         })?;
         let loaded = load_plan(input)?;
         let ctx = SnapshotCommandContext {
-            workspace_root: workspace_root.to_path_buf(),
+            workspace_root: roots.project.to_path_buf(),
             plan_path: input.to_path_buf(),
             cache_root: cache_root.clone(),
             loaded,

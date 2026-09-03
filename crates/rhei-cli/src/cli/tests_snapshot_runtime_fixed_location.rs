@@ -41,7 +41,7 @@ fn snapshot_fixed_location_unresolvable_dir_template_runs_cold_instead_of_failin
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         dir.path(),
         &machine,
         task,
@@ -73,7 +73,7 @@ fn snapshot_fixed_location_unrecognized_placeholder_runs_cold_instead_of_failing
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         dir.path(),
         &machine,
         task,
@@ -130,7 +130,7 @@ fn snapshot_fixed_location_cwd_dashed_placeholder_resolves_against_spawn_working
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         &spawn_dir,
         &machine,
         task,
@@ -168,7 +168,7 @@ fn snapshot_fixed_location_cwd_dashed_dir_template_emits_scan_floor_transcript()
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         &spawn_dir,
         &machine,
         task,
@@ -255,7 +255,7 @@ fn snapshot_fixed_location_assign_id_flag_reads_exact_path_and_stamps_manifest()
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         dir.path(),
         &machine,
         task,
@@ -327,7 +327,7 @@ fn snapshot_fixed_location_without_assign_id_flag_ignores_transcripts_older_than
 
     let preload = preload_snapshot_inherit_before_spawn(
         dir.path(),
-        dir.path(),
+        single_root_preload(dir.path()),
         dir.path(),
         &machine,
         task,

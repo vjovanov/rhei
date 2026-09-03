@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A supervising state in a Panta workspace resumes warm now, instead of
+  rebuilding its context on every visit.** A state that pairs `snapshot.emit:`
+  with `snapshot.inherit:` emitted into the project's cache but inherited from
+  the execution root of the rhei that owns the ticket — the same directory only
+  in a single-file workspace. In a Panta project, where a rhei is a Directory
+  Workspace with a root of its own, every `inherit:` read a directory nothing
+  had ever written to: the run logged `warning: no snapshot found for inherit:
+  <name>; running cold` and carried on cold, so the most-visited state of a
+  supervised plan paid for its context again each time and `supervisor_session:
+  true` bought nothing (#174). Preload now resolves the cache against the
+  project root, which is where emission already wrote it and where `rhei
+  snapshot list|show|gc|continue` and orphan validation already read it, so
+  nothing moved on disk and caches from earlier runs keep working. The snapshot
+  session directory is unchanged, still under the owning rhei's
+  `runtime/snapshot-sessions/`, so a narrowed `rhei reset` still sweeps it.
+  (PR #N)
 - **A workspace can be named by the directory you are standing in: `.`, `./`,
   and its bare `index.rhei.md` all work now.** Every command that takes a plan
   path derives the rhei id from the last component of that path, and `.`, `./`,

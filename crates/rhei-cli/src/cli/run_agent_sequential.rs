@@ -221,7 +221,7 @@ fn run_sequential_agent_invocation(
     // orchestration ordering is encoded in code.
     let snapshot_preload = preload_snapshot_inherit_before_spawn(
         input,
-        &task_workspace_root,
+        SnapshotPreloadRoots { project: workspace_root, execution: &task_workspace_root },
         &checkout_root.path,
         machine,
         task,
