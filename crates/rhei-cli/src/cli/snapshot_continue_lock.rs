@@ -191,6 +191,9 @@ fn prepare_snapshot_continue_preload(
         // No redirect, so the continuation's transcript is found where the
         // agent writes its own: the layout's fixed location, read back through
         // the locator emit uses. §FS-rhei-snapshots.9.3.4
+
+        // A key it cannot read refuses here where a spawn degrades: an operator
+        // is present to act on it. §FS-rhei-snapshots.9.1.1
         if let Some(layout) = snapshot_session_layout(session) {
             if let Some(template) = snapshot_layout_dir_template(layout) {
                 preload.fixed_session_dir =

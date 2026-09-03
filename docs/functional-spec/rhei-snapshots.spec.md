@@ -851,6 +851,26 @@ unconfirmable candidate has: capturing a transcript that belongs to someone
 else's session is worse than emitting none, because the snapshot is wrong
 rather than absent and every inheritor of it is wrong too.
 
+**A key it cannot read.** `id_from_stem` and `kind` are the two keys with a
+closed set of spellings, so a typo in either is a settings error rather than a
+missing default. Which way that error goes depends on who is present.
+
+- **At spawn it degrades**, exactly as an unresolvable `dir_template` does
+  under [Spawn-Time Preload](#101-spawn-time-preload): the orchestrator logs
+  "could not resolve snapshot session locator keys for agent `<id>` (...);
+  fixed-location snapshot tracking disabled for this spawn" and spawns
+  anyway. Preload runs before *every* spawn of an agent with a layout,
+  including states that declare no snapshot block at all, so failing the spawn
+  would let one mistyped key stop a whole run over a feature that run does not
+  use. The invocation loses emit and preload; the run continues.
+- **`rhei snapshot continue` refuses instead**, before spawn and with the key
+  and its accepted spellings named. The asymmetry is deliberate: an operator
+  is at the terminal, and the command exists for no other purpose than to
+  continue this one session and capture what comes of it. Degrading silently
+  would run the continuation untracked and tell them only afterwards, by the
+  absence of a captured generation. A refusal they can act on is the better
+  answer when there is someone there to act.
+
 #### 9.1.2. What the Locator Keys Do Not Change
 
 The three keys describe how rhei *found* a transcript, not what the transcript
