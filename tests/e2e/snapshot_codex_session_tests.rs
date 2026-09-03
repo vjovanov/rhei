@@ -304,8 +304,12 @@ transitions:
         resume > index_of(&argv, "--model"),
         "resume must follow the mode and model flags: {argv:?}"
     );
+    // The rendered heading is project-qualified, `Task plan.1`, so the plan
+    // file's own `Task 1` never appears in the delivered prompt.
     assert!(
-        review["stdin"].as_str().is_some_and(|prompt| prompt.contains("Task 1")),
+        review["stdin"]
+            .as_str()
+            .is_some_and(|prompt| prompt.contains("Task plan.1: Carry context")),
         "the prompt must still arrive on stdin under the subcommand"
     );
 }
@@ -508,15 +512,27 @@ transitions:
         continued.stdout
     );
 
+    // Find the continuation by what this command emits — the resume flag —
+    // rather than by an inherited variable the test does not control.
     let records = recorded_invocations(&dir);
     let interactive = records
         .iter()
-        .find(|record| record["result_path"].as_str().unwrap_or_default().is_empty())
+        .find(|record| argv_of(record).windows(2).any(|pair| pair[0] == "--resume"))
         .expect("the interactive continuation invocation");
     let argv = argv_of(interactive);
     assert!(
         argv.windows(2).any(|pair| pair[0] == "--resume"),
         "the continuation must resume the source session: {argv:?}"
+    );
+    // vjovanov/rhei#146 R1-03: `continue` clears the per-attempt output paths
+    // of whatever run launched it, so a continuation started from inside a
+    // rhei run cannot write into that run's result file.
+    // §FS-rhei-snapshot-operations.1.5
+    assert_eq!(
+        interactive["result_path"].as_str().unwrap_or_default(),
+        "",
+        "the continuation must not inherit a run's RHEI_RESULT_PATH: {:?}",
+        interactive["result_path"]
     );
     assert!(
         !argv.iter().any(|arg| arg == "--autonomous"),
