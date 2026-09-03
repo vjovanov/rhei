@@ -34,10 +34,13 @@ fn snapshot_continue_command(
             resolved.agent.id()
         ));
     }
-    if !no_capture && snapshot_session_string(session, "session_dir_flag").is_none() {
+    // Capture no longer needs a `session_dir_flag`: a profile that writes to a
+    // fixed location is found by the same locator emit uses, so only a profile
+    // with neither is refused. §FS-rhei-snapshots.9.3.4
+    if !no_capture && !snapshot_emit_session_supported(session) {
         return Err(miette!(
             help = session_capture_resume_help(),
-            "unsupported-snapshot-session: agent '{}' cannot capture interactive continuation without session_dir_flag",
+            "unsupported-snapshot-session: agent '{}' cannot capture interactive continuation: its session profile declares neither a session_dir_flag nor a layout dir_template",
             resolved.agent.id()
         ));
     }
@@ -53,7 +56,8 @@ fn snapshot_continue_command(
         ));
     }
 
-    let preload = prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session)?;
+    let preload =
+        prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session, !no_capture)?;
     let status = spawn_snapshot_continue_agent(ctx, &record, &resolved, session, &preload.inner)?;
     let completion = if status.success() {
         SnapshotCompletion::Success
@@ -156,10 +160,17 @@ fn snapshot_record_target_selector(record: &SnapshotRecord) -> MietteResult<Stri
         })
 }
 
+/// Stage the continuation's session.
+///
+/// `capture` is what decides whether the fixed-location fallback is resolved:
+/// a `--no-capture` continuation reads no transcript afterwards, so an
+/// unresolvable `dir_template` is not its problem.
+// §FS-rhei-snapshots.9.3.4
 fn prepare_snapshot_continue_preload(
     workspace_root: &Path,
     record: &SnapshotRecord,
     session: &serde_json::Value,
+    capture: bool,
 ) -> MietteResult<SnapshotContinuePreload> {
     let mut preload = SnapshotPreload::default();
     let mut staged_source = None;
@@ -176,6 +187,19 @@ fn prepare_snapshot_continue_preload(
         preload.extra_args.push(flag);
         preload.extra_args.push(dir.display().to_string());
         preload.session_dir = Some(dir);
+    } else if capture {
+        // No redirect, so the continuation's transcript is found where the
+        // agent writes its own: the layout's fixed location, read back through
+        // the locator emit uses. §FS-rhei-snapshots.9.3.4
+        if let Some(layout) = snapshot_session_layout(session) {
+            if let Some(template) = snapshot_layout_dir_template(layout) {
+                preload.fixed_session_dir =
+                    Some(resolve_snapshot_dir_template(&template, workspace_root)?);
+                preload.fixed_session_locator =
+                    resolve_snapshot_session_locator(layout, workspace_root)?;
+                preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
+            }
+        }
     }
 
     if let Some(flag) = snapshot_strategy_flag(session, "fork") {
@@ -250,10 +274,15 @@ fn spawn_snapshot_continue_agent(
     for arg in base_args {
         cmd.arg(arg);
     }
-    if let Some(mode) = resolved.mode.as_deref() {
-        if let Some(flags) = resolved.profile.modes.get(mode) {
-            for arg in flags {
-                cmd.arg(arg);
+    // A declared `interactive.command` replaces the profile's command *and* its
+    // mode flags: the operator is at the terminal to answer what the autonomous
+    // posture skips. §FS-rhei-snapshots.9.1
+    if !snapshot_declares_interactive_command(session) {
+        if let Some(mode) = resolved.mode.as_deref() {
+            if let Some(flags) = resolved.profile.modes.get(mode) {
+                for arg in flags {
+                    cmd.arg(arg);
+                }
             }
         }
     }
@@ -305,6 +334,11 @@ fn spawn_snapshot_continue_agent(
             "failed to spawn agent '{}': {err}", resolved.agent.id()
         ))?;
     Ok(status)
+}
+
+// §FS-rhei-snapshots.9.1: whether the profile overrides the spawned command.
+fn snapshot_declares_interactive_command(session: &serde_json::Value) -> bool {
+    session.get("interactive").and_then(|interactive| interactive.get("command")).is_some()
 }
 
 fn snapshot_interactive_command(
@@ -387,7 +421,7 @@ fn capture_snapshot_continue_generation(
     };
     let Some((transcript_source, transcript_ext, session_id)) =
         transcript_source_for_snapshot_continue(
-            preload.inner.session_dir.as_deref(),
+            &preload.inner,
             layout,
             preload.staged_source.as_ref(),
         )?
@@ -427,12 +461,15 @@ fn capture_snapshot_continue_generation(
 }
 
 fn transcript_source_for_snapshot_continue(
-    session_dir: Option<&Path>,
+    preload: &SnapshotPreload,
     layout: &serde_json::Value,
     staged_source: Option<&SnapshotContinueStagedSource>,
 ) -> MietteResult<Option<(PathBuf, String, String)>> {
-    let Some(session_dir) = session_dir else {
-        return Ok(None);
+    let Some(session_dir) = preload.session_dir.as_deref() else {
+        // Nothing was redirected, so the continuation's transcript is read the
+        // way emit reads a run's: whatever `snapshot.emit:` can capture for an
+        // agent, continue can capture too. §FS-rhei-snapshots.9.3.4
+        return Ok(transcript_source_for_snapshot(preload, layout));
     };
     let Some(ext) = snapshot_layout_ext(layout) else {
         return Ok(None);
