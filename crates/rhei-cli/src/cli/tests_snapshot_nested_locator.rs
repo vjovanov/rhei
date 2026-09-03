@@ -364,7 +364,12 @@ fn built_in_codex_profile_declares_the_nested_session_locator() {
     let profile = built_in_agents().remove("codex").expect("codex");
     let session = profile.session.as_ref().expect("codex declares a session block");
     assert_eq!(snapshot_strategy_flag(session, "resume").as_deref(), Some("resume"));
-    assert_eq!(snapshot_strategy_flag(session, "fork").as_deref(), Some("fork"));
+    assert!(
+        snapshot_strategy_flag(session, "fork").is_none(),
+        "codex's `fork` takes a session id, which `ForkStrategy::Native` cannot express: it \
+         hands the agent the staged transcript path, and the preload prefers fork over resume \
+         whenever both are declared, so declaring it would defeat the resume"
+    );
     assert_eq!(
         snapshot_session_string(session, "no_session_flag").as_deref(),
         Some("--ephemeral")

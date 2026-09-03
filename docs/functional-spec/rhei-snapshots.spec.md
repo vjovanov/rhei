@@ -683,7 +683,9 @@ pub enum ResumeStrategy {
 }
 
 pub enum ForkStrategy {
-    /// Agent exposes a native fork flag taking a path or partial id.
+    /// Agent exposes a native fork flag. Rhei always passes it the staged
+    /// transcript's filesystem path; an agent whose fork takes a session id
+    /// instead cannot be expressed by this variant.
     Native { flag: String },
     /// Rhei copies the session file itself; agent does not need a fork flag.
     RheiCopy,
@@ -871,7 +873,7 @@ only the lookup differs.
 | Agent | `resume` | `fork` | `interactive` | `assign_id_flag` | `session_dir_flag` | `no_session_flag` | `layout` |
 |-------|----------|--------|---------------|------------------|--------------------|--------------------|----------|
 | claude-code | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
-| codex | `Native { flag: resume }` | `Native { flag: fork }` | `command: [codex]`, no args | none | none | `--ephemeral` | `FlatById { dir: ~/.codex/sessions, ext: jsonl, nested, id_from_stem: TrailingUuid, confirm_cwd_path: [payload, cwd] }` |
+| codex | `Native { flag: resume }` | none | `command: [codex]`, no args | none | none | `--ephemeral` | `FlatById { dir: ~/.codex/sessions, ext: jsonl, nested, id_from_stem: TrailingUuid, confirm_cwd_path: [payload, cwd] }` |
 | cursor | unsupported in v1 | unsupported | unsupported | none | none | none | none |
 | gemini | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | unsupported in v1 built-in profile | none | none | none |
 | kilocode | unsupported in v1 | unsupported | unsupported | none | none | none | none |
@@ -884,8 +886,9 @@ transport, and not before. Two have. Pi has a complete native surface — an
 interactive TTY mode, `--fork <path>`, `--session-dir <dir>`, and a flat JSONL
 transcript layout. Codex reaches the same place by a different route: no
 `--session-dir` analogue at all, but a fixed transcript root the locator keys
-of §9.1.1 can search and confirm, and `resume`/`fork` as `codex exec`
-subcommands ([Codex](#934-codex)). The rest remain usable through custom
+of §9.1.1 can search and confirm, and `resume` as a positional `codex exec`
+subcommand ([Codex](#934-codex)). Its `fork` cell is `none` deliberately, and
+that section says why. The rest remain usable through custom
 session-capable profiles.
 
 Emit and preload have independent profile requirements:
@@ -990,13 +993,12 @@ operator's own interactive sessions, any of which can be the newest file
 written since a spawn. Codex names `cwd` as its own discriminator:
 `codex exec resume --all` is documented as disabling cwd filtering.
 
-**Codex supports resume, and does it non-interactively.** `resume` and `fork`
-are positional subcommands of `codex exec`, not interactive-only commands:
-`codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` and `codex exec fork
-<SESSION_ID> [PROMPT]`, where `SESSION_ID` is the UUID a manifest's
-`session_id` holds. So the existing `ResumeStrategy::Native { flag }` shape
-already emits the two tokens codex wants, `resume <uuid>`, and no new strategy
-kind is needed. What the spike found is that the tokens have to be *placed*
+**Codex supports resume, and does it non-interactively.** `resume` is a
+positional subcommand of `codex exec`, not an interactive-only command:
+`codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`, where `SESSION_ID` is the
+UUID a manifest's `session_id` holds. So the existing `ResumeStrategy::Native
+{ flag }` shape already emits the two tokens codex wants, `resume <uuid>`, and
+no new strategy kind is needed. What the spike found is that the tokens have to be *placed*
 correctly, which is the rule in [Spawn-Time Preload](#101-spawn-time-preload)
 step 8: after `exec`'s own options and before the `--`. Ahead of the mode flags
 does not parse, because `codex exec resume` accepts `-c`, `-m/--model`,
@@ -1014,9 +1016,22 @@ elsewhere. Relocating `CODEX_HOME` per spawn is not a substitute, because it
 also relocates `auth.json` and `config.toml` and would break the child's
 authentication.
 
+**Codex forks, but not in a shape rhei can declare yet.** `codex exec fork
+<SESSION_ID> [PROMPT]` exists and takes the same UUID `resume` does. Rhei's
+`ForkStrategy::Native { flag }` cannot express it: that variant means *hand the
+agent the staged transcript's filesystem path* (§9.1), which is pi's
+`--fork <path>`, and step 7 of [Spawn-Time Preload](#101-spawn-time-preload)
+prefers fork over resume whenever a profile declares both. A codex profile
+declaring `fork` would therefore emit `fork <…/transcript.jsonl>`, which
+codex-cli 0.149.0 answers with `Error: Session not found`, and the resume this
+section delivers would never be reached. Declaring fork for codex needs a
+strategy that says *which argument it takes* — a session id or a path — and
+that is a change to the profile contract in §9.1 rather than to this profile.
+It is left open and is not part of this section's answer.
+
 The built-in codex profile therefore declares a session block (§9.2): `resume`
-and `fork` as the subcommand names, `--ephemeral` as `no_session_flag`, no
-`session_dir_flag` and no `assign_id_flag`, an `interactive` command of
+as the subcommand name and **no `fork`**, `--ephemeral` as `no_session_flag`,
+no `session_dir_flag` and no `assign_id_flag`, an `interactive` command of
 `codex`, and a `FlatById` layout over `~/.codex/sessions` carrying the three
 locator keys. `snapshot.emit:`, `snapshot.inherit:` and auto-emit all follow
 from that block; nothing in the code branches on the agent being codex.
@@ -1086,7 +1101,11 @@ For each spawn of a state declaring `snapshot.inherit:`:
    with `unsupported-snapshot-session` when `required: true`; otherwise warn
    and proceed without preload.
 7. Apply the agent's `ResumeStrategy` / `ForkStrategy` to stage the session
-   into the inheritor's generation directory.
+   into the inheritor's generation directory. A profile that declares both is
+   forked, not resumed: fork starts from a copy and leaves the source
+   transcript untouched, so it is the safer of the two when the agent offers
+   it. `ForkStrategy::Native` is passed the staged transcript's path and
+   `ResumeStrategy::Native` the manifest's `session_id`.
 8. Spawn the subprocess with the strategy-defined flags placed after the
    agent's own mode, prompt and model flags and **before** the `--` separator
    a `stdin_prompt` profile emits — never after it. Past a `--`, an argument
