@@ -11,6 +11,7 @@ the example runs wherever `python3` is on `PATH`.
 import json
 import os
 import pathlib
+import re
 import sys
 
 
@@ -23,6 +24,7 @@ session_dir = ""
 resume_value = ""
 fork_value = ""
 interactive = 0
+prompt = ""
 
 args = sys.argv[1:]
 while args:
@@ -35,15 +37,25 @@ while args:
         resume_value = args.pop(0)
     elif flag == "--fork" and args:
         fork_value = args.pop(0)
-    elif flag in ("--prompt", "--model") and args:
+    elif flag == "--prompt" and args:
+        prompt = args.pop(0)
+    elif flag == "--model" and args:
         args.pop(0)
+
+# Autonomous wrappers read task identity from the authoritative prompt.
+# §FS-rhei-agents.4
+task_match = re.search(r"^# Task ([^:]+):", prompt, re.MULTILINE)
+if not task_match:
+    print("the agent prompt is missing its qualified task id", file=sys.stderr)
+    sys.exit(1)
+task_id = task_match.group(1)
 
 log = pathlib.Path("runtime") / "fake-analysis-agent.log"
 log.parent.mkdir(parents=True, exist_ok=True)
 with log.open("a", encoding="utf-8", newline="") as handle:
     handle.write(
         "task={} state={} target={} resume={} fork={} interactive={} parent={}\n".format(
-            env("RHEI_TASK_ID"),
+            task_id,
             env("RHEI_STATE"),
             env("RHEI_TARGET_SLUG"),
             resume_value,
@@ -57,7 +69,7 @@ if session_dir:
     directory = pathlib.Path(session_dir)
     directory.mkdir(parents=True, exist_ok=True)
     session_id = "{}-{}-{}".format(
-        env("RHEI_TASK_ID"), env("RHEI_STATE"), env("RHEI_TARGET_SLUG", "target")
+        task_id, env("RHEI_STATE"), env("RHEI_TARGET_SLUG", "target")
     )
     lines = [
         {
