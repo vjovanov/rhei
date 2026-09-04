@@ -261,24 +261,39 @@ fn announce_supervision_gate_handoff(
     );
 }
 
+/// The move itself, as the shared transition path knows it: which task moved,
+/// under which metadata key, between which two states, and which visit of the
+/// target this entry is. One value because no caller has any of these without
+/// the rest, and supervision reads them only together.
+// §FS-rhei-supervision.3.3
+#[derive(Clone, Copy)]
+struct AppliedTransition<'a> {
+    /// `metadata.tasks.<id>` key of the transitioning task.
+    metadata_key: &'a TaskId,
+    /// The transitioning task's rhei-local id: what a checkpoint records.
+    local_id: &'a str,
+    from: &'a str,
+    /// The *effective* target, after any callback redirect.
+    to: &'a str,
+    /// Visit number of `to` after the move.
+    to_visit: u64,
+}
+
 /// Bind one applied transition on the shared path to the supervision rules.
 ///
 /// The shared path knows the transitioning task, the files its rewrites land
 /// in, and the move it is about to commit; everything supervision needs falls
-/// out of those three. `move_` is `(local id, from, to)`, with `to` the
-/// *effective* target after any callback redirect.
+/// out of those three.
 // §FS-rhei-supervision.2 §FS-rhei-supervision.3.3
 fn supervision_after_transition(
     existing: Option<&Metadata>,
     machine: &rhei_validator::StateMachine,
     task_info: &TransitionTaskInfo,
     files: TransitionFiles<'_>,
-    metadata_key: &TaskId,
-    move_: (&str, &str, &str),
-    to_visit: u64,
+    applied: AppliedTransition<'_>,
     operation_supervisor: Option<&TaskId>,
 ) -> Option<Metadata> {
-    let (local_id, from, to) = move_;
+    let AppliedTransition { metadata_key, local_id, from, to, to_visit } = applied;
     announce_supervision_gate_handoff(machine, files.artifact_id, from, to);
     apply_supervision_transition(
         existing,
