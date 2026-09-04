@@ -1021,10 +1021,53 @@ Artifact contracts, logs, accounting, snapshots, result files, and other Rhei
 runtime files remain rooted at the artifact root named in the prompt; the
 checkout root exists so agents discover repository-local instructions such as
 `AGENTS.md` and, when a task uses an isolated git worktree, edit inside that
-worktree. When the checkout root differs from the artifact root,
-`{input.<name>.path}` and `{output.<name>.path}` render as absolute paths under
-the artifact root so agents can follow artifact instructions from the checkout
-cwd without writing runtime files into the checkout by accident.
+worktree. Because the two roots can differ, every path the prompt hands the
+worker resolves by the one rule stated next.
+
+### 4.1. Paths in the Prompt
+
+A worker is told where every file goes; it never infers a base. **Every
+filesystem path in the composed prompt is either absolute, or relative to the
+artifact root**, which the execution-root map in `## Rhei Commands` names
+absolutely. No path in the prompt is relative to the working directory the
+`rhei run` process was launched from. That directory is not in the prompt, is
+not the worker's own working directory, and is no longer discoverable from the
+environment now that the identity variables above are removed — so a path
+expressed against it is a path the worker cannot resolve at all.
+
+`rhei run` therefore resolves the artifact root to an absolute path **before**
+composing any prompt, so `rhei run ws` hands the worker exactly the paths
+`rhei run /absolute/ws` hands it. A root that reached the prompt still relative
+would send a worker following this rule to a doubled path under the artifact
+root, and a worker resolving it against its own working directory into the
+checkout — two wrong answers where the rule promises one right one.
+
+Given an absolute artifact root, a path renders one of two ways:
+
+| Where the roots stand | How a path renders |
+|---|---|
+| The checkout root **is** the artifact root | Relative to the artifact root, which is also the worker's working directory, so both readings agree |
+| The checkout root **differs** from the artifact root | Absolute, under the artifact root |
+
+The rule covers every path the run composes for a worker: `{input.<name>.path}`
+and `{output.<name>.path}`, the `## Result` path below, and the session
+directory a snapshot-emitting invocation is handed through its profile's
+`session_dir_flag`
+([§FS-rhei-snapshots.9.1](rhei-snapshots.spec.md#91-customagentprofilesession)).
+This is what keeps a worker following artifact instructions from the checkout
+cwd without writing runtime files into the checkout by accident — a transcript
+written to an unresolvable session path lands in the checkout, where the run
+does not look for it and reports the invocation as having produced none.
+
+**A `## Result` path is present exactly where a result is owed.** The section
+is composed for an invocation that a terminal edge leaves by name, and it names
+that invocation's own file: the ticket's result, or under fan-out that
+invocation's own fragment
+([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). Its absence
+says this invocation owes no result — the same answer the completion condition
+gives — rather than naming a path the prompt forgot. A worker that finds no
+`## Result` section writes none; a worker that rebuilds the conventional path
+anyway writes a file nothing reads.
 
 ## 5. `rhei run` — Agent Mode
 

@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use super::*;
 
@@ -368,17 +369,31 @@ fn example_spec_review_runs_with_mock_agents() {
 /// `RHEI_RESULT_PATH`, so every terminal ticket stalled on a missing `result`.
 /// Instantiating and running here keeps the fixture honest about the contract
 /// it demonstrates.
-// §FS-rhei-states.3.3 §FS-rhei-agents.4 §FS-rhei-programs.2
+///
+/// It runs where the three directories are all different: the workspace is
+/// `nested/ws` under a git repository, so the checkout root the workers are
+/// started in is neither the artifact root nor the directory `rhei run` was
+/// launched from. That is the arrangement in which a path composed against the
+/// launcher resolves for nobody, and it is how the bundled scripts are held to
+/// the one rule a wrapper is given (§FS-rhei-agents.4.1).
+// §FS-rhei-states.3.3 §FS-rhei-agents.4.1 §FS-rhei-programs.2
 #[test]
 fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
     let dir = unique_temp_dir("example-ui-test-canonical");
+    let git = Command::new("git").arg("init").arg("-q").current_dir(&dir).status();
+    if !git.map(|status| status.success()).unwrap_or(false) {
+        eprintln!("skipping: git unavailable");
+        return;
+    }
     let template = dir.join(".agents/rhei/templates/ui-test-canonical");
     copy_dir_recursive(&repo_root().join(".agents/rhei/templates/ui-test-canonical"), &template);
     let home = dir.join(".home");
     fs::create_dir_all(&home).expect("isolated home");
+    let launch = dir.join("nested");
+    fs::create_dir_all(&launch).expect("launch directory below the checkout root");
 
     let instantiate = rhei_command(&home)
-        .current_dir(&dir)
+        .current_dir(&launch)
         .args(["instantiate", "ui-test-canonical", "--output", "ws"])
         .output()
         .expect("rhei instantiate should run");
@@ -390,7 +405,7 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
     );
 
     let run = rhei_command(&home)
-        .current_dir(&dir)
+        .current_dir(&launch)
         .args(["run", "ws", "--no-tui", "--parallel", "4"])
         .output()
         .expect("rhei run should run");
@@ -405,7 +420,7 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         "no worker may stall on a missing artifact:\nstdout:\n{stdout}"
     );
 
-    let workspace = dir.join("ws");
+    let workspace = launch.join("ws");
     // A program-driven terminal edge and an agent-driven one, each with the
     // worker's own account on disk.
     for task in
@@ -417,14 +432,26 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         assert!(!body.trim().is_empty(), "{task}: terminal result must have content");
     }
 
-    // Every invocation gets its own fragment, keyed by the state and visit it
-    // belongs to, so no reviewer overwrites another and no later state inherits
-    // this one's account. §FS-rhei-states.3.3
-    let fragments = workspace.join("runtime/results/ws.full-pipeline/parallel-review/1");
-    let mut names: Vec<String> = fs::read_dir(&fragments)
-        .unwrap_or_else(|err| panic!("fan-out result fragments at {}: {err}", fragments.display()))
-        .map(|entry| entry.expect("fragment entry").file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    assert_eq!(names.len(), 2, "one fragment per review target; got {names:?}");
+    // Every invocation of a fanned-out state gets its own declared output,
+    // keyed by identity, so no reviewer overwrites another. Each path is one
+    // the prompt named. §FS-rhei-states.3.2
+    for slug in ["mock-agent-yolo-mock-review-alpha", "mock-agent-slow-mock-review-beta"] {
+        let review = workspace.join(format!("runtime/reviews/ws.full-pipeline-{slug}.md"));
+        assert!(
+            fs::read_to_string(&review).is_ok_and(|body| !body.trim().is_empty()),
+            "each review target writes its own findings: {}",
+            review.display()
+        );
+    }
+
+    // No terminal edge leaves `parallel-review` by name, so its prompt names no
+    // result and no invocation of it owes a fragment. A worker that rebuilt the
+    // conventional path from what it knows would write files nothing merges —
+    // the guessing this contract exists to remove. §FS-rhei-agents.4.1
+    let unowed = workspace.join("runtime/results/ws.full-pipeline");
+    assert!(
+        !unowed.exists(),
+        "a worker writes only where the prompt named a file; found {}",
+        unowed.display()
+    );
 }
