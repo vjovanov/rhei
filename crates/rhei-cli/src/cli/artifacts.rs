@@ -126,12 +126,34 @@ fn resolve_artifact_path(
     (relative.clone(), workspace_root.join(&relative))
 }
 
+/// How one runtime path is spelled for the worker that reads it: relative to
+/// the artifact root while that root is also the working directory, absolute
+/// under `root` once the checkout is somewhere else.
+///
+/// Declared artifacts, the export path and the result path all come through
+/// here, because the rule only works if a prompt applies it to all of them. One
+/// bare relative path beside absolute neighbours is worse than none: it teaches
+/// the worker that a path in this prompt is relative to its own cwd, and that
+/// reading writes the file into the checkout, where nothing looks for it.
+// §FS-rhei-agents.4.1
+fn prompt_path_shown(
+    context: &RuntimeTemplateContext<'_>,
+    root: &Path,
+    relative: String,
+) -> String {
+    if context.checkout_root == context.workspace_root {
+        relative
+    } else {
+        root.join(relative).display().to_string()
+    }
+}
+
 fn render_artifact_template_path(
     context: &RuntimeTemplateContext<'_>,
     artifact: &rhei_validator::StateArtifactDef,
     visit_count: Option<u64>,
 ) -> String {
-    let (relative, absolute) = resolve_artifact_path(
+    let (relative, _) = resolve_artifact_path(
         context.workspace_root,
         artifact,
         &context.task.id.to_string(),
@@ -144,11 +166,7 @@ fn render_artifact_template_path(
         context.agent,
         context.agent_mode,
     );
-    if context.checkout_root == context.workspace_root {
-        relative
-    } else {
-        absolute.display().to_string()
-    }
+    prompt_path_shown(context, context.workspace_root, relative)
 }
 
 fn artifact_relative_path_escapes_root(relative: &str) -> bool {

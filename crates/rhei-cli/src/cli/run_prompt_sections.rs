@@ -135,11 +135,15 @@ fn render_declared_exports(render_context: &RuntimeTemplateContext<'_>) -> Strin
         "\n## Exports to Publish\n\n\
          Later tasks read these files. Write each one before this task reaches a terminal state.\n",
     );
+    // The same rule the result path and declared artifacts follow, rooted at
+    // the rhei that owns this task's runtime. §FS-rhei-agents.4.1
+    let root = export_root_for_task(render_context, &render_context.task.id);
     for name in &render_context.task.provides {
+        let relative = task_export_relative_path(&render_context.task.id, name);
         out.push_str(&format!(
             "\n- `{}` → `{}`\n",
             name,
-            task_export_relative_path(&render_context.task.id, name)
+            prompt_path_shown(render_context, root, relative)
         ));
     }
     out
@@ -217,16 +221,10 @@ fn terminal_result_path_shown(render_context: &RuntimeTemplateContext<'_>) -> Op
         identity: identity.as_deref(),
     };
     let relative = result_relative_path(&task_id, invocation);
-    // Same rule declared artifacts follow: relative under the artifact root,
-    // absolute when the agent's cwd is somewhere else entirely.
-    // §FS-rhei-agents.4
-    Some(if render_context.checkout_root == render_context.workspace_root {
-        relative
-    } else {
-        invocation_result_file_path(render_context.workspace_root, &task_id, invocation)
-            .display()
-            .to_string()
-    })
+    // Same rule declared artifacts and exports follow: relative under the
+    // artifact root, absolute when the agent's cwd is somewhere else entirely.
+    // §FS-rhei-agents.4.1
+    Some(prompt_path_shown(render_context, render_context.workspace_root, relative))
 }
 
 /// Render the exports this task consumes from prior tasks.
