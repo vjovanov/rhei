@@ -660,10 +660,10 @@ surfaces apply when they list a gate's choices ([§FS-rhei-viz.5.1](rhei-viz.spe
 the one every other surface uses ([§FS-rhei-complete.3](rhei-complete.spec.md#3-result-file)) — or, on a fanned-out
 state, this invocation's own fragment
 `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`
-([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)), which is also what `RHEI_RESULT_PATH` holds for that
-invocation — rendered relative to
-`RHEI_ROOT`, or absolute when `RHEI_CHECKOUT_ROOT` differs from it, on the same
-rule `{output.<name>.path}` follows (§4). Under `orchestrator` authority a
+([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)), which is also the path the orchestrator validates for that
+invocation — rendered relative to the artifact root, or absolute when the
+checkout root differs from it, on the same rule `{output.<name>.path}` follows
+(§4). Under `orchestrator` authority a
 subprocess never calls `rhei complete`, so without this section the one
 artifact a terminal state requires would be the only one the agent was never
 shown. The section names the fact and the path and stops there: "write it, then
@@ -762,7 +762,7 @@ The condition is normative and universal for agent states:
 
 Condition (2) resolves declared `outputs:` against the execution root of the
 rhei that owns the ticket ([§FS-rhei-plan-language.3.10](rhei-plan-language.spec.md#310-state-artifact-contracts))
-— the same root the invocation's prompt and `RHEI_ROOT` named — at both
+— the same root the invocation's prompt names — at both
 moments this condition is asked: after the subprocess exits, and before a pass
 decides whether the invocation can be skipped. In a Panta project this root can
 sit below the run-level workspace root that `rhei run` was pointed at; the two
@@ -965,18 +965,35 @@ this exemption's internal encoding of "no budget applies here".
 
 ## 4. Environment Variables
 
-The agent subprocess inherits these environment variables, consistent with the
-callback environment:
+An autonomous agent subprocess must not receive the outer run's execution
+identity through its process environment. Before spawning any configured agent
+profile, Rhei removes these five variables even when its own parent environment
+contains them:
+
+| Removed variable | Authoritative agent surface |
+|------------------|-----------------------------|
+| `RHEI_ROOT` | The execution-root map in `## Rhei Commands` |
+| `RHEI_PLAN_PATH` | The plan path in `## Rhei Commands` |
+| `RHEI_RESULT_PATH` | `## Result`, on an invocation whose state can finish the task |
+| `RHEI_TASK_ID` | The qualified task identity in `## Position` and the task heading |
+| `RHEI_TASK_ID_LOCAL` | The task heading in the named rhei |
+
+The composed prompt (§3) is authoritative for those values. A custom agent
+wrapper must read the prompt instead of these legacy variables. Because an
+agent's commands inherit its environment, removal also keeps an independently
+launched nested Rhei from adopting the outer plan, task, artifact root, or
+result path. This is an intentional compatibility break: neither task-id
+spelling is retained as ambient compatibility state.
+
+This isolation applies only to autonomous agent workers. Program states keep
+their explicit environment contract ([§FS-rhei-programs.2](rhei-programs.spec.md#2-environment-variables)), and transition callbacks keep their own
+callback context and environment contract. Rhei continues to add these
+agent-transport and invocation-detail variables to the autonomous agent:
 
 | Variable | Value |
 |----------|-------|
-| `RHEI_PLAN_PATH` | Absolute path to the plan file or workspace directory |
-| `RHEI_ROOT` | Absolute path to the Rhei artifact root: the plan-file directory for a single-file plan, or the workspace directory for a Directory Workspace |
 | `RHEI_CHECKOUT_ROOT` | Absolute path to the checkout directory used as the agent subprocess working directory |
 | `RHEI_WORKTREE_ROOT` | Absolute path to the task git worktree when the task is running from a worktree reference; unset otherwise |
-| `RHEI_TASK_ID` | Project-qualified ticket id (`auth.1`) — matches command output, `{task_id}`, and result artifact names |
-| `RHEI_TASK_ID_LOCAL` | Ticket id as written in its rhei file's heading (`1`) — matches what a script that edits or greps the plan file needs |
-| `RHEI_RESULT_PATH` | Absolute path to the result file **this invocation** must write: `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID.md` normally, and `$RHEI_ROOT/runtime/results/$RHEI_TASK_ID/$RHEI_STATE/$RHEI_VISIT_COUNT/<identity>.md` for one invocation of a fanned-out state, where `<identity>` is the target slug or model id that keys the rest of that invocation's artifacts ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). Always set, for every state — a program has no prompt to read the path from, and deriving it from four other variables is a contract nobody can be held to. A task does not enter a `final: true` state until the ticket's result has content ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) |
 | `RHEI_STATE` | Current state name |
 | `RHEI_ATTEMPT` | Which attempt of this state visit the invocation is, counting from 1. `2` and above mean the invocation is a retry of an attempt that did not finish, and the prompt's `## Previous Visits` says how that one ended ([§FS-rhei-memory.3.3](rhei-memory.spec.md#33--previous-visits)). Distinct from `RHEI_VISIT_COUNT`, which counts entries into the state and not spawns within one ([§FS-rhei-agents.8.1](rhei-agents.spec.md#81-log-file-naming)) |
 | `RHEI_MODEL` | Model profile id, if configured |
@@ -991,22 +1008,23 @@ callback environment:
 The agent subprocess working directory is the **checkout root**. `rhei run`
 resolves it in this order:
 
-1. `runtime/worktree-refs/<task-id>.yaml` under `RHEI_ROOT`, when present. The
-   file must contain an absolute `path:` pointing at an existing git worktree
-   root; that path becomes both `RHEI_CHECKOUT_ROOT` and `RHEI_WORKTREE_ROOT`.
-2. The enclosing git repository root for `RHEI_ROOT`, when `git -C
-   <RHEI_ROOT> rev-parse --show-toplevel` succeeds.
+1. `runtime/worktree-refs/<task-id>.yaml` under the artifact root, when present.
+   The file must contain an absolute `path:` pointing at an existing git
+   worktree root; that path becomes both `RHEI_CHECKOUT_ROOT` and
+   `RHEI_WORKTREE_ROOT`.
+2. The enclosing git repository root for the artifact root, when `git -C
+   <artifact-root> rev-parse --show-toplevel` succeeds.
 3. The `rhei run` process current working directory when no git repository is
    found.
 
 Artifact contracts, logs, accounting, snapshots, result files, and other Rhei
-runtime files remain rooted at `RHEI_ROOT`; the checkout root exists so agents
-discover repository-local instructions such as `AGENTS.md` and, when a task
-uses an isolated git worktree, edit inside that worktree. When `RHEI_CHECKOUT_ROOT`
-differs from `RHEI_ROOT`, `{input.<name>.path}` and `{output.<name>.path}`
-render as absolute paths under `RHEI_ROOT` so agents can follow artifact
-instructions from the checkout cwd without writing runtime files into the
-checkout by accident.
+runtime files remain rooted at the artifact root named in the prompt; the
+checkout root exists so agents discover repository-local instructions such as
+`AGENTS.md` and, when a task uses an isolated git worktree, edit inside that
+worktree. When the checkout root differs from the artifact root,
+`{input.<name>.path}` and `{output.<name>.path}` render as absolute paths under
+the artifact root so agents can follow artifact instructions from the checkout
+cwd without writing runtime files into the checkout by accident.
 
 ## 5. `rhei run` — Agent Mode
 

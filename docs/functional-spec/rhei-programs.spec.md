@@ -70,7 +70,8 @@ Variables are resolved by `rhei run` before spawning the process, using the same
 
 ## 2. Environment Variables
 
-Program subprocesses inherit the same base environment as agent subprocesses:
+Program subprocesses have their own execution environment contract; autonomous
+agent isolation does not remove these values from a program Rhei launches:
 
 | Variable | Value |
 |----------|-------|
@@ -85,6 +86,11 @@ Program subprocesses inherit the same base environment as agent subprocesses:
 | `RHEI_INPUT_<NAME>_PATH` | Resolved path of the declared input artifact. Set for every declared input regardless of whether the file exists. Same name transform as `RHEI_INPUT_<NAME>_EXISTS`. |
 
 Additional variables declared in `program.env` are merged on top of this base set. When a `program.env` key collides with a base variable, the `program.env` value wins.
+
+`RHEI_ROOT` is not part of this program contract. A program locates its plan
+through `RHEI_PLAN_PATH` and resolves relative files from its working directory.
+In particular, it must not acquire an enclosing autonomous worker's artifact
+root merely because that worker launched this Rhei (§FS-rhei-agents.4).
 
 The working directory defaults to the workspace root (for directory workspaces) or the plan file's parent directory (for single-file plans), unless overridden by `program.working_directory`.
 
