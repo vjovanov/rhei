@@ -1040,7 +1040,11 @@ composing any prompt, so `rhei run ws` hands the worker exactly the paths
 `rhei run /absolute/ws` hands it. A root that reached the prompt still relative
 would send a worker following this rule to a doubled path under the artifact
 root, and a worker resolving it against its own working directory into the
-checkout — two wrong answers where the rule promises one right one.
+checkout — two wrong answers where the rule promises one right one. Resolving
+makes the root absolute and nothing else — the prompt shows the spelling the
+caller gave, not a symlink-resolved or long-name rewriting of it — while the
+question the table below asks is settled by resolving both roots, so one
+directory named two ways answers that it is one.
 
 Given an absolute artifact root, a path renders one of two ways:
 
