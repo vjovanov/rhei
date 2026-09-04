@@ -245,12 +245,11 @@ that names a *per-attempt output path or counter* of some task is cleared
 before spawn, because the continuation is not that attempt. Today that is
 `RHEI_RESULT_PATH`, `RHEI_ATTEMPT`, `RHEI_VISIT_COUNT`, and the
 `RHEI_ACCOUNTING_USAGE_PATH`/`RHEI_ACCOUNTING_USAGE_SCHEMA` pair. The case is
-not hypothetical: an agent running under `rhei run` carries its own
-`RHEI_RESULT_PATH`, and any `continue` started from its process tree would
-otherwise hand a compliant interactive agent that file to write its result
-into, destroying the running task's result. An unset `RHEI_RESULT_PATH` is
-already the documented signal that no run owns the invocation, so clearing it
-is what tells the truth rather than a special case.
+not hypothetical even though autonomous workers no longer receive the result
+path in their environment: an operator can launch `continue` from a program,
+callback, or shell that carries one invocation's output context. Clearing that
+context prevents an interactive continuation from overwriting the running
+task's result or accounting files.
 
 **Live-run interlock.** `continue` takes the same `.rhei/run.lock` the
 orchestrator uses for `rhei run`. If the lock is held, `continue` exits

@@ -372,7 +372,7 @@ result('## Result\n\nDone.\n')
         workspace.join(".agents/rhei/settings.json"),
         format!(
             "{{\n  \"defaults\": {{ \"agent\": \"mock\" }},\n  \"agents\": \
-             {{ \"mock\": {{ \"command\": {command}, \"timeout\": \"2m\" }} }}\n}}"
+             {{ \"mock\": {{ \"command\": {command}, \"stdin_prompt\": true, \"timeout\": \"2m\" }} }}\n}}"
         ),
     )
     .expect("settings");

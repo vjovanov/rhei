@@ -94,9 +94,9 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
     );
     // §FS-rhei-memory.3.3: nothing has happened to it yet.
     assert!(!first.contains("## Previous Visits"), "got:\n{first}");
-    // §FS-rhei-memory.3.4: the map, after the transition list. The fixture is
-    // not a git checkout, so the agent's cwd is elsewhere and every path is
-    // absolute (`{output.<name>.path}`'s rule) and canonical, as `RHEI_ROOT` is.
+    // §FS-rhei-memory.3.4: the map follows the transitions. This non-git
+    // fixture has a different agent cwd, so prompt-root paths are absolute
+    // (`{output.<name>.path}`'s rule) and canonical.
     let root_path = rhei_core::platform::canonical_path(&dir).expect("the fixture exists");
     let root = root_path.display().to_string();
     let plan = root_path.join("plan.rhei.md").display().to_string();
@@ -126,7 +126,10 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
         reviewed.contains("Trail for this task: pending \u{2192} review (this visit, visit 1).\n"),
         "got:\n{reviewed}"
     );
-    assert!(reviewed.contains("Task plan.1 finished pending."), "got:\n{reviewed}");
+    assert!(
+        !reviewed.contains("Task plan.1 finished pending."),
+        "a non-terminal visit is not asked for a terminal result; got:\n{reviewed}"
+    );
 
     // §FS-rhei-memory.3.2: the next ticket reads what finished before it, and
     // pays for the prior's result once.

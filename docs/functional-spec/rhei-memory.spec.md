@@ -275,10 +275,10 @@ not list are one path away. A rhei whose execution root holds no plan document
 omits the `— plan …` clause and names this task's file alone. `Agent transcripts`
 names the resolved `runtime/logs/` directory of this run — the one `Previous
 log:` resolves against (§3.3) — because that tree belongs to the run and not to
-a rhei (§2). Paths are rendered relative to `RHEI_ROOT`, or
-absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
+a rhei (§2). Paths are rendered relative to the execution root named in the
+prompt, or absolute when `RHEI_CHECKOUT_ROOT` differs from it, by the same rule
 `{output.<name>.path}` follows ([§FS-rhei-states.4](rhei-states.spec.md#4-template-variables-in-instructions-and-personality)). `rhei next`, which exports
-no `RHEI_ROOT`, renders every such path absolute. `Leaving a trail`
+no checkout-root context, renders every such path absolute. `Leaving a trail`
 describes artifacts and permitted edits; it says nothing about when to stop or
 how completion is detected, which stay with the completion condition
 ([§FS-rhei-agents.3.1](rhei-agents.spec.md#31-completion-authority)).

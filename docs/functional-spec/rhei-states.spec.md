@@ -633,8 +633,8 @@ hand the ticket a stale account under a state it never came from. `<visit_count>
 alone does not separate them either — an uncounted state renders visit `1` on
 every entry — so the path carries both.
 
-The fragment path is what the invocation sees in its prompt and in
-`RHEI_RESULT_PATH` ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)), and the completion
+The fragment path is what the invocation sees in its prompt
+([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)), and the completion
 condition ([§FS-rhei-agents.3.2](rhei-agents.spec.md#32-completion-condition)) checks *that invocation's own* fragment, exactly
 as it checks that invocation's declared `outputs:`. Both sides resolve the path
 through the same rule, so the file a worker is told to write is the file the run
@@ -678,8 +678,8 @@ Invocations that are not fanned out are unaffected: they write
 **Who supplies the message.** Whoever knows the outcome. A worker under
 `worker` authority ([§FS-rhei-agents.3.1](rhei-agents.spec.md#31-completion-authority)) supplies it on the command that
 finishes the ticket. A worker under `orchestrator` authority writes the file
-before it exits — the path is in its prompt and in `RHEI_RESULT_PATH`
-([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). The engine supplies the message only for
+before it exits — the path is in its prompt
+([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)). The engine supplies the message only for
 outcomes the engine itself produced: a timeout it fired, tooling it could not
 start, an exit code it read, an edge it walked with no subprocess in the state
 ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)). It never speaks for a worker that ran and never speaks for a
@@ -735,7 +735,8 @@ The `instructions` and `personality` fields support template variable substituti
 - **Agent checkout roots may make artifact paths absolute.** In `rhei run` agent
   mode, when the agent subprocess cwd is a repository root or task worktree
   different from the Rhei artifact root, `{input.<name>.path}` and
-  `{output.<name>.path}` resolve to absolute paths under `RHEI_ROOT`
+  `{output.<name>.path}` resolve to absolute paths under the execution root
+  named in the prompt
   ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). When the subprocess cwd is the artifact root, they keep
   the relative form shown above.
 - **`{visit_count}` and `{visits}` are only meaningful for counted-loop states.** For states without a `visits` declaration, `{visits}` is left unresolved and `{visit_count}` resolves to `1`.
