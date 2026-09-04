@@ -12,8 +12,7 @@ fn run_callback_mode(
     // No `RunSubprocessGuard`: this mode spawns nothing supervised, so a guard
     // would own nothing. Anything supervised added here must install one.
     // §FS-rhei-run.3.2
-    let callback_paths = &machines.default_callbacks;
-    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let workspace_root = run_execution_root(input);
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
     // §FS-rhei-run.2.7: one identity per run, so the report and the descriptor

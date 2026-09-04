@@ -310,10 +310,14 @@ fn compose_agent_prompt(render_context: &RuntimeTemplateContext<'_>) -> MietteRe
         }
     }
 
-    let plan_path_str = render_context.plan_path.display().to_string();
+    // Both arrive canonicalized, because a callback is handed them and runs
+    // from somewhere else. The prompt names them through its own artifact root
+    // instead: this is the line a worker reads the root off. §FS-rhei-memory.1.2
+    let plan_path_str =
+        spelled_under_artifact_root(render_context.workspace_root, render_context.plan_path);
     let state_machine_label = render_context
         .state_machine_path
-        .map(|path| path.display().to_string())
+        .map(|path| spelled_under_artifact_root(render_context.workspace_root, path))
         .unwrap_or_else(|| "the built-in default".to_string());
     let task_id = render_context.task.id.to_string();
 

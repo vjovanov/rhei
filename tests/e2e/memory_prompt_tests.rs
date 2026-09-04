@@ -95,9 +95,9 @@ fn a_spawned_agent_receives_its_position_history_and_map() {
     // §FS-rhei-memory.3.3: nothing has happened to it yet.
     assert!(!first.contains("## Previous Visits"), "got:\n{first}");
     // §FS-rhei-memory.3.4: the map follows the transitions. This non-git
-    // fixture has a different agent cwd, so prompt-root paths are absolute
-    // (`{output.<name>.path}`'s rule) and canonical.
-    let root_path = rhei_core::platform::canonical_path(&dir).expect("the fixture exists");
+    // fixture has a different agent cwd, so prompt-root paths are absolute —
+    // under the name the run was given, not another one. §FS-rhei-agents.4.1
+    let root_path = dir.to_path_buf();
     let root = root_path.display().to_string();
     let plan = root_path.join("plan.rhei.md").display().to_string();
     let dash = "\u{2014}";

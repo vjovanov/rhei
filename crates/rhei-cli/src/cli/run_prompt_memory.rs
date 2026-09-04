@@ -169,23 +169,54 @@ fn task_state_is_terminal(
 /// one place where the anchor of a whole prompt is decided.
 // §FS-rhei-memory.3.4 §FS-rhei-states.4
 fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
-    // One spelling per prompt: a rhei root the plan was given as `/var/…` and
-    // a runtime directory the run resolved to `/private/var/…` are one place,
-    // and the map must not spell them as two. The canonical spelling is the
-    // one the prompt's execution-root map already carries (FS-rhei-memory.1.2).
-    let path = canonical_spelling(path).unwrap_or_else(|| path.to_path_buf());
+    let root = render_context.workspace_root;
+    let relative = under_artifact_root(root, path);
+    let absolute = relative
+        .as_deref()
+        .map(|relative| join_under_root(root, relative))
+        .unwrap_or_else(|| path.to_path_buf());
     if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
-        return absolute_memory_path(&path);
+        return absolute_memory_path(&absolute);
     }
-    if render_context.checkout_root != render_context.workspace_root {
-        return spelled_path(&path);
+    if !roots_are_one_directory(render_context.checkout_root, root) {
+        return spelled_path(&absolute);
     }
-    let root = canonical_spelling(render_context.workspace_root)
-        .unwrap_or_else(|| render_context.workspace_root.to_path_buf());
-    match path.strip_prefix(&root) {
-        Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
-        Ok(relative) => spelled_path(relative),
-        Err(_) => spelled_path(&path),
+    match relative {
+        Some(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+        Some(relative) => spelled_path(&relative),
+        None => spelled_path(&absolute),
+    }
+}
+
+/// Where `path` sits under the artifact root, as a relative path — `None` when
+/// it sits outside it.
+///
+/// One prompt, one spelling. Paths reach composition two ways: joined onto the
+/// artifact root exactly as the caller typed it, and canonicalized on the way
+/// to a callback. Where the root is reached through a symlink or under an 8.3
+/// short name those are two strings for one directory, and a worker told its
+/// plan is in one and its own result file in the other cannot tell they are
+/// the same place. Matching canonically and re-joining onto `root` gives the
+/// prompt back the one spelling it names the root by.
+// §FS-rhei-memory.1.2 §FS-rhei-agents.4.1
+fn under_artifact_root(root: &Path, path: &Path) -> Option<PathBuf> {
+    let root = canonical_spelling(root)?;
+    Some(canonical_spelling(path)?.strip_prefix(&root).ok()?.to_path_buf())
+}
+
+/// `root` and a path under it, as one path. The root itself arrives here as an
+/// empty relative form, which `join` would spell with a trailing separator.
+fn join_under_root(root: &Path, relative: &Path) -> PathBuf {
+    if relative.as_os_str().is_empty() { root.to_path_buf() } else { root.join(relative) }
+}
+
+/// `path` written the way the prompt writes an absolute path: through the
+/// artifact root where it lies under one, unchanged where it does not.
+// §FS-rhei-memory.1.2 §FS-rhei-agents.4.1
+fn spelled_under_artifact_root(root: &Path, path: &Path) -> String {
+    match under_artifact_root(root, path).as_deref() {
+        Some(relative) => spelled_path(&join_under_root(root, relative)),
+        None => spelled_path(path),
     }
 }
 

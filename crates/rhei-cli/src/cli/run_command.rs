@@ -23,12 +23,29 @@ fn ticket_file_counts(loaded: &LoadedPlan) -> BTreeMap<&Path, usize> {
 /// identity variables gone, nowhere in its environment either. Resolving it
 /// once makes `rhei run ws` compose what `rhei run /absolute/ws` composes.
 ///
-/// Canonical where the path exists, because the checkout root arrives from
-/// `git rev-parse` already canonical and the two are compared to decide
-/// whether a path renders relative or absolute.
+/// Absolute and nothing more. Canonicalizing here would also re-spell the
+/// root: a caller who types `/var/…` on macOS, or a short path on Windows,
+/// would be handed `/private/var/…` and a long one back — a path they never
+/// typed, in every prompt and every error. Whether this root and the checkout
+/// root are one directory is a separate question, and
+/// `roots_are_one_directory` resolves both sides to answer it.
 // §FS-rhei-agents.4.1
 fn run_artifact_root(input: &Path) -> PathBuf {
-    absolutize(&normalize_workspace_input(input))
+    let input = normalize_workspace_input(input);
+    std::path::absolute(&input).unwrap_or(input)
+}
+
+/// The execution root a run works under: its artifact root, or the plan file's
+/// directory when the input named a single file.
+///
+/// Taken from the run's own input and not from the plan path resolved for
+/// callbacks, which is canonical. The two name one directory, but only this
+/// one is spelled the way the caller spelled it — and the run's `runtime/`
+/// tree hangs off it, so the other would put the transcripts directory in
+/// every prompt under a name nothing else in that prompt uses.
+// §FS-rhei-agents.4.1
+fn run_execution_root(input: &Path) -> PathBuf {
+    execution_workspace_root(input)
 }
 
 /// Every execution root a run locks: its own plus each rhei's, so project
@@ -233,8 +250,7 @@ fn run_command(
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machines =
         ExecutionMachines::build(&resolved, input)?.with_state_machine_override(state_machine_path);
-    let callback_paths = machines.default_callbacks.clone();
-    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let workspace_root = run_execution_root(input);
     let custom_price_book = opts.prices_path().map(Path::to_path_buf);
     if let Some(path) = custom_price_book.as_deref() {
         opts.select_price_book(load_price_book(path)?);
