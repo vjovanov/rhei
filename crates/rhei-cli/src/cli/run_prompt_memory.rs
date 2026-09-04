@@ -170,10 +170,10 @@ fn task_state_is_terminal(
 // §FS-rhei-memory.3.4 §FS-rhei-states.4
 fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> String {
     let root = render_context.workspace_root;
-    let relative = under_artifact_root(root, path);
-    let absolute = relative
-        .as_deref()
-        .map(|relative| join_under_root(root, relative))
+    let placed = placed_under_artifact_root(root, path);
+    let absolute = placed
+        .as_ref()
+        .map(|(_, absolute)| absolute.clone())
         .unwrap_or_else(|| path.to_path_buf());
     if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
         return absolute_memory_path(&absolute);
@@ -181,15 +181,15 @@ fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> Stri
     if !roots_are_one_directory(render_context.checkout_root, root) {
         return spelled_path(&absolute);
     }
-    match relative {
+    match placed.as_ref().map(|(relative, _)| relative.as_path()) {
         Some(relative) if relative.as_os_str().is_empty() => ".".to_string(),
-        Some(relative) => spelled_path(&relative),
+        Some(relative) => spelled_path(relative),
         None => spelled_path(&absolute),
     }
 }
 
-/// Where `path` sits under the artifact root, as a relative path — `None` when
-/// it sits outside it.
+/// Where `path` sits under the artifact root when only their resolved forms
+/// say so — `None` when it sits outside it either way.
 ///
 /// One prompt, one spelling. Paths reach composition two ways: joined onto the
 /// artifact root exactly as the caller typed it, and canonicalized on the way
@@ -198,6 +198,9 @@ fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> Stri
 /// plan is in one and its own result file in the other cannot tell they are
 /// the same place. Matching canonically and re-joining onto `root` gives the
 /// prompt back the one spelling it names the root by.
+///
+/// Only [`placed_under_artifact_root`] may ask this, and only after the
+/// textual question, whose answer this one cannot improve on.
 // §FS-rhei-memory.1.2 §FS-rhei-agents.4.1
 fn under_artifact_root(root: &Path, path: &Path) -> Option<PathBuf> {
     let root = canonical_spelling(root)?;
@@ -210,12 +213,33 @@ fn join_under_root(root: &Path, relative: &Path) -> PathBuf {
     if relative.as_os_str().is_empty() { root.to_path_buf() } else { root.join(relative) }
 }
 
+/// Where `path` sits under the artifact root, as the pair every prompt path is
+/// rendered from: its form relative to the root, and its absolute form.
+///
+/// Textually first. A path already written under the root's own spelling is
+/// already both answers, and taking them is the only way to keep what the
+/// caller wrote: `Path::join` writes the platform's separator, so re-deriving
+/// `states.yaml` under a root spelled `C:/Users/x/ws` hands the prompt
+/// `C:/Users/x/ws\states.yaml` — a path that resolves and that nobody typed,
+/// which is the complaint the rule exists to answer. The resolved match is
+/// asked only of a path that reaches the root by a *different* spelling, where
+/// the rejoin costs nothing because there was no spelling of it to keep.
+// §FS-rhei-memory.1.2 §FS-rhei-agents.4.1
+fn placed_under_artifact_root(root: &Path, path: &Path) -> Option<(PathBuf, PathBuf)> {
+    if let Ok(relative) = path.strip_prefix(root) {
+        return Some((relative.to_path_buf(), path.to_path_buf()));
+    }
+    let relative = under_artifact_root(root, path)?;
+    let absolute = join_under_root(root, &relative);
+    Some((relative, absolute))
+}
+
 /// `path` written the way the prompt writes an absolute path: through the
 /// artifact root where it lies under one, unchanged where it does not.
 // §FS-rhei-memory.1.2 §FS-rhei-agents.4.1
 fn spelled_under_artifact_root(root: &Path, path: &Path) -> String {
-    match under_artifact_root(root, path).as_deref() {
-        Some(relative) => spelled_path(&join_under_root(root, relative)),
+    match placed_under_artifact_root(root, path) {
+        Some((_, absolute)) => spelled_path(&absolute),
         None => spelled_path(path),
     }
 }

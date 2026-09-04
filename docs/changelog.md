@@ -29,7 +29,9 @@
   makes it absolute: a prompt now spells every path it names through the root
   as the caller wrote it, so a workspace reached through a symlink or under a
   Windows short name is no longer described to a worker by a name nothing else
-  in that prompt uses. (PR #183)
+  in that prompt uses. A path already written under that root is handed back as
+  it was written rather than taken apart and rejoined, which on Windows turned
+  a root spelled `C:/Users/x/ws` into `C:/Users/x/ws\states.yaml`. (PR #183)
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
   profile left its `session` block unset, so `snapshot.emit:` failed before
