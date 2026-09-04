@@ -252,14 +252,17 @@ fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
     let dir = unique_temp_dir("terminal-result-fanout-stale");
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", FANOUT_PLAN);
     let machine_path = write_fixture_file(&dir, "states.yaml", FANOUT_TWO_STATE_MACHINE);
-    // Writes only in `review`; `refine` exits 0 having written nothing.
-    let agent = write_python_agent(
-        &dir,
-        "mock-agent.py",
-        r#"if env('RHEI_STATE') == 'review':
-    result('STALE from review by {}.\n'.format(env('RHEI_MODEL')))
-"#,
-    );
+    // Seed fragments from an earlier state. A non-terminal state is not asked
+    // to write them, but stale files can still survive an interrupted or older
+    // run and must never satisfy a later state's contract.
+    let stale_dir = dir.join("runtime/results/plan.1/review/1");
+    fs::create_dir_all(&stale_dir).expect("create stale fragment directory");
+    for identity in ["mock-mock-alpha", "mock-mock-beta"] {
+        fs::write(stale_dir.join(format!("{identity}.md")), format!("STALE by {identity}.\n"))
+            .expect("seed stale result fragment");
+    }
+    // `refine` can finish the task, but exits 0 having written nothing.
+    let agent = write_python_agent(&dir, "mock-agent.py", "");
     write_fanout_agent_settings(&dir, &agent);
 
     let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
@@ -282,8 +285,7 @@ fn a_second_fanned_out_state_does_not_inherit_the_first_s_fragments() {
     );
     for identity in ["mock-mock-alpha", "mock-mock-beta"] {
         assert!(
-            dir.join(format!("runtime/results/plan.1/review/{identity}.md")).exists()
-                || dir.join(format!("runtime/results/plan.1/review/1/{identity}.md")).exists(),
+            dir.join(format!("runtime/results/plan.1/review/1/{identity}.md")).exists(),
             "{identity}: `review`'s fragment stays where `review` put it"
         );
     }

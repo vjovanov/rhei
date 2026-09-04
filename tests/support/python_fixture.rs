@@ -66,54 +66,26 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
         _stream.reconfigure(encoding='utf-8', newline='')
 
 
-class _PromptInput:
-    """Remember prompt bytes a fixture consumes, without reading ahead."""
-
-    def __init__(self, stream):
-        self.stream = stream
-        self.seen = ''
-
-    def read(self, *args, **kwargs):
-        value = self.stream.read(*args, **kwargs)
-        self.seen += value
-        return value
-
-    def readline(self, *args, **kwargs):
-        value = self.stream.readline(*args, **kwargs)
-        self.seen += value
-        return value
-
-    def readlines(self, *args, **kwargs):
-        values = self.stream.readlines(*args, **kwargs)
-        self.seen += ''.join(values)
-        return values
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        value = next(self.stream)
-        self.seen += value
-        return value
-
-    def __getattr__(self, name):
-        return getattr(self.stream, name)
-
-
-_prompt_input = _PromptInput(sys.stdin)
-sys.stdin = _prompt_input
+_agent_prompt = None
 
 
 def agent_prompt():
-    """The full autonomous prompt, whether passed by flag or stdin."""
+    """Capture and replay the autonomous prompt, whether passed by flag or stdin."""
+    global _agent_prompt
     if not os.environ.get('RHEI_ATTEMPT'):
         return ''
+    if _agent_prompt is not None:
+        return _agent_prompt
     for arg in sys.argv[1:]:
         if arg.startswith('# Task ') and '\n## State: ' in arg:
-            return arg
-    if not _prompt_input.seen:
-        _prompt_input.read()
-    return _prompt_input.seen
+            _agent_prompt = arg
+            return _agent_prompt
+    _agent_prompt = sys.stdin.read()
+    # Fixture bodies that inspect stdin must still see the prompt. More
+    # importantly, child commands they launch cannot consume the only copy
+    # before a later identity lookup needs it. §FS-rhei-agents.4
+    sys.stdin = io.StringIO(_agent_prompt)
+    return _agent_prompt
 
 
 def agent_context(name, default=''):
@@ -138,13 +110,25 @@ def agent_context(name, default=''):
         'RHEI_ROOT': root.group(1) if root else '',
         'RHEI_RESULT_PATH': result_path.group(1) if result_path else '',
     }
-    if values['RHEI_RESULT_PATH'] and not pathlib.Path(values['RHEI_RESULT_PATH']).is_absolute():
-        values['RHEI_RESULT_PATH'] = str(pathlib.Path.cwd() / values['RHEI_RESULT_PATH'])
-    if values['RHEI_ROOT'] and not pathlib.Path(values['RHEI_ROOT']).is_absolute():
-        values['RHEI_ROOT'] = str(pathlib.Path.cwd() / values['RHEI_ROOT'])
-    if not values['RHEI_ROOT'] and values['RHEI_PLAN_PATH']:
+    plan_root = None
+    if values['RHEI_PLAN_PATH']:
         plan_path = pathlib.Path(values['RHEI_PLAN_PATH'])
-        values['RHEI_ROOT'] = str(plan_path.parent if plan_path.suffix else plan_path)
+        if not plan_path.is_absolute():
+            plan_path = pathlib.Path.cwd() / plan_path
+        plan_root = plan_path.parent if plan_path.suffix else plan_path
+        values['RHEI_PLAN_PATH'] = str(plan_path)
+    if values['RHEI_ROOT']:
+        root_path = pathlib.Path(values['RHEI_ROOT'])
+        if not root_path.is_absolute():
+            root_path = (plan_root or pathlib.Path.cwd()) / root_path
+        values['RHEI_ROOT'] = str(root_path)
+    elif plan_root:
+        values['RHEI_ROOT'] = str(plan_root)
+    if values['RHEI_RESULT_PATH']:
+        result = pathlib.Path(values['RHEI_RESULT_PATH'])
+        if not result.is_absolute():
+            result = pathlib.Path(values['RHEI_ROOT']) / result
+        values['RHEI_RESULT_PATH'] = str(result)
     task_id = values['RHEI_TASK_ID']
     values['RHEI_TASK_ID_LOCAL'] = task_id.split('.', 1)[-1] if '.' in task_id else task_id
     return values.get(name) or default
@@ -190,6 +174,11 @@ def result(text):
     path = env('RHEI_RESULT_PATH')
     if path:
         write(path, text)
+
+
+# Preserve stdin-delivered context before the fixture body can launch a child
+# process that inherits and consumes stdin. §FS-rhei-agents.4
+agent_prompt()
 
 
 "#;

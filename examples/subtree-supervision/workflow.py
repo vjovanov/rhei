@@ -12,6 +12,8 @@ between.
 
 import os
 import pathlib
+import re
+import sys
 
 
 def env(name, default=''):
@@ -27,20 +29,38 @@ def write(path, text):
         handle.write(text)
 
 
+def prompt_arg():
+    """The authoritative autonomous context delivered by `prompt_flag`."""
+    args = sys.argv[1:]
+    for index, arg in enumerate(args[:-1]):
+        if arg == '--prompt':
+            return args[index + 1]
+    return ''
+
+
+prompt = prompt_arg()
+root_match = re.search(r'^- This rhei: `([^`]+)`', prompt, re.MULTILINE)
+task_match = re.search(r'^# Task ([^:]+):', prompt, re.MULTILINE)
+if not root_match or not task_match:
+    sys.exit('the agent prompt is missing its Rhei execution root or task id')
+
+root = pathlib.Path(root_match.group(1))
+task = task_match.group(1)
+result_section = prompt.split('\n## Result\n', 1)
+result_match = None
+if len(result_section) == 2:
+    result_match = re.search(r'^- `([^`]+)`$', result_section[1], re.MULTILINE)
+
+
 # Every worker records why its ticket ends where it does; a `final: true` state
 # is not entered until that file has content.
 def result(text):
-    path = env('RHEI_RESULT_PATH')
-    if path:
-        write(path, text)
+    if not result_match:
+        return
+    path = pathlib.Path(result_match.group(1))
+    write(path if path.is_absolute() else root / path, text)
 
 
-# The agent runs with the *repository* as its cwd, so resolve the workspace
-# from RHEI_PLAN_PATH the way every callback in these examples does.
-root = pathlib.Path(env('RHEI_PLAN_PATH', '.'))
-if root.is_file():
-    root = root.parent
-task = env('RHEI_TASK_ID', 'unknown')
 state = env('RHEI_STATE', 'unknown')
 visit = env('RHEI_VISIT_COUNT', '1')
 

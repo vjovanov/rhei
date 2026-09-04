@@ -109,10 +109,10 @@ uses the mock agent and therefore declares no snapshot block.
 - `states.yaml` — the supervising state and its three edges
 - `workflow.py` — the mock agent standing in for a real one. It is Python, not
   a shell script, so the example runs wherever `python3` is on `PATH`. It
-  resolves the
-  workspace from `RHEI_PLAN_PATH` rather than its own cwd, because an agent's
-  cwd is the repository checkout, not the plan directory; for the same reason
-  the settings entry execs it by an absolute path built from `RHEI_ROOT`.
+  resolves the execution root, task id, and terminal-result path from the
+  delivered prompt rather than its environment, because an agent's cwd is the
+  repository checkout, not the plan directory; the settings bootstrap reads
+  that same prompt map before it execs the script.
 - `.agents/rhei/settings.json` — registers that mock as the default agent
 
 ## See also
