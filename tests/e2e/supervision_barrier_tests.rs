@@ -57,6 +57,8 @@ fn a_step_the_supervisor_cancels_is_not_reported_back_to_it() {
                 'cancelled',
                 '--result',
                 'made unnecessary',
+                '--supervisor',
+                task,
                 '--no-callbacks',
             ],
             check=True,

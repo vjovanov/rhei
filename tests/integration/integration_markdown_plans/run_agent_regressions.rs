@@ -93,7 +93,7 @@ const CHECKOUT_ROOT_PLAN: &str = r#"# Rhei: Checkout Root
 "#;
 
 /// A fixture that records the directory it was spawned in and the roots it was
-/// handed, one `name=value` line at a time.
+/// shown in its prompt, one `name=value` line at a time.
 fn write_checkout_recording_script(dir: &Path) -> PathBuf {
     let body = r#"write(
     pathlib.Path(env('RHEI_ROOT')) / 'runtime' / 'checkout-root.txt',
@@ -117,6 +117,7 @@ fn write_fake_agent_settings(dir: &Path, script_path: &Path) {
   "agents": {{
     "fake": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s"
     }}
   }}
@@ -359,10 +360,10 @@ result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
         result.stderr
     );
     let expected = plan_dir.join("runtime/reports/plan.1.md");
-    assert!(expected.exists(), "required output should be written under RHEI_ROOT");
+    assert!(expected.exists(), "required output should be written under the prompt root");
     let rendered = fs::read_to_string(plan_dir.join("runtime/rendered-artifact-path.txt"))
         .expect("read rendered path");
-    // §FS-rhei-agents.4: artifact template paths stay rooted at RHEI_ROOT when cwd is checkout root.
+    // §FS-rhei-agents.4: artifact paths stay rooted at the prompt root when cwd is elsewhere.
     assert_recorded_path_eq(rendered.trim(), &expected);
     assert!(
         !repo.join("runtime/reports/plan.1.md").exists(),
@@ -974,6 +975,7 @@ result('## Result\n\nAgent finished {}.\n'.format(env('RHEI_STATE')))
   "agents": {{
     "fake": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s"
     }}
   }},
@@ -1074,7 +1076,7 @@ result('## Result\n\nDone.\n')
     write_run_agent_settings(
         &project,
         &format!(
-            r#"{{ "agents": {{ "fake": {{ "command": {}, "timeout": "60s" }} }} }}"#,
+            r#"{{ "agents": {{ "fake": {{ "command": {}, "stdin_prompt": true, "timeout": "60s" }} }} }}"#,
             fixture_command(&script)
         ),
     );

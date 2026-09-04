@@ -79,6 +79,7 @@ transitions:
                 from,
                 to,
                 to_visit: 1,
+                operation_supervisor: None,
             },
         )
     }

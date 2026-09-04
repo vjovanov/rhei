@@ -240,6 +240,7 @@ fn transition_command(
     from: &str,
     to: &str,
     result_msg: Option<&str>,
+    supervisor: Option<&str>,
     no_callbacks: bool,
 ) -> MietteResult<()> {
     let input_buf = normalize_workspace_input(input);
@@ -249,6 +250,9 @@ fn transition_command(
     // narrowed by the rhei the invocation was pointed at. §FS-rhei-panta.6
     let scope = resolve_rhei_scope(&loaded, rhei_scope)?;
     let task_id_str = &resolve_cli_task_id(&loaded, task_id_str, &scope)?;
+    let supervisor = supervisor
+        .map(|id| resolve_cli_task_id(&loaded, id, &scope).map(|id| parse_task_id(&id)))
+        .transpose()?;
     let resolved = resolve_state_machines_for_loaded_plan(input, &loaded, state_machine_path)?;
     let machines = ExecutionMachines::build(&resolved, input)?;
     // The explicit ticket target's own machine and callback base govern.
@@ -262,15 +266,19 @@ fn transition_command(
 
     let route = loaded.task_route(task_id_str, input);
 
-    let effective_to = execute_transition(
+    let effective_to = execute_transition_with_origin(
         TransitionFiles { task_file: &route.task_file, metadata_file: &route.metadata_file, metadata_id: &route.metadata_id, artifact_root: &route.execution_root, artifact_id: task_id_str },
         callback_paths,
         machine,
         &route.local_id,
         from,
         to,
-        result_msg,
         no_callbacks,
+        TransitionOrigin {
+            result_message: result_msg.map(str::to_string),
+            supervisor,
+            ..TransitionOrigin::default()
+        },
     )?;
 
     println!("Task {} transitioned: '{}' → '{}'", task_id_str, from, effective_to);

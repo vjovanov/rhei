@@ -1,6 +1,6 @@
 // A Panta project whose member rhei sits one directory below the project
 // root, driven by `rhei run` end to end: the declared `outputs:` the agent
-// writes under its own root (`$RHEI_ROOT`) must be the same root the
+// writes under the execution root named in its prompt must use the same root the
 // completion condition checks, both right after the agent exits and before a
 // later pass decides whether to spawn it again.
 //
@@ -35,10 +35,10 @@ transitions:
 "#;
 
 /// Writes the report the state declares and the ticket's terminal result,
-/// both under `$RHEI_ROOT` — the member rhei's own execution root, not the
+/// both under the prompt's root — the member rhei's own execution root, not the
 /// enclosing project's. Exactly what the agent environment promises it.
 // §FS-rhei-agents.4 §FS-rhei-panta.6.3
-const WRITE_REPORT_UNDER_RHEI_ROOT: &str = r#"root = pathlib.Path(env('RHEI_ROOT'))
+const WRITE_REPORT_UNDER_PROMPT_ROOT: &str = r#"root = pathlib.Path(env('RHEI_ROOT'))
 task = env('RHEI_TASK_ID')
 write(str(root / 'runtime' / 'exports' / task / 'report.md'), '# Report\n')
 result('## Result\n\nDone.\n')
@@ -68,7 +68,7 @@ fn setup_laid_output_project(prefix: &str) -> (TestDir, PathBuf, PathBuf) {
 /// The mock agent under test, wired through settings so `rhei run` resolves
 /// it for the `implement` state's `agent: mock`.
 fn write_laid_output_agent_settings(project: &Path) {
-    let script = write_python_agent(project, "mock-agent.py", WRITE_REPORT_UNDER_RHEI_ROOT);
+    let script = write_python_agent(project, "mock-agent.py", WRITE_REPORT_UNDER_PROMPT_ROOT);
     let settings_dir = project.join(".agents/rhei");
     fs::create_dir_all(&settings_dir).expect("settings dir");
     fs::write(
@@ -76,7 +76,7 @@ fn write_laid_output_agent_settings(project: &Path) {
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
-  "agents": {{ "mock": {{ "command": {}, "timeout": "10s" }} }}
+  "agents": {{ "mock": {{ "command": {}, "stdin_prompt": true, "timeout": "10s" }} }}
 }}"#,
             fixture_command(&script)
         ),
@@ -86,7 +86,7 @@ fn write_laid_output_agent_settings(project: &Path) {
 
 /// vjovanov/rhei#137: the run scheduler's completion condition resolved
 /// declared `outputs:` against the run-level workspace root instead of the
-/// owning rhei's execution root — the same root the agent's `RHEI_ROOT` and
+/// owning rhei's execution root — the same root the agent prompt and
 /// the transition-time check already used. A member rhei one directory below
 /// the project root wrote its report exactly where it was told and still
 /// stalled: the agent's own output could never satisfy the state it belonged

@@ -217,26 +217,14 @@ fn merge_fanout_result_fragments(
     Ok(true)
 }
 
-/// The ticket's result file as a subprocess must see it: absolute.
+/// The ticket's result file as a program subprocess must see it: absolute.
 ///
 /// A subprocess runs from the checkout root, which is routinely not the Rhei
 /// artifact root, so a root that was itself given relative to `rhei run`'s own
 /// working directory would resolve somewhere else entirely in the child.
-// §FS-rhei-agents.4 §FS-rhei-programs.2
+// §FS-rhei-programs.2
 fn absolute_result_file_path(artifact_root: &Path, task_id: &str) -> PathBuf {
     let path = result_file_path(artifact_root, task_id);
-    std::path::absolute(&path).unwrap_or(path)
-}
-
-/// [`absolute_result_file_path`] for one invocation of a possibly fanned-out
-/// state: the ticket's result file, or that invocation's own fragment.
-// §FS-rhei-states.3.3 §FS-rhei-agents.4
-fn absolute_invocation_result_file_path(
-    artifact_root: &Path,
-    task_id: &str,
-    invocation: ResultInvocation<'_>,
-) -> PathBuf {
-    let path = invocation_result_file_path(artifact_root, task_id, invocation);
     std::path::absolute(&path).unwrap_or(path)
 }
 

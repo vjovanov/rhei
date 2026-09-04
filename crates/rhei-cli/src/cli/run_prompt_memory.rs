@@ -51,8 +51,8 @@ struct PromptMemory {
     /// Whether every memory path renders absolute rather than against a root.
     ///
     /// A relative path is only readable against an anchor the reader has.
-    /// `rhei run` gives its agent one — `RHEI_ROOT`, and a cwd inside the
-    /// checkout — so it anchors there; `rhei next` exports nothing and
+    /// `rhei run` gives its agent one in the prompt, plus a cwd inside the
+    /// checkout, so it anchors there; `rhei next` exports nothing and
     /// promises no cwd, so on that surface every path is absolute or it is a
     /// guess. One flag, because a prompt that mixed the two forms would be
     /// worse than either.
@@ -161,7 +161,7 @@ fn task_state_is_terminal(
 }
 
 /// Render a filesystem path the way `{output.<name>.path}` renders one:
-/// relative to `RHEI_ROOT`, absolute once the agent's checkout is somewhere
+/// relative to the prompt's execution root, absolute once the checkout is elsewhere.
 /// else. A path outside the root has no relative form and stays absolute.
 ///
 /// Every memory path in a prompt passes through here, so a surface that
@@ -172,7 +172,7 @@ fn memory_path(render_context: &RuntimeTemplateContext<'_>, path: &Path) -> Stri
     // One spelling per prompt: a rhei root the plan was given as `/var/…` and
     // a runtime directory the run resolved to `/private/var/…` are one place,
     // and the map must not spell them as two. The canonical spelling is the
-    // one `RHEI_ROOT` already carries (FS-rhei-memory.1.2).
+    // one the prompt's execution-root map already carries (FS-rhei-memory.1.2).
     let path = canonical_spelling(path).unwrap_or_else(|| path.to_path_buf());
     if render_context.memory.is_some_and(|memory| memory.absolute_paths) {
         return absolute_memory_path(&path);

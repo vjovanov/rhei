@@ -601,7 +601,7 @@ fn selected_forward_transition(
 /// A `final: true` state requires a non-empty `runtime/results/<task-id>.md` on
 /// the edge into it, and under `orchestrator` authority the subprocess is the
 /// worker that knows why the ticket is finishing — it was shown the path in its
-/// prompt and in `RHEI_RESULT_PATH`. A zero exit that selects a terminal edge
+/// prompt. A zero exit that selects a terminal edge
 /// with nothing written therefore fails the completion condition and is
 /// reported and routed exactly like any other missing required output, under
 /// the artifact name `result`.

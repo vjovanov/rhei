@@ -305,6 +305,9 @@ enum Commands {
         /// when `--to` is a final state and the ticket has no result yet
         #[arg(long)]
         result: Option<String>,
+        /// Internal authority for one supervisor-issued descendant operation
+        #[arg(long, value_name = "TASK_ID", hide = true)]
+        supervisor: Option<String>,
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
         no_callbacks: bool,

@@ -534,6 +534,7 @@ fn execute_transition_with_origin(
         &metadata_key,
         (task_id_str, from, to),
         to_visit_count.unwrap_or(1),
+        origin.supervisor.as_ref(),
     ) {
         updated_metadata = Some(next);
     }

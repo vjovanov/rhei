@@ -176,6 +176,7 @@
             prompt.contains("You are supervising this task's subtree."),
             "the command permissions must name the supervisor's extra reach; got:\n{prompt}"
         );
+        assert!(prompt.contains("`--supervisor 1`"), "got:\n{prompt}");
     }
 
     /// §FS-rhei-supervision.5.1: the first visit has nothing to judge yet.

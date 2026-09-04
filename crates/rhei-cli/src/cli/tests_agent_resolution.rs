@@ -189,9 +189,7 @@
             &resolved,
             "do work",
             Path::new("/tmp/workspace"),
-            Path::new("/tmp/workspace"),
             None,
-            Path::new("/tmp/workspace"),
             None,
             "task-1",
             "pending",
@@ -199,7 +197,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -223,6 +220,66 @@
         assert_eq!(envs.get("RHEI_VISIT_COUNT").map(String::as_str), Some("7"));
     }
 
+    /// §FS-rhei-agents.4: every autonomous profile gets the same sanitized
+    /// spawn boundary while retaining non-identity invocation details.
+    #[test]
+    fn autonomous_agent_command_removes_outer_identity_and_keeps_invocation_details() {
+        let resolved = ResolvedAgent {
+            agent: AgentConfig::from("custom-wrapper"),
+            profile: CustomAgentProfile {
+                command: vec!["custom-wrapper".to_string()],
+                ..Default::default()
+            },
+            mode: None,
+            target: None,
+            model: None,
+            model_provider: None,
+            model_name: None,
+            timeout_secs: Some(60),
+            autonomous_args: Vec::new(),
+        };
+        let tooling = ResolvedTooling { mcp_servers: Vec::new(), skills: Vec::new() };
+        let runtime_dir = tempfile::tempdir().expect("tmpdir");
+        let command = build_agent_command(
+            &resolved,
+            "do work",
+            Path::new("/checkout"),
+            None,
+            Some(Path::new("/outer/states.yaml")),
+            "outer.1",
+            "work",
+            3,
+            2,
+            &tooling,
+            runtime_dir.path(),
+            &[],
+        );
+        let envs: BTreeMap<String, Option<String>> = command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+
+        for name in [
+            "RHEI_ROOT",
+            "RHEI_PLAN_PATH",
+            "RHEI_RESULT_PATH",
+            "RHEI_TASK_ID",
+            "RHEI_TASK_ID_LOCAL",
+        ] {
+            assert_eq!(envs.get(name), Some(&None), "{name} must be removed at spawn");
+        }
+        assert_eq!(envs.get("RHEI_CHECKOUT_ROOT"), Some(&Some("/checkout".to_string())));
+        assert_eq!(envs.get("RHEI_STATE"), Some(&Some("work".to_string())));
+        assert_eq!(envs.get("RHEI_VISIT_COUNT"), Some(&Some("3".to_string())));
+        assert_eq!(envs.get("RHEI_ATTEMPT"), Some(&Some("2".to_string())));
+        assert_eq!(envs.get("RHEI_AGENT"), Some(&Some("custom-wrapper".to_string())));
+    }
+
     #[test]
     fn ordinary_builtin_claude_requests_typed_json_without_intervention_flags() {
         // §FS-rhei-cost-accounting.4: ordinary Claude launches must emit typed usage JSON.
@@ -244,9 +301,7 @@
             &resolved,
             "do work",
             Path::new("/tmp/workspace"),
-            Path::new("/tmp/workspace"),
             None,
-            Path::new("/tmp/workspace"),
             None,
             "task-1",
             "pending",
@@ -254,7 +309,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -291,9 +345,7 @@
             &resolved,
             "do work",
             Path::new("/tmp/workspace"),
-            Path::new("/tmp/workspace"),
             None,
-            Path::new("/tmp/workspace"),
             None,
             "task-1",
             "pending",
@@ -301,7 +353,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -342,9 +393,7 @@
             &resolved,
             "do work",
             Path::new("/tmp/workspace"),
-            Path::new("/tmp/workspace"),
             None,
-            Path::new("/tmp/workspace"),
             None,
             "task-1",
             "pending",
@@ -352,7 +401,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -494,9 +542,7 @@
             &resolved,
             "analyze this",
             Path::new("/tmp/workspace"),
-            Path::new("/tmp/workspace"),
             None,
-            Path::new("/tmp/workspace"),
             None,
             "analysis",
             "analyze",
@@ -504,7 +550,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =

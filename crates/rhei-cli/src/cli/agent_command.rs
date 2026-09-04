@@ -36,6 +36,23 @@ fn stdin_message_bytes(format: AgentStdinFormat, message: &str) -> Vec<u8> {
     }
 }
 
+/// Remove the enclosing run's identity before any autonomous agent starts.
+///
+/// `Command` otherwise inherits values that were present on `rhei run` itself,
+/// so merely ceasing to set these names would still leak them through custom
+/// wrappers and every child the worker launches. §FS-rhei-agents.4
+fn remove_outer_rhei_identity(cmd: &mut std::process::Command) {
+    for name in [
+        "RHEI_ROOT",
+        "RHEI_PLAN_PATH",
+        "RHEI_RESULT_PATH",
+        "RHEI_TASK_ID",
+        "RHEI_TASK_ID_LOCAL",
+    ] {
+        cmd.env_remove(name);
+    }
+}
+
 /// Build a `Command` for the resolved agent.
 ///
 /// Flag order:
@@ -60,10 +77,8 @@ fn stdin_message_bytes(format: AgentStdinFormat, message: &str) -> Vec<u8> {
 fn build_agent_command(
     resolved: &ResolvedAgent,
     prompt: &str,
-    rhei_root: &Path,
     checkout_root: &Path,
     worktree_root: Option<&Path>,
-    plan_path: &Path,
     state_machine_path: Option<&Path>,
     task_id: &str,
     state_name: &str,
@@ -72,9 +87,6 @@ fn build_agent_command(
     attempt: u64,
     tooling: &ResolvedTooling,
     runtime_dir: &Path,
-    // Fan-out key of this invocation, when the state fans out: it decides which
-    // result file this subprocess is asked to write. §FS-rhei-states.3.3
-    result_identity: Option<&str>,
     // The snapshot preload's strategy flags, emitted at the one slot the spawn
     // sequence reserves for them. §FS-rhei-snapshots.10.1
     snapshot_args: &[String],
@@ -89,6 +101,7 @@ fn build_agent_command(
 
     let mut cmd = std::process::Command::new(program);
     cmd.current_dir(checkout_root);
+    remove_outer_rhei_identity(&mut cmd);
     for arg in base_args {
         cmd.arg(arg);
     }
@@ -178,22 +191,7 @@ fn build_agent_command(
         }
     }
 
-    cmd.env("RHEI_PLAN_PATH", plan_path)
-        .env("RHEI_ROOT", rhei_root)
-        .env("RHEI_CHECKOUT_ROOT", checkout_root)
-        .env("RHEI_TASK_ID", task_id)
-        .env("RHEI_TASK_ID_LOCAL", rhei_local_id_str(task_id))
-        // Always set, so no subprocess assembles the one path a terminal state
-        // requires; under fan-out it names this invocation's own fragment.
-        // §FS-rhei-agents.4 §FS-rhei-states.3.3
-        .env(
-            "RHEI_RESULT_PATH",
-            absolute_invocation_result_file_path(
-                rhei_root,
-                task_id,
-                ResultInvocation { state: state_name, visit_count, identity: result_identity },
-            ),
-        )
+    cmd.env("RHEI_CHECKOUT_ROOT", checkout_root)
         .env("RHEI_STATE", state_name)
         .env("RHEI_VISIT_COUNT", visit_count.to_string())
         // A retry that is handed the same environment as the attempt it is
@@ -589,4 +587,3 @@ fn inject_tooling_env(cmd: &mut std::process::Command, tooling: &ResolvedTooling
         );
     }
 }
-

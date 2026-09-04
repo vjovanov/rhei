@@ -244,6 +244,7 @@ fn a_descendant_terminal_supervisor_is_woken_between_its_children_and_finishes_a
     // §FS-rhei-supervision.6: a cancel waives the abandoned step's outputs but
     // not its result, and the permission text says so.
     assert!(first.contains("pass `--result \"<why>\"` on every cancel"), "got:\n{first}");
+    assert!(first.contains("`--supervisor plan.1`"), "got:\n{first}");
     // §FS-rhei-supervision.3.1: the barrier, in the sentence that decides how
     // the agent behaves for the rest of the visit.
     assert!(
