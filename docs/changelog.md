@@ -25,7 +25,7 @@
   and relative while its neighbours went absolute, so a worker standing in a
   checkout that is not the artifact root published where nothing looked: the
   consuming task was then composed with no `## Consumed Exports` section at all
-  and the run still reported every task completed. (PR #N)
+  and the run still reported every task completed. (PR #183)
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
   profile left its `session` block unset, so `snapshot.emit:` failed before
