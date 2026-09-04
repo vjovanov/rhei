@@ -1046,6 +1046,18 @@ caller gave, not a symlink-resolved or long-name rewriting of it — while the
 question the table below asks is settled by resolving both roots, so one
 directory named two ways answers that it is one.
 
+**A path already written under the root's own spelling renders unchanged.** Not
+re-derived, not re-joined, not re-separated: the characters the caller gave. A
+path that is textually under the root already answers both questions the table
+asks — its tail is the relative form and the path itself is the absolute one —
+and every rewriting of it can only lose what was written. Joining `states.yaml`
+back onto a root typed `C:/Users/x/ws` spells it `C:/Users/x/ws\states.yaml`, a
+path that resolves and that nobody wrote, which is the complaint this rule
+exists to answer. Only a path that reaches the root by a *different* spelling —
+through a symlink, or an 8.3 short name — is matched by resolving both sides
+and re-joined onto the root as given, because that path never carried the
+root's own spelling to keep.
+
 Given an absolute artifact root, a path renders one of two ways:
 
 | Where the roots stand | How a path renders |
