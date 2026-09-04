@@ -445,9 +445,8 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
     }
 
     // No terminal edge leaves `parallel-review` by name, so its prompt names no
-    // result and no invocation of it owes a fragment. A worker that rebuilt the
-    // conventional path from what it knows would write files nothing merges —
-    // the guessing this contract exists to remove. §FS-rhei-agents.4.1
+    // result and no invocation owes a fragment; rebuilding the conventional path
+    // writes files nothing merges. §FS-rhei-agents.4.1
     let unowed = workspace.join("runtime/results/ws.full-pipeline");
     assert!(
         !unowed.exists(),
