@@ -183,10 +183,14 @@ has landed is ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)).
 A transition applied to a descendant while its nearest supervisor is itself
 in flight — a cancel the supervisor issues during its own visit (§5.1) — is
 not a checkpoint: the supervisor already knows. The shared path recognizes
-that visit from the two facts it can see: the supervisor's `**Assignee:**`
-claim, and the task id the invocation it is running inside carries
-([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). A descendant's own worker carries the descendant's id, so
-its exits are checkpoints as usual.
+that visit from the supervisor's `**Assignee:**` claim or from execution
+context scoped to an explicit operation on the outer plan. That context names
+the active supervisor only while its command is applying a transition to the
+same plan; it is not an ambient task-id variable inherited by the agent or its
+children ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). A nested independent Rhei therefore has no authority over the outer
+supervision tree, while a supervisor can still move or cancel a held
+descendant without checkpointing itself. A descendant's own exit remains a
+checkpoint as usual.
 
 ### 2.2. Nearest In-Scope Supervising Ancestor
 
