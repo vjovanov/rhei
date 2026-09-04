@@ -1,6 +1,7 @@
 mod accounting_contract_tests;
 mod accounting_prices_tests;
 mod agent_environment_tests;
+mod agent_prompt_path_tests;
 mod completions_tests;
 mod current_dir_target_tests;
 mod error_guidance_tests;
