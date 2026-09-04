@@ -7,17 +7,18 @@ so the fixture spells no platform's dialect.
 
 `.agents/rhei/settings.json` spawns this file as
 
-    python3 -c "...runpy.run_path(RHEI_ROOT/bin/mock-agent.py)..."
+    python3 -c "...runpy.run_path(prompt_root/bin/mock-agent.py)..."
 
 rather than as `python3 bin/mock-agent.py`, because an agent's cwd is the
 repository checkout, not the workspace, so a relative script path would not
-resolve. `RHEI_ROOT` is the workspace, and the bootstrap turns it into an
-absolute path before Python opens anything.
+resolve. The bootstrap reads the workspace from the prompt's execution-root
+map and turns it into an absolute path before Python opens anything.
 """
 
 import datetime
 import os
 import pathlib
+import re
 import sys
 import time
 
@@ -72,15 +73,19 @@ while index < len(argv):
 if not prompt and sys.stdin is not None and not sys.stdin.isatty():
     prompt = sys.stdin.read()
 
-plan_path = env('RHEI_PLAN_PATH')
-if not plan_path:
-    print('RHEI_PLAN_PATH is required', file=sys.stderr)
+root_match = re.search(r'^- This rhei: `([^`]+)`', prompt, re.MULTILINE)
+task_match = re.search(r'^# Task ([^:]+):', prompt, re.MULTILINE)
+if not root_match or not task_match:
+    print('the agent prompt is missing its Rhei execution root or task id', file=sys.stderr)
     sys.exit(1)
 
-plan_path = pathlib.Path(plan_path)
-workspace_root = plan_path if plan_path.is_dir() else plan_path.parent
+workspace_root = pathlib.Path(root_match.group(1))
+task_id = task_match.group(1)
+result_section = prompt.split('\n## Result\n', 1)
+result_match = None
+if len(result_section) == 2:
+    result_match = re.search(r'^- `([^`]+)`$', result_section[1], re.MULTILINE)
 
-task_id = env('RHEI_TASK_ID', 'unknown')
 state = env('RHEI_STATE', 'unknown')
 target_slug = env('RHEI_TARGET_SLUG', env('RHEI_AGENT', 'mock-agent') + '-' + model)
 step_delay = env('MOCK_NODE_DELAY_SECONDS', '{{ step_delay_seconds }}')
@@ -108,13 +113,19 @@ def append_log(message):
         handle.write(line)
 
 
-# A worker records why the ticket ends where it does: RHEI_RESULT_PATH names
-# this invocation's own fragment, and a `final: true` state is not entered
-# until the ticket's result has content. §FS-rhei-states.3.3 §FS-rhei-agents.4
+# A worker records why the ticket ends where it does: the prompt names this
+# invocation's own fragment, and a `final: true` state is not entered until the
+# ticket's result has content. §FS-rhei-states.3.3 §FS-rhei-agents.3
 def write_result():
-    result_path = env('RHEI_RESULT_PATH')
-    if not result_path:
+    if not result_match:
         return
+    result_path = pathlib.Path(result_match.group(1))
+    if not result_path.is_absolute():
+        # The prompt shows the result file relative to the run root, which is
+        # the working directory a worker is started in; only fall back to the
+        # workspace root when that does not resolve. §FS-rhei-agents.3
+        from_cwd = pathlib.Path.cwd() / result_path
+        result_path = from_cwd if from_cwd.parent.is_dir() else workspace_root / result_path
     write_file(
         result_path,
         '## Result\n\nMock agent %s finished task %s in state %s.' % (target_slug, task_id, state))
