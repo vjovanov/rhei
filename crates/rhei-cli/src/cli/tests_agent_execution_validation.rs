@@ -758,9 +758,7 @@ for line in sys.stdin:
             &resolved,
             "do",
             Path::new("/tmp"),
-            Path::new("/tmp"),
             None,
-            Path::new("/tmp"),
             None,
             "task-1",
             "pending",
@@ -768,7 +766,6 @@ for line in sys.stdin:
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =

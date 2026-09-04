@@ -1264,9 +1264,8 @@ transitions:
         assert!(prompt.contains("`runtime/results/1.md`"), "{prompt}");
     }
 
-    /// A fanned-out invocation is shown its own fragment, which is what its
-    /// `RHEI_RESULT_PATH` holds: one shared path would let the last writer erase
-    /// its siblings. §FS-rhei-agents.3 §FS-rhei-states.3.3
+    /// A fanned-out invocation is shown its own fragment: one shared path would
+    /// let the last writer erase its siblings. §FS-rhei-agents.3 §FS-rhei-states.3.3
     #[test]
     fn compose_agent_prompt_names_the_per_invocation_result_fragment_under_fanout() {
         let rhei = rhei_core::parse(

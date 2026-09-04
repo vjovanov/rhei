@@ -33,7 +33,8 @@ use super::*;
 #[cfg(unix)]
 const GRANDCHILD_AGENT: &str = r#"#!/bin/sh
 set -eu
-root="${RHEI_ROOT:?}"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
 mkdir -p "$root/runtime/pids"
 sleep 300 &
 printf '%s\n' "$!" > "$root/runtime/pids/grandchild"
@@ -45,7 +46,8 @@ sleep 300
 #[cfg(unix)]
 const LONE_AGENT: &str = r#"#!/bin/sh
 set -eu
-root="${RHEI_ROOT:?}"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
 mkdir -p "$root/runtime/pids"
 printf '%s\n' "$$" > "$root/runtime/pids/agent"
 exec sleep 300
@@ -56,10 +58,12 @@ exec sleep 300
 #[cfg(unix)]
 const QUICK_AGENT: &str = r#"#!/bin/sh
 set -eu
-root="${RHEI_ROOT:?}"
-mkdir -p "$root/runtime/pids" "$(dirname "${RHEI_RESULT_PATH:?}")"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
+result_path="$(printf '%s\n' "$prompt" | sed -n '/^## Result$/,/^## /s/^- `\([^`]*\)`$/\1/p')"
+mkdir -p "$root/runtime/pids" "$(dirname "${result_path:?}")"
 printf '%s\n' "$$" > "$root/runtime/pids/agent"
-printf '## Result\n\nMock agent finished.\n' > "$RHEI_RESULT_PATH"
+printf '## Result\n\nMock agent finished.\n' > "$result_path"
 exit 0
 "#;
 
@@ -69,7 +73,8 @@ exit 0
 const STUBBORN_AGENT: &str = r#"#!/bin/sh
 set -eu
 trap '' TERM
-root="${RHEI_ROOT:?}"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
 mkdir -p "$root/runtime/pids"
 printf '%s\n' "$$" > "$root/runtime/pids/agent"
 exec sleep 300
@@ -100,7 +105,7 @@ fn setup_supervised_workspace(
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "{agent_timeout}" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "{agent_timeout}" }} }}
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "stdin_prompt": true, "timeout": "{agent_timeout}" }} }}
 }}"#
         ),
     )
@@ -646,7 +651,8 @@ transitions:
 
     let agent = r#"#!/bin/sh
 set -eu
-root="${RHEI_ROOT:?}"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
 mkdir -p "$root/runtime/started"
 : > "$root/runtime/started/agent"
 exec sleep 300
@@ -665,7 +671,7 @@ exec sleep 300
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "120s" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "120s" }} }}
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "stdin_prompt": true, "timeout": "120s" }} }}
 }}"#
         ),
     )
@@ -894,9 +900,11 @@ fn ctrl_c_on_the_finished_tui_screen_still_writes_the_report() {
 #[cfg(unix)]
 const LOST_OUTPUT_AGENT: &str = r#"#!/bin/sh
 set -eu
-root="${RHEI_ROOT:?}"
+prompt="$(cat)"
+root="$(printf '%s\n' "$prompt" | sed -n 's/^- This rhei: `\([^`]*\)`.*/\1/p')"
+task="$(printf '%s\n' "$prompt" | sed -n 's/^# Task \([^:]*\):.*/\1/p')"
 mkdir -p "$root/runtime/pids"
-case "${RHEI_TASK_ID:?}" in
+case "${task:?}" in
 *1)
   : > "$root/runtime/pids/talker"
   n=0
@@ -963,7 +971,7 @@ transitions:
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "120s" }},
-  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "timeout": "120s" }} }}
+  "agents": {{ "mock": {{ "command": ["sh", {script_json}], "stdin_prompt": true, "timeout": "120s" }} }}
 }}"#
         ),
     )

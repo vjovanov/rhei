@@ -368,6 +368,7 @@ result('## Result\n\nMock agent finished.\n')
   "agents": {{
     "mock": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s",
       "modes": {{
         "yolo": [],
@@ -496,6 +497,7 @@ result('## Result\n\nMock agent finished.\n')
   "agents": {{
     "mock": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}
@@ -563,6 +565,7 @@ append(workspace / 'runtime' / 'logs' / 'agent.log', 'unexpected agent spawn\n')
   "agents": {{
     "mock": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}
@@ -626,6 +629,7 @@ result('## Result\n\nMock agent finished.\n')
   "agents": {{
     "mock": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s",
       "modes": {{
         "yolo": [],
@@ -1496,7 +1500,7 @@ result('## Result\n\nFinished.\n')
         format!(
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
-  "agents": {{ "mock": {{ "command": {command}, "timeout": "10s" }} }}
+  "agents": {{ "mock": {{ "command": {command}, "stdin_prompt": true, "timeout": "10s" }} }}
 }}"#
         ),
     )

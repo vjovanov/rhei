@@ -59,6 +59,7 @@ fn first_command_positional(words: &[String], command: &str) -> Option<String> {
                 "task"
                     | "from"
                     | "to"
+                    | "supervisor"
                     | "result"
                     | "set"
                     | "set-file"

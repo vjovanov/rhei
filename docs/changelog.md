@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Autonomous workers no longer leak the enclosing Rhei identity into their
+  child processes.** Rhei now removes `RHEI_ROOT`, `RHEI_PLAN_PATH`,
+  `RHEI_RESULT_PATH`, `RHEI_TASK_ID`, and `RHEI_TASK_ID_LOCAL` at every agent
+  spawn boundary, including values inherited by `rhei run`; task, plan,
+  artifact, and result context remains available in the worker prompt, while
+  program states and callbacks keep their separate environment contracts. A
+  nested Rhei launched during agent work therefore binds to its own workspace
+  and cannot overwrite the live outer runtime or result. Supervisor-issued
+  descendant transitions now carry the active supervisor only on that explicit
+  operation against the outer plan, preserving self-checkpoint suppression
+  without granting an independently launched nested Rhei ambient authority.
+  (PR #N)
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
   profile left its `session` block unset, so `snapshot.emit:` failed before

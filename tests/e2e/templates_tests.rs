@@ -1170,6 +1170,7 @@ fn write_mock_agent_settings(dir: &std::path::Path) {
   "agents": {{
     "mock": {{
       "command": {command},
+      "stdin_prompt": true,
       "timeout": "5s",
       "modes": {{ "yolo": [] }}
     }}

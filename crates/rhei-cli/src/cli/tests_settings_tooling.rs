@@ -28,9 +28,7 @@
             &resolved,
             "do",
             Path::new("/tmp"),
-            Path::new("/tmp"),
             None,
-            Path::new("/tmp"),
             None,
             "task-7",
             "pending",
@@ -38,7 +36,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -71,9 +68,7 @@
             &resolved,
             "do",
             Path::new("/tmp"),
-            Path::new("/tmp"),
             None,
-            Path::new("/tmp"),
             None,
             "t",
             "pending",
@@ -81,7 +76,6 @@
             1,
             &tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =
@@ -1069,9 +1063,7 @@ states:
             &resolved,
             "prompt",
             runtime_dir.path(),
-            runtime_dir.path(),
             None,
-            runtime_dir.path(),
             None,
             "1",
             "pending",
@@ -1079,7 +1071,6 @@ states:
             1,
             &gate.tooling,
             runtime_dir.path(),
-            None,
             &[],
         );
         let args: Vec<String> =

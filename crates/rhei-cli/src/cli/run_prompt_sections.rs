@@ -177,13 +177,12 @@ fn render_terminal_result(render_context: &RuntimeTemplateContext<'_>) -> String
     )
 }
 
-/// The result path this invocation is handed, exactly as the `## Result`
-/// section shows it — or `None` on a state no terminal edge leaves.
+/// The result path shown to this invocation, or `None` on a state no terminal
+/// edge leaves.
 ///
 /// One expression, two readers: the section that states the obligation and the
 /// retry paragraph that says the previous attempt did not meet it. A second copy
-/// would be a second chance to name a different file than the one
-/// `RHEI_RESULT_PATH` holds.
+/// would be a second chance to name a different file.
 // §FS-rhei-states.3.3 §FS-rhei-memory.4.4
 fn terminal_result_path_shown(render_context: &RuntimeTemplateContext<'_>) -> Option<String> {
     let can_finish = render_context.machine.transitions().iter().any(|rule| {
@@ -199,9 +198,8 @@ fn terminal_result_path_shown(render_context: &RuntimeTemplateContext<'_>) -> Op
         return None;
     }
     let task_id = render_context.task.id.to_string();
-    // A fanned-out invocation writes its own fragment, so the path it is shown
-    // is the one its `RHEI_RESULT_PATH` holds — resolved through the same
-    // helper, off the same visit count. §FS-rhei-states.3.3
+    // A fanned-out invocation writes its own fragment, resolved through the
+    // same helper and off the same visit count. §FS-rhei-states.3.3
     let identity = fanout_result_identity(
         render_context.machine.states.get(render_context.state_name),
         render_context.target,

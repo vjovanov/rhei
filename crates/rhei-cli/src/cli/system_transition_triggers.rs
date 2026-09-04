@@ -25,6 +25,11 @@ struct TransitionOrigin {
     /// the ledger already carries, and not a result.
     // §FS-rhei-states.3.3 §FS-rhei-run.3
     result_message: Option<String>,
+    /// The supervisor whose prompt authorized this one explicit descendant
+    /// operation. Unlike worker identity, this value exists only inside the
+    /// transition process and is matched against the current plan tree.
+    // §FS-rhei-supervision.2.1
+    supervisor: Option<TaskId>,
     /// The engine's own account of the move, recorded *only* when the effective
     /// target turns out to be `final: true` and nothing else answered for the
     /// ticket.
@@ -223,6 +228,7 @@ fn execute_system_timeout_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: true,
             result_message: Some(message),
+            supervisor: None,
             terminal_result_fallback: None,
         },
     )
@@ -268,6 +274,7 @@ fn execute_system_tooling_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: true,
             result_message: Some(message),
+            supervisor: None,
             terminal_result_fallback: None,
         },
     )
@@ -304,6 +311,7 @@ fn execute_system_program_exit_transition(
             seed_data: Some(serde_json::Value::Object(data)),
             skip_source_outputs: exit_code != 0,
             result_message: message,
+            supervisor: None,
             terminal_result_fallback: None,
         },
     )

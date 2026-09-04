@@ -44,20 +44,17 @@ fn ancestor_chain<'a>(
 /// Whether a supervisor is working right now, so a move under it is its own
 /// doing rather than news for it.
 ///
-/// Two facts answer it, and both are visible from a `rhei transition` that the
-/// supervisor's own subprocess or worker issued: the `**Assignee:**` a manual
-/// claim writes, and the `RHEI_TASK_ID` every invocation `rhei run` spawns
-/// carries. A descendant's own worker carries its *own* id, so it cannot be
-/// mistaken for its supervisor.
+/// Two facts answer it: the `**Assignee:**` a manual claim writes, or an
+/// explicit operation context naming this exact ancestor. The latter lives
+/// only for one `rhei transition` command, so an independently launched nested
+/// Rhei inherits no authority over this tree.
 // §FS-rhei-supervision.2.1 §FS-rhei-supervision.3.2
-fn supervisor_is_in_flight(supervisor: &rhei_core::ast::Task, local_id: &str) -> bool {
-    if supervisor.assignee.is_some() {
-        return true;
-    }
-    let matches = |var: &str, want: &str| {
-        std::env::var(var).is_ok_and(|value| value == want)
-    };
-    matches("RHEI_TASK_ID", &supervisor.id.to_string()) || matches("RHEI_TASK_ID_LOCAL", local_id)
+fn supervisor_is_in_flight(
+    supervisor: &rhei_core::ast::Task,
+    operation_supervisor: Option<&TaskId>,
+) -> bool {
+    supervisor.assignee.is_some()
+        || operation_supervisor.is_some_and(|active| active == &supervisor.id)
 }
 
 /// One applied transition, as supervision reads it.
@@ -78,6 +75,8 @@ struct SupervisionTransition<'a> {
     to: &'a str,
     /// Visit number of `to` after the move.
     to_visit: u64,
+    /// Supervisor authority carried by this one explicit transition command.
+    operation_supervisor: Option<&'a TaskId>,
 }
 
 impl SupervisionTransition<'_> {
@@ -121,7 +120,7 @@ impl SupervisionTransition<'_> {
         {
             return None;
         }
-        if supervisor_is_in_flight(supervisor, &supervisor_local_id(supervisor, self.local_id, self.task)) {
+        if supervisor_is_in_flight(supervisor, self.operation_supervisor) {
             return None;
         }
         Some((
@@ -277,6 +276,7 @@ fn supervision_after_transition(
     metadata_key: &TaskId,
     move_: (&str, &str, &str),
     to_visit: u64,
+    operation_supervisor: Option<&TaskId>,
 ) -> Option<Metadata> {
     let (local_id, from, to) = move_;
     announce_supervision_gate_handoff(machine, files.artifact_id, from, to);
@@ -292,6 +292,7 @@ fn supervision_after_transition(
             from,
             to,
             to_visit,
+            operation_supervisor,
         },
     )
 }

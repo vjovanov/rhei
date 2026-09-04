@@ -198,7 +198,13 @@ transitions:
     // -----------------------------------------------------------------------
 
     /// Deliver one applied transition and report the resulting metadata.
-    fn deliver(plan: &rhei_core::ast::Rhei, local_id: &str, from: &str, to: &str) -> Option<Metadata> {
+    fn deliver_with_supervisor(
+        plan: &rhei_core::ast::Rhei,
+        local_id: &str,
+        from: &str,
+        to: &str,
+        operation_supervisor: Option<&TaskId>,
+    ) -> Option<Metadata> {
         let machine = supervision_machine();
         let target = parse_task_id(local_id);
         let task = find_task_by_id(&plan.tasks, &target).expect("task in plan");
@@ -216,8 +222,18 @@ transitions:
                 from,
                 to,
                 to_visit: 1,
+                operation_supervisor,
             },
         )
+    }
+
+    fn deliver(
+        plan: &rhei_core::ast::Rhei,
+        local_id: &str,
+        from: &str,
+        to: &str,
+    ) -> Option<Metadata> {
+        deliver_with_supervisor(plan, local_id, from, to, None)
     }
 
     /// §FS-rhei-supervision.2.1: under `execute_on: descendant-terminal` only a terminal entry
@@ -341,6 +357,34 @@ transitions:
         );
     }
 
+    /// §FS-rhei-supervision.2.1: an autonomous supervisor carries its identity
+    /// only on the explicit descendant operation; the same move without that
+    /// context is ordinary news from the descendant.
+    #[test]
+    fn explicit_supervisor_operation_context_suppresses_only_its_own_checkpoint() {
+        let plan = supervised_plan(&["review"]);
+        let parent = parse_task_id("1");
+
+        assert!(
+            deliver_with_supervisor(
+                &plan,
+                "1.1",
+                "review",
+                "cancelled",
+                Some(&parent),
+            )
+            .is_none(),
+            "the supervisor already knows about the move it explicitly issued"
+        );
+
+        let ordinary = deliver(&plan, "1.1", "review", "cancelled")
+            .expect("the same descendant move without context is a checkpoint");
+        assert_eq!(
+            supervision_checkpoints(Some(&ordinary), &parent),
+            vec![checkpoint("1.1", "review", "cancelled", 1)]
+        );
+    }
+
     /// §FS-rhei-supervision.2.1: `execute_on: descendant-transition` hears every hop.
     #[test]
     fn descendant_transition_checkpoints_every_hop() {
@@ -365,6 +409,7 @@ transitions:
                 from: "review",
                 to: "human-review",
                 to_visit: 1,
+                operation_supervisor: None,
             },
         )
         .expect("every hop is a checkpoint under `execute_on: descendant-transition`");

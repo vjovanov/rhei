@@ -538,7 +538,16 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             json,
             )
         }
-        Commands::Transition { input, task, from, to, result, no_callbacks, state_machine } => {
+        Commands::Transition {
+            input,
+            task,
+            from,
+            to,
+            result,
+            supervisor,
+            no_callbacks,
+            state_machine,
+        } => {
             let (input, task) = split_transition_ticket_target(input, task)?;
             let target = resolve_plan_target(input)?;
             transition_command(
@@ -549,6 +558,7 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
                 &from,
                 &to,
                 result.as_deref(),
+                supervisor.as_deref(),
                 no_callbacks,
             )
         }

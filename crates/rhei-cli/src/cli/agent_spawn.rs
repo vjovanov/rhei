@@ -184,9 +184,10 @@ fn spawn_and_wait_agent(
     // because this is the one place that knows the subprocess actually ran.
     // §FS-rhei-agents.8.4
     plan: &SpawnPlan,
-    // Fan-out key of this invocation; decides the `RHEI_RESULT_PATH` it is
-    // handed. §FS-rhei-states.3.3
-    result_identity: Option<&str>,
+    // Kept at this orchestration boundary because the caller and completion
+    // path key the same invocation; the prompt already carries its result path.
+    // §FS-rhei-states.3.3
+    _result_identity: Option<&str>,
 ) -> MietteResult<AgentSpawnOutcome> {
     // Ensure log directory exists.
     if let Some(parent) = log_path.parent() {
@@ -293,10 +294,8 @@ fn spawn_and_wait_agent(
     let mut cmd = build_agent_command(
         resolved,
         prompt,
-        rhei_root,
         checkout_root,
         worktree_root,
-        plan_path,
         state_machine_path,
         task_id,
         state_name,
@@ -304,7 +303,6 @@ fn spawn_and_wait_agent(
         plan.attempt,
         tooling,
         runtime_dir,
-        result_identity,
         snapshot_args,
     );
     configure_accounting_capture(&mut cmd, usage_capture_path.as_deref());

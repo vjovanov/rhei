@@ -36,9 +36,8 @@ pub(super) const ONE_TASK_PLAN: &str = r#"# Rhei: Terminal Result
 **Assignee:** worker-1
 "#;
 
-/// A mock agent that writes `body` verbatim to the path Rhei told it to use.
-/// Passing the path in `RHEI_RESULT_PATH` is the contract a program has instead
-/// of a prompt. §FS-rhei-agents.4
+/// A mock agent that writes `body` verbatim to the path in its prompt.
+/// Programs retain the separate `RHEI_RESULT_PATH` contract. §FS-rhei-agents.4
 pub(super) fn write_result_writing_agent(dir: &Path, body: &str) -> PathBuf {
     // The body is JSON-encoded, which is also a Python string literal, so a
     // quote or a backslash in it cannot escape into the script.
@@ -65,7 +64,7 @@ pub(super) fn write_mock_agent_settings(workspace_root: &Path, script: &Path) {
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
   "agents": {{
-    "mock": {{ "command": {command}, "timeout": "10s" }}
+    "mock": {{ "command": {command}, "stdin_prompt": true, "timeout": "10s" }}
   }}
 }}"#
         ),

@@ -910,7 +910,7 @@ result('## Result\n\nDone.\n')
     write_run_agent_settings(
         &project,
         &format!(
-            r#"{{ "agents": {{ "fake": {{ "command": {}, "timeout": "5s" }} }} }}"#,
+            r#"{{ "agents": {{ "fake": {{ "command": {}, "stdin_prompt": true, "timeout": "5s" }} }} }}"#,
             fixture_command(&script)
         ),
     );

@@ -56,7 +56,7 @@ pub(super) fn write_fanout_agent_settings(workspace_root: &Path, script: &Path) 
             r#"{{
   "defaults": {{ "agent": "mock", "agent_timeout": "10s" }},
   "agents": {{
-    "mock": {{ "command": {command}, "timeout": "10s" }}
+    "mock": {{ "command": {command}, "stdin_prompt": true, "timeout": "10s" }}
   }},
   "models": {{
     "alpha": {{ "provider": "mock", "model": "alpha", "default_agent": "mock" }},
