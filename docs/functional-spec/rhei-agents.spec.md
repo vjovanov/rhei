@@ -1050,14 +1050,22 @@ Given an absolute artifact root, a path renders one of two ways:
 | The checkout root **differs** from the artifact root | Absolute, under the artifact root |
 
 The rule covers every path the run composes for a worker: `{input.<name>.path}`
-and `{output.<name>.path}`, the `## Result` path below, and the session
+and `{output.<name>.path}`, the export path each `**Provides:**` name is given
+under `## Exports to Publish`, the `## Result` path below, and the session
 directory a snapshot-emitting invocation is handed through its profile's
 `session_dir_flag`
 ([§FS-rhei-snapshots.9.1](rhei-snapshots.spec.md#91-customagentprofilesession)).
+Every one of them renders by the table above; a prompt that mixes an absolute
+result path with a bare relative export path has told the worker to infer a
+base, which is the one thing this rule denies it.
+
 This is what keeps a worker following artifact instructions from the checkout
 cwd without writing runtime files into the checkout by accident — a transcript
 written to an unresolvable session path lands in the checkout, where the run
-does not look for it and reports the invocation as having produced none.
+does not look for it and reports the invocation as having produced none. An
+export lost the same way is quieter still: the consuming task's prompt is
+composed with no `## Consumed Exports` section at all, and the run reports
+every task completed.
 
 **A `## Result` path is present exactly where a result is owed.** The section
 is composed for an invocation that a terminal edge leaves by name, and it names
