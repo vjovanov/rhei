@@ -25,7 +25,11 @@
   and relative while its neighbours went absolute, so a worker standing in a
   checkout that is not the artifact root published where nothing looked: the
   consuming task was then composed with no `## Consumed Exports` section at all
-  and the run still reported every task completed. (PR #183)
+  and the run still reported every task completed. Resolving the root only
+  makes it absolute: a prompt now spells every path it names through the root
+  as the caller wrote it, so a workspace reached through a symlink or under a
+  Windows short name is no longer described to a worker by a name nothing else
+  in that prompt uses. (PR #183)
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
   profile left its `session` block unset, so `snapshot.emit:` failed before

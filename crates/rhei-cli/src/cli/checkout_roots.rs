@@ -30,6 +30,25 @@ fn resolve_agent_checkout_root(
     Ok(AgentCheckoutRoot { path: cwd, worktree_root: None })
 }
 
+/// Whether the checkout root and the artifact root are one directory — the
+/// question §FS-rhei-agents.4.1's table asks before it decides whether a path
+/// renders relative or absolute.
+///
+/// It has to be asked of the directories, not of their spellings, because the
+/// two arrive spelled differently by construction: the checkout root comes
+/// back from `git rev-parse` already resolved, while the artifact root keeps
+/// whatever the caller typed. On macOS `/var/…` and `/private/var/…` are one
+/// directory; on Windows a short name and its long form are; and answering
+/// "different" for either renders every path in the prompt the long way for a
+/// worker whose working directory is that very root.
+// §FS-rhei-agents.4.1
+fn roots_are_one_directory(checkout_root: &Path, artifact_root: &Path) -> bool {
+    checkout_root == artifact_root
+        || canonical_spelling(checkout_root)
+            .zip(canonical_spelling(artifact_root))
+            .is_some_and(|(checkout, artifact)| checkout == artifact)
+}
+
 fn task_worktree_ref_path(rhei_root: &Path, task_id: &str) -> PathBuf {
     rhei_root.join("runtime").join("worktree-refs").join(format!("{task_id}.yaml"))
 }

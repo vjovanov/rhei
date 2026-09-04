@@ -141,7 +141,7 @@ fn prompt_path_shown(
     root: &Path,
     relative: String,
 ) -> String {
-    if context.checkout_root == context.workspace_root {
+    if roots_are_one_directory(context.checkout_root, context.workspace_root) {
         relative
     } else {
         root.join(relative).display().to_string()

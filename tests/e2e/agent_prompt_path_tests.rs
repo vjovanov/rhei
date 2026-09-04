@@ -179,3 +179,125 @@ transitions:
          artifact root, and this one does not: {published}\nproducer prompt:\n{evidence}",
     );
 }
+
+/// The name a caller gives the artifact root is the name the prompt shows.
+/// Resolving the root makes it absolute; it does not re-spell it. A workspace
+/// reached through a symlink is one directory under two names — the shape
+/// macOS's own temporary directory has, and the shape a Windows 8.3 short path
+/// has — and a worker handed the name it did not type is told about a place it
+/// cannot find in anything else it was given.
+///
+/// The same run pins the other half of the rule. The checkout root arrives
+/// from `git rev-parse` already resolved, so asking whether it *is* the
+/// artifact root has to compare the directories rather than their spellings:
+/// answered on the spellings, this prompt would render every path absolute
+/// where the table in §FS-rhei-agents.4.1 says relative.
+// §FS-rhei-agents.4.1
+#[cfg(unix)]
+#[test]
+fn an_artifact_root_reached_through_a_symlink_keeps_the_name_it_was_given() {
+    let dir = unique_temp_dir("agent-prompt-path-symlink");
+    let workspace = dir.join("real/ws");
+    fs::create_dir_all(workspace.join("tasks")).expect("create workspace");
+    std::os::unix::fs::symlink("real", dir.join("link")).expect("symlink beside the workspace");
+    let given = dir.join("link/ws");
+
+    // The repository is the workspace itself, so the checkout root and the
+    // artifact root are one directory reached by its two names. §FS-rhei-agents.4.1
+    let git = Command::new("git").arg("init").arg("-q").current_dir(&workspace).status();
+    if !git.map(|status| status.success()).unwrap_or(false) {
+        eprintln!("skipping: git unavailable");
+        return;
+    }
+
+    let agent = write_python_agent(
+        &dir,
+        "symlink-agent.py",
+        r#"prompt = agent_prompt()
+root = pathlib.Path(env('RHEI_ROOT'))
+write(root / 'runtime' / 'prompt.md', prompt)
+line = next(l for l in prompt.splitlines() if l.startswith('Findings output: '))
+findings = pathlib.Path(line[len('Findings output: '):])
+write(findings if findings.is_absolute() else root / findings, '# Findings\n')
+result('## Result\n\nWorker finished under the name it was given.\n')
+"#,
+    );
+    let agent_command =
+        serde_json::to_string(&vec![python_command().to_string(), agent.display().to_string()])
+            .expect("serialize mock agent command");
+    let settings_dir = workspace.join(".agents/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings directory");
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
+  "agents": {{
+    "mock": {{ "command": {agent_command}, "stdin_prompt": true, "timeout": "30s" }}
+  }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+    fs::write(
+        workspace.join("index.rhei.md"),
+        "# Rhei: Symlinked Root\n**States:** symlinked-root\n\n## Overview\n\nOne task, so the \
+         spelling of the paths is the whole subject.\n",
+    )
+    .expect("write index");
+    fs::write(
+        workspace.join("tasks/01-work.md"),
+        "### Task 1: Report the name the prompt gave\n**State:** work\n",
+    )
+    .expect("write task file");
+    fs::write(
+        workspace.join("states.yaml"),
+        r#"name: symlinked-root
+version: 1
+states:
+  work:
+    initial: true
+    agent: mock
+    instructions: |
+      Findings output: {output.findings.path}
+    outputs:
+      - name: findings
+        path: runtime/findings/{task_id}.md
+  completed:
+    final: true
+transitions:
+  - from: work
+    to: completed
+"#,
+    )
+    .expect("write state machine");
+
+    let output = rhei_command(dir.join(".home"))
+        .args(["run", &given.display().to_string(), "--no-tui", "--no-callbacks"])
+        .output()
+        .expect("run the workspace through the symlink");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let prompt = fs::read_to_string(workspace.join("runtime/prompt.md")).unwrap_or_default();
+    assert!(
+        output.status.success() && !prompt.is_empty(),
+        "the run must reach its worker:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    assert!(
+        prompt.contains(&format!("rhei-managed plan at `{}`.", given.display())),
+        "the prompt must name the artifact root the way the run was given it, `{}`:\n{prompt}",
+        given.display(),
+    );
+    assert!(
+        !prompt.contains(&workspace.display().to_string()),
+        "no path in the prompt may be re-spelled through `{}`, which the caller never typed:\n\
+         {prompt}",
+        workspace.display(),
+    );
+    assert!(
+        prompt.contains("Findings output: runtime/findings/ws.1.md"),
+        "the checkout root is this artifact root under its resolved name, so a declared output \
+         renders relative:\n{prompt}",
+    );
+}

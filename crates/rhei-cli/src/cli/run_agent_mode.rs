@@ -18,8 +18,7 @@ fn run_agent_mode(
 ) -> MietteResult<()> {
     use rhei_tui::{MessageLevel, RunEvent, RunSummary};
 
-    let callback_paths = &machines.default_callbacks;
-    let workspace_root = execution_workspace_root(&callback_paths.plan_path);
+    let workspace_root = run_execution_root(input);
     let runtime_dir = workspace_root.join("runtime");
     // §FS-rhei-run-report.3.1: run duration shown in the end-of-run summary.
     // §FS-rhei-run.2.7: one identity per run, computed by the caller, so the
