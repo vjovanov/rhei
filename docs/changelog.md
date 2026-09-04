@@ -15,13 +15,17 @@
   without granting an independently launched nested Rhei ambient authority.
   Because the prompt is now the only place a worker learns where anything is,
   `rhei run` resolves the artifact root to an absolute path before it composes
-  a prompt: declared inputs and outputs, the `## Result` path, and the snapshot
-  session directory an agent is handed all resolve against the artifact root
-  the prompt names, and never against the directory the run was launched from.
-  A run started with a relative root — `rhei run ws` — therefore shows the
-  absolute path where it used to show one only the launching shell could
-  resolve, and a worker's snapshot transcript no longer lands in the checkout.
-  (PR #N)
+  a prompt: declared inputs and outputs, the `## Exports to Publish` paths, the
+  `## Result` path, and the snapshot session directory an agent is handed all
+  resolve against the artifact root the prompt names, and never against the
+  directory the run was launched from. A run started with a relative root —
+  `rhei run ws` — therefore shows the absolute path where it used to show one
+  only the launching shell could resolve, and a worker's snapshot transcript no
+  longer lands in the checkout. The export path in particular used to stay bare
+  and relative while its neighbours went absolute, so a worker standing in a
+  checkout that is not the artifact root published where nothing looked: the
+  consuming task was then composed with no `## Consumed Exports` section at all
+  and the run still reported every task completed. (PR #N)
 - **A state machine whose states target codex reuses its transcript now,
   instead of paying for its context on every visit.** The built-in codex
   profile left its `session` block unset, so `snapshot.emit:` failed before
