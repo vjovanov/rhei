@@ -124,3 +124,63 @@
         assert_eq!(canonical_spelling(&root.join("alpha")), Some(root.join("alpha")));
         assert_eq!(canonical_spelling(Path::new("no-such-root/anywhere")), None);
     }
+
+    /// §FS-rhei-agents.4.1: a path already written under the root's own
+    /// spelling renders unchanged.
+    ///
+    /// The forward slashes and the missing drive letter are the point. On
+    /// Windows `/` resolves to the current drive's root, so both sides of the
+    /// resolved comparison succeed and the rejoin that follows it writes a
+    /// backslash into a root spelled with slashes — `/tmp/ws\states.yaml`, a
+    /// spelling nobody typed. On Unix the same rejoin happens to give the
+    /// bytes back, which is why this passed here while Windows went red.
+    #[test]
+    fn a_path_written_under_the_root_keeps_the_spelling_it_was_given() {
+        let root = Path::new("/tmp/ws");
+        assert_eq!(
+            spelled_under_artifact_root(root, Path::new("/tmp/ws/states.yaml")),
+            "/tmp/ws/states.yaml"
+        );
+        assert_eq!(
+            spelled_under_artifact_root(root, Path::new("/tmp/ws/runtime/logs")),
+            "/tmp/ws/runtime/logs"
+        );
+        assert_eq!(spelled_under_artifact_root(root, Path::new("/tmp/ws")), "/tmp/ws");
+    }
+
+    /// §FS-rhei-agents.4.1: the textual answer is taken before the resolved
+    /// one, and it is the better answer wherever the two disagree.
+    ///
+    /// A directory under the root that is a symlink out of it resolves to
+    /// somewhere else entirely, so the resolved comparison gives up and the
+    /// prompt names the file absolutely beside relative neighbours — the one
+    /// thing §FS-rhei-agents.4.1 denies a prompt. Textually it is under the
+    /// root, and that is the form the worker standing in the root can use.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_under_the_root_answers_from_the_root_even_when_it_resolves_away() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path().join("ws");
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&root).expect("root");
+        std::fs::create_dir_all(&elsewhere).expect("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, root.join("out")).expect("symlink");
+
+        let inside = root.join("out/notes.md");
+        assert_eq!(under_artifact_root(&root, &inside), None, "it resolves out of the root");
+        assert_eq!(
+            placed_under_artifact_root(&root, &inside),
+            Some((PathBuf::from("out/notes.md"), inside.clone())),
+            "but it is written under the root, and that answer stands"
+        );
+
+        // The case the rejoin exists for is untouched: a path that reaches the
+        // root by a different spelling is still matched by resolving both.
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&root, &link).expect("symlink");
+        assert_eq!(
+            placed_under_artifact_root(&link, &root.join("plan.rhei.md")),
+            Some((PathBuf::from("plan.rhei.md"), link.join("plan.rhei.md"))),
+            "the symlinked root still names the file the way the caller named the root"
+        );
+    }

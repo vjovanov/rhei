@@ -144,7 +144,10 @@ fn prompt_path_shown(
     if roots_are_one_directory(context.checkout_root, context.workspace_root) {
         relative
     } else {
-        root.join(relative).display().to_string()
+        // Through `spelled_path`, like every other absolute path in the
+        // prompt: a root that arrives canonicalized carries Windows's `\\?\`
+        // prefix, which no shell the worker pastes it into wants.
+        spelled_path(&root.join(relative))
     }
 }
 
