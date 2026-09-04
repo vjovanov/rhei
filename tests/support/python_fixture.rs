@@ -110,20 +110,12 @@ def agent_context(name, default=''):
         'RHEI_ROOT': root.group(1) if root else '',
         'RHEI_RESULT_PATH': result_path.group(1) if result_path else '',
     }
-    plan_root = None
-    if values['RHEI_PLAN_PATH']:
+    # Only one base is ever needed: the artifact root, which the prompt names
+    # itself. A relative root is the run's way of saying the root is also the
+    # working directory, so it is left as written. §FS-rhei-agents.4.1
+    if not values['RHEI_ROOT'] and values['RHEI_PLAN_PATH']:
         plan_path = pathlib.Path(values['RHEI_PLAN_PATH'])
-        if not plan_path.is_absolute():
-            plan_path = pathlib.Path.cwd() / plan_path
-        plan_root = plan_path.parent if plan_path.suffix else plan_path
-        values['RHEI_PLAN_PATH'] = str(plan_path)
-    if values['RHEI_ROOT']:
-        root_path = pathlib.Path(values['RHEI_ROOT'])
-        if not root_path.is_absolute():
-            root_path = (plan_root or pathlib.Path.cwd()) / root_path
-        values['RHEI_ROOT'] = str(root_path)
-    elif plan_root:
-        values['RHEI_ROOT'] = str(plan_root)
+        values['RHEI_ROOT'] = str(plan_path.parent if plan_path.suffix else plan_path)
     if values['RHEI_RESULT_PATH']:
         result = pathlib.Path(values['RHEI_RESULT_PATH'])
         if not result.is_absolute():

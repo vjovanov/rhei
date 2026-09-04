@@ -11,6 +11,26 @@ fn ticket_file_counts(loaded: &LoadedPlan) -> BTreeMap<&Path, usize> {
     counts
 }
 
+/// The artifact root a run composes every prompt against: the workspace the
+/// input names, resolved to an absolute path before anything is loaded.
+///
+/// This is the one place a run turns what was typed into where things are.
+/// Every root the run then derives — the execution root of each ticket, each
+/// declared artifact, the `## Result` path, the snapshot session directory —
+/// is a join onto this value, so a root left relative here reaches the worker
+/// as a path only the launching shell could resolve: not the artifact root the
+/// prompt names, not the worker's own working directory, and, with the
+/// identity variables gone, nowhere in its environment either. Resolving it
+/// once makes `rhei run ws` compose what `rhei run /absolute/ws` composes.
+///
+/// Canonical where the path exists, because the checkout root arrives from
+/// `git rev-parse` already canonical and the two are compared to decide
+/// whether a path renders relative or absolute.
+// §FS-rhei-agents.4.1
+fn run_artifact_root(input: &Path) -> PathBuf {
+    absolutize(&normalize_workspace_input(input))
+}
+
 /// Every execution root a run locks: its own plus each rhei's, so project
 /// and member-rhei runs contend on the same lock. Canonicalized and sorted —
 /// one global acquisition order, no lock-order deadlock. §FS-rhei-run.2.6
@@ -205,7 +225,7 @@ fn run_command(
     // SIGINT/SIGTERM/SIGHUP interrupts the run instead of killing the
     // supervisor out from under its subprocesses. §FS-rhei-run.3.2
     install_interrupt_handlers();
-    let input_buf = normalize_workspace_input(input);
+    let input_buf = run_artifact_root(input);
     let input = input_buf.as_path();
     let loaded = load_plan(input)?;
     let rhei_scope = resolve_rhei_scope(&loaded, opts.rhei_scope())?;

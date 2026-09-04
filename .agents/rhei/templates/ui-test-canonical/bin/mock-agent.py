@@ -121,11 +121,7 @@ def write_result():
         return
     result_path = pathlib.Path(result_match.group(1))
     if not result_path.is_absolute():
-        # The prompt shows the result file relative to the run root, which is
-        # the working directory a worker is started in; only fall back to the
-        # workspace root when that does not resolve. §FS-rhei-agents.3
-        from_cwd = pathlib.Path.cwd() / result_path
-        result_path = from_cwd if from_cwd.parent.is_dir() else workspace_root / result_path
+        result_path = workspace_root / result_path
     write_file(
         result_path,
         '## Result\n\nMock agent %s finished task %s in state %s.' % (target_slug, task_id, state))
