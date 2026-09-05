@@ -300,7 +300,7 @@
         if let Some(hoisted) = hoisted {
             println!(
                 "  Merged the template's agent settings into {}.",
-                display_path(&project.join(".agents/rhei/settings.json")).display()
+                display_path(&project_settings_write_path(project)).display()
             );
             if !hoisted.added.is_empty() {
                 println!("    added: {}", hoisted.added.join(", "));

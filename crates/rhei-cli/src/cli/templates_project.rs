@@ -97,7 +97,9 @@
         }
     }
 
-    const WORKSPACE_SETTINGS_RELATIVE_PATH: &str = ".agents/rhei/settings.json";
+    /// The settings file's name under either of rhei's homes.
+    /// §FS-rhei-templates.1.1
+    const WORKSPACE_SETTINGS_FILE: &str = "settings.json";
 
     /// What happened to a template's shipped agent settings when its workspace
     /// joined a project.
@@ -106,21 +108,36 @@
         pub(super) kept: Vec<String>,
     }
 
-    /// Move a member workspace's `.agents/rhei/settings.json` up to the project
-    /// and merge it into what is already there, keeping existing project values
-    /// so a template never redefines a configured agent. §FS-rhei-agents.1.1
+    /// Move a member workspace's settings file up to the project and merge it
+    /// into what is already there, keeping existing project values so a
+    /// template never redefines a configured agent. §FS-rhei-agents.1.1
+    ///
+    /// Both ends resolve `.agent-grounds/rhei/` before the deprecated
+    /// `.agents/rhei/`, and the merged result is written to the current home
+    /// whichever one it was read from: rhei never writes the deprecated path.
+    /// §FS-rhei-templates.1.1
     pub(super) fn hoist_workspace_settings_into_project(
         workspace: &Path,
         project: &Path,
     ) -> MietteResult<Option<HoistedSettings>> {
-        let source = workspace.join(WORKSPACE_SETTINGS_RELATIVE_PATH);
-        if !source.is_file() {
+        let Some(source) = resolve_rhei_home_file(workspace, WORKSPACE_SETTINGS_FILE) else {
             return Ok(None);
-        }
-        let incoming = read_settings_value(&source)?;
-        let target = project.join(WORKSPACE_SETTINGS_RELATIVE_PATH);
-        let mut merged =
-            if target.is_file() { read_settings_value(&target)? } else { serde_json::json!({}) };
+        };
+        source.warn_if_deprecated();
+        let incoming = read_settings_value(source.path())?;
+
+        // The merge base is whatever the project already resolves, so a hoist
+        // into a project still on the old home carries its values forward
+        // rather than shadowing them. §FS-rhei-agents.1.1
+        let existing = resolve_rhei_home_file(project, WORKSPACE_SETTINGS_FILE);
+        let mut merged = match &existing {
+            Some(found) => {
+                found.warn_if_deprecated();
+                read_settings_value(found.path())?
+            }
+            None => serde_json::json!({}),
+        };
+        let target = project_settings_write_path(project);
 
         let mut added = Vec::new();
         let mut kept = Vec::new();
@@ -140,11 +157,16 @@ help = template_manifest_help(),
 
         // Leaving the workspace copy in place would keep advertising settings
         // nothing reads.
-        fs::remove_file(&source)
-            .map_err(|err| file_io_report(&source, "failed to remove workspace settings", err))?;
-        prune_empty_parents(&source, workspace);
+        fs::remove_file(source.path())
+            .map_err(|err| file_io_report(source.path(), "failed to remove workspace settings", err))?;
+        prune_empty_parents(source.path(), workspace);
 
         Ok(Some(HoistedSettings { added, kept }))
+    }
+
+    /// Where a project's settings file is written. §FS-rhei-templates.1.1
+    pub(super) fn project_settings_write_path(project: &Path) -> PathBuf {
+        rhei_home_write_path(project, WORKSPACE_SETTINGS_FILE)
     }
 
     fn read_settings_value(path: &Path) -> MietteResult<serde_json::Value> {

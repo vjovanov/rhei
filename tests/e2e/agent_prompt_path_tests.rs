@@ -64,7 +64,7 @@ result('## Result\n\nWorker finished at the path the prompt named.\n')
     let agent_command =
         serde_json::to_string(&vec![python_command().to_string(), agent.display().to_string()])
             .expect("serialize mock agent command");
-    let settings_dir = workspace.join(".agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings directory");
     fs::write(
         settings_dir.join("settings.json"),
@@ -225,7 +225,7 @@ result('## Result\n\nWorker finished under the name it was given.\n')
     let agent_command =
         serde_json::to_string(&vec![python_command().to_string(), agent.display().to_string()])
             .expect("serialize mock agent command");
-    let settings_dir = workspace.join(".agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings directory");
     fs::write(
         settings_dir.join("settings.json"),

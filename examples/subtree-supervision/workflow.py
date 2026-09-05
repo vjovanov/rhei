@@ -6,7 +6,7 @@ state writes the brief the next step reads. `rhei run` does the rest — the
 hold/release barrier, the checkpoints, and the edge selection are the engine's.
 
 Python rather than a shell script, so the example runs wherever `python3` is
-on `PATH`; `.agents/rhei/settings.json` execs it directly, with no shell in
+on `PATH`; `.agent-grounds/rhei/settings.json` execs it directly, with no shell in
 between.
 """
 

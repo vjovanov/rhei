@@ -18,6 +18,27 @@
   the same commit; the gate-tools cache key names that variable, so it rekeys
   with it and the bumped binary is built rather than restored from the `0.7.0`
   cache. (PR #192)
+- **Rhei's project-local material moved to `.agent-grounds/rhei/`, and
+  `.agents/rhei/` is a deprecated fallback that still works.** `.agents/` is by
+  convention where agent *instructions* live, and an agent runtime may mount it
+  read-only inside a checkout — Codex's managed permission profile does — so
+  rhei's templates and project settings, which are product files an agent
+  working in the repository has to be able to edit, had no home it could write.
+  Templates and project settings now resolve from `.agent-grounds/rhei/` first
+  and `.agents/rhei/` second, at the project tier and the user tier alike. The
+  ancestor walk checks both names at each level before ascending, so the
+  nearest directory still wins whichever name it uses; two project settings
+  files are never merged, first match wins. Reading the old home prints one
+  `warning:` line on stderr per distinct path per process, naming the path read
+  and the path to **move** it to. **Nothing breaks for an existing user who
+  does nothing**: `.agents/rhei/` keeps working, and the only new output is
+  that warning. Everything rhei *writes* — a template's root `settings.json` on
+  instantiation, the settings hoist into an enclosing project — now lands under
+  `.agent-grounds/rhei/`, so rhei's own output is never a path rhei then warns
+  about. `.agents/skills/` does not move: it is genuine agent instruction and
+  other runtimes discover it there. This repository's own `ui-test-canonical`
+  template and the checked-in example workspaces moved with the change.
+  (PR #N)
 - **`input.total` counts every input token, whichever agent reported it, and a
   cached read is charged once.** The field had no stated cache-inclusion
   meaning, so each extractor inherited its provider's: OpenAI counts cached

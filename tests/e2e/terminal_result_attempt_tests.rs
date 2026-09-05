@@ -245,7 +245,7 @@ fn a_state_level_attempts_field_wins_over_the_settings_default() {
     );
     // A settings default of 1 would stop after the first spawn; the state's
     // own `attempts: 3` is the more specific level and wins.
-    let settings = dir.join(".agents/rhei/settings.json");
+    let settings = dir.join(".agent-grounds/rhei/settings.json");
     let raw = fs::read_to_string(&settings).expect("read settings");
     fs::write(
         &settings,
@@ -279,7 +279,7 @@ fn a_settings_default_supplies_the_budget_a_state_does_not_declare() {
         &result_only_missing_machine(""),
         OUTPUT_WITHOUT_RESULT_AGENT,
     );
-    let settings = dir.join(".agents/rhei/settings.json");
+    let settings = dir.join(".agent-grounds/rhei/settings.json");
     let raw = fs::read_to_string(&settings).expect("read settings");
     fs::write(
         &settings,
@@ -476,7 +476,7 @@ transitions:
     to: completed
 "#,
     );
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     fs::write(
         settings_dir.join("settings.json"),

@@ -27,7 +27,7 @@ fn standalone_instantiation_notes_untracked_workspace_in_git_repo() {
         eprintln!("skipping: git unavailable");
         return;
     }
-    let template_dir = dir.join(".agents/rhei/templates/hello");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/hello");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -149,7 +149,7 @@ fn templates_with_a_name_shows_the_template_detail() {
 #[test]
 fn templates_lists_project_local_templates() {
     let dir = unique_temp_dir("templates-list");
-    let template_dir = dir.join(".agents/rhei/templates/hello");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/hello");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -200,7 +200,7 @@ inputs:
 #[test]
 fn instantiate_without_template_lists_available_templates() {
     let dir = unique_temp_dir("templates-instantiate-list");
-    let template_dir = dir.join(".agents/rhei/templates/hello");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/hello");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -234,7 +234,7 @@ description: Simple hello-world template
 #[test]
 fn instantiate_unknown_template_suggests_close_match() {
     let dir = unique_temp_dir("templates-instantiate-suggest");
-    let template_dir = dir.join(".agents/rhei/templates/code-review");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/code-review");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -524,7 +524,7 @@ fn instantiate_project_hourly_human_intervention_template_prints_summary() {
     assert!(
         result.stdout.contains("=== Instantiation Summary ===")
             && result.stdout.contains("Files:")
-            && result.stdout.contains(".agents/")
+            && result.stdout.contains(".agent-grounds/")
             && result.stdout.contains("Task tree:")
             && result.stdout.contains(
                 "Task hourly.fetch-issues: Fetch and classify human-intervention issues [fetch]"
@@ -777,8 +777,9 @@ inputs:
         !output_dir.join(".rhei/settings.json").exists(),
         "template settings.json should not be written under .rhei"
     );
-    let rendered_settings = fs::read_to_string(output_dir.join(".agents/rhei/settings.json"))
-        .expect("read .agents/rhei/settings.json");
+    let rendered_settings =
+        fs::read_to_string(output_dir.join(".agent-grounds/rhei/settings.json"))
+            .expect("read .agent-grounds/rhei/settings.json");
     let parsed: serde_json::Value =
         serde_json::from_str(&rendered_settings).expect("rendered settings.json is valid JSON");
     assert_eq!(
@@ -938,7 +939,7 @@ inputs:
 }
 
 /// §FS-rhei-templates.1: built-in templates ship inside the binary, so a
-/// directory with no `.agents/` and an empty HOME still has a usable library.
+/// directory with no `.agent-grounds/` and an empty HOME still has a usable library.
 #[test]
 fn templates_ships_a_builtin_library_with_the_binary() {
     let dir = unique_temp_dir("templates-builtin");
@@ -995,7 +996,7 @@ fn a_project_template_shadows_a_builtin_of_the_same_name() {
     let dir = unique_temp_dir("templates-shadow");
     let home = dir.join(".home");
     fs::create_dir_all(&home).expect("create isolated home");
-    let template_dir = dir.join(".agents/rhei/templates/spec-review");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/spec-review");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -1028,7 +1029,7 @@ fn a_project_template_shadows_a_builtin_of_the_same_name() {
 /// A minimal template whose plan declares its own state machine, so placement
 /// inside a project has something to reconcile. §FS-rhei-templates.6.2
 fn write_machine_template(dir: &std::path::Path, name: &str) {
-    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    let template_dir = dir.join(".agent-grounds/rhei/templates").join(name);
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -1125,7 +1126,7 @@ fn instantiate_defaults_into_the_enclosing_project_keeping_its_machine() {
 /// target, so a project composed from these templates can actually `run`.
 fn write_runnable_machine_template(dir: &std::path::Path, name: &str) {
     write_machine_template(dir, name);
-    let template_dir = dir.join(".agents/rhei/templates").join(name);
+    let template_dir = dir.join(".agent-grounds/rhei/templates").join(name);
     write_fixture_file(
         &template_dir,
         "states.yaml",
@@ -1161,7 +1162,7 @@ fn write_mock_agent_settings(dir: &std::path::Path) {
 "#,
     );
     let command = fixture_command(&script);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     fs::write(
         settings_dir.join("settings.json"),
@@ -1247,7 +1248,7 @@ fn instantiate_hoists_template_settings_to_the_project_root() {
     let dir = unique_temp_dir("instantiate-project-settings");
     write_machine_template(&dir, "audit");
     write_fixture_file(
-        &dir.join(".agents/rhei/templates/audit"),
+        &dir.join(".agent-grounds/rhei/templates/audit"),
         "settings.json",
         r#"{
   "defaults": { "agent_timeout": "42m" },
@@ -1271,11 +1272,11 @@ fn instantiate_hoists_template_settings_to_the_project_root() {
         result.stdout
     );
 
-    let hoisted = dir.join(".agents/rhei/settings.json");
+    let hoisted = dir.join(".agent-grounds/rhei/settings.json");
     let settings = fs::read_to_string(&hoisted).expect("project settings should exist");
     assert!(settings.contains("codex"), "the agent registry should land here:\n{settings}");
     assert!(
-        !dir.join("audit/.agents/rhei/settings.json").exists(),
+        !dir.join("audit/.agent-grounds/rhei/settings.json").exists(),
         "no dead copy may stay in the workspace, where nothing reads it"
     );
 }

@@ -46,7 +46,7 @@ Use this table when you know the job you want to model:
 - `product-management-example/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a template-shipped `.agents/rhei/settings.json`
+  - a template-shipped `.agent-grounds/rhei/settings.json`
   - two configurable PM targets feeding a smart aggregation/validation state
   - a two-pass aggregate and cheaper implementation loop
 
@@ -99,7 +99,7 @@ Use this table when you know the job you want to model:
 - `snapshot-continuation/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a project-scoped `.agents/rhei/settings.json` with a snapshot-capable agent profile
+  - a project-scoped `.agent-grounds/rhei/settings.json` with a snapshot-capable agent profile
   - a named `snapshot.emit:` followed by required same-agent `snapshot.inherit:`
   - documented `snapshot list`, `snapshot continue`, `snapshot show`, and
     `run --from-snapshot` commands
@@ -107,12 +107,12 @@ Use this table when you know the job you want to model:
 - `hourly-human-intervention-example/`
   Valid example directory using:
   - `index.rhei.md` plus `tasks/`
-  - a template-shipped `.agents/rhei/settings.json`
+  - a template-shipped `.agent-grounds/rhei/settings.json`
   - a routed hourly GitHub sweep with human gates for GraalVM fixes
 
 - `ui-test-canonical-example/`
   Canonical **runnable fixture** for the live UI. Valid example using:
-  - a directory workspace instantiated from `.agents/rhei/templates/ui-test-canonical/`
+  - a directory workspace instantiated from `.agent-grounds/rhei/templates/ui-test-canonical/`
   - three-level nested task nodes (`###` / `####` / `#####`) inherited from the
     workspace index `structure.maxLevels`
   - mock agent and mock program execution only

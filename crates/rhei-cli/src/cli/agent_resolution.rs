@@ -107,7 +107,7 @@ fn resolve_legacy_agent_with_model(
             let known = settings.models.keys().cloned().collect::<Vec<_>>();
             miette!(
                 help = format!(
-                    "{}Add a `models.{id}` entry to .agents/rhei/settings.json or \
+                    "{}Add a `models.{id}` entry to .agent-grounds/rhei/settings.json or \
                      ~/.config/rhei/settings.json, or drop the model selection.",
                     did_you_mean(id, &known).map(|hint| format!("{hint} ")).unwrap_or_default()
                 ),

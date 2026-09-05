@@ -352,7 +352,7 @@ fn chatty_agent_workspace(
 
     let dir = unique_temp_dir(prefix);
     let workspace = dir.join("workspace");
-    fs::create_dir_all(workspace.join(".agents/rhei")).expect("workspace");
+    fs::create_dir_all(workspace.join(".agent-grounds/rhei")).expect("workspace");
     fs::write(
         workspace.join("plan.rhei.md"),
         "# Rhei: Chatty\n\n## Tasks\n\n### Task 1: Work\n**State:** work\n",
@@ -369,7 +369,7 @@ result('## Result\n\nDone.\n')
     );
     let command = super::fixture_command(&agent);
     fs::write(
-        workspace.join(".agents/rhei/settings.json"),
+        workspace.join(".agent-grounds/rhei/settings.json"),
         format!(
             "{{\n  \"defaults\": {{ \"agent\": \"mock\" }},\n  \"agents\": \
              {{ \"mock\": {{ \"command\": {command}, \"stdin_prompt\": true, \"timeout\": \"2m\" }} }}\n}}"

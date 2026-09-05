@@ -1,0 +1,120 @@
+// Rhei's project-local and user-global home, `.agent-grounds/rhei/`, and the
+// deprecated `.agents/rhei/` it replaced. §FS-rhei-templates.1.1
+
+// One module owns both names, the preference between them, the per-level
+// ancestor walk and the deprecation warning, so the rule reads identically at
+// every call site and there is one place to delete when the deprecation ends.
+
+/// Rhei's home for its own project-local material. §FS-rhei-templates.1.1
+const RHEI_HOME_DIR: &str = ".agent-grounds";
+
+/// The home it replaced. Still read, and warned about. §FS-rhei-templates.1.1
+const DEPRECATED_RHEI_HOME_DIR: &str = ".agents";
+
+/// One candidate location for rhei material, carrying whether reading it is
+/// deprecated and, if so, where the material belongs instead.
+/// §FS-rhei-templates.1
+#[derive(Clone, Debug)]
+struct RheiHomePath {
+    path: PathBuf,
+    /// The `.agent-grounds` path to move the material to, when `path` is under
+    /// the deprecated home.
+    move_to: Option<PathBuf>,
+}
+
+impl RheiHomePath {
+    /// A path that is neither home, so nothing about it is deprecated — the
+    /// built-in tier's placeholder is the only such root.
+    fn plain(path: impl Into<PathBuf>) -> Self {
+        RheiHomePath { path: path.into(), move_to: None }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn into_path(self) -> PathBuf {
+        self.path
+    }
+
+    /// Say, once per process, that this path is deprecated and where its
+    /// contents belong. A no-op for the current home. §FS-rhei-templates.1.3
+    fn warn_if_deprecated(&self) {
+        if let Some(move_to) = self.move_to.as_ref() {
+            warn_deprecated_rhei_home(&self.path, move_to);
+        }
+    }
+}
+
+/// Both names for `<base>/<home>/rhei/<leaf>`, the current home first. Every
+/// tier searches both, and within a tier the `.agent-grounds` name wins.
+/// §FS-rhei-templates.1.1
+fn rhei_home_paths(base: &Path, leaf: &str) -> [RheiHomePath; 2] {
+    let current = base.join(RHEI_HOME_DIR).join("rhei").join(leaf);
+    let deprecated = base.join(DEPRECATED_RHEI_HOME_DIR).join("rhei").join(leaf);
+    [
+        RheiHomePath { path: current.clone(), move_to: None },
+        RheiHomePath { path: deprecated, move_to: Some(current) },
+    ]
+}
+
+/// Where rhei *writes* project-local material. Never the deprecated home, so
+/// rhei's own output is never a path rhei then warns about.
+/// §FS-rhei-templates.1.1
+fn rhei_home_write_path(base: &Path, leaf: &str) -> PathBuf {
+    base.join(RHEI_HOME_DIR).join("rhei").join(leaf)
+}
+
+/// The directories that exist under `base`, current home first. Both take part
+/// in the search at a tier. §FS-rhei-templates.1.1
+fn existing_rhei_home_dirs(base: &Path, leaf: &str) -> Vec<RheiHomePath> {
+    rhei_home_paths(base, leaf).into_iter().filter(|candidate| candidate.path.is_dir()).collect()
+}
+
+/// The file rhei reads under `base`: first match wins, and the two are never
+/// merged. §FS-rhei-agents.1.1
+fn resolve_rhei_home_file(base: &Path, leaf: &str) -> Option<RheiHomePath> {
+    rhei_home_paths(base, leaf).into_iter().find(|candidate| candidate.path.is_file())
+}
+
+/// The nearest level at or above `start` holding either name, and the
+/// directories that level holds. Both names are checked at each level *before*
+/// ascending: two full walks, one per name, would let a distant ancestor's
+/// `.agent-grounds` directory beat the enclosing repository's `.agents` one and
+/// break nearest-directory-wins. §FS-rhei-templates.1.2
+fn nearest_rhei_home_dirs(start: &Path, leaf: &str) -> Option<Vec<RheiHomePath>> {
+    let mut dir = Some(start);
+    while let Some(current) = dir {
+        let found = existing_rhei_home_dirs(current, leaf);
+        if !found.is_empty() {
+            return Some(found);
+        }
+        dir = current.parent();
+    }
+    None
+}
+
+/// Once per distinct deprecated path per process, on stderr. Templates and
+/// settings are resolved repeatedly inside one `rhei run`, so a per-lookup
+/// warning would bury the run's own output, and stdout would corrupt `--json`.
+/// The verb is **move**: rhei is deliberately silent when both names exist at a
+/// tier, so a reader who copies instead ends up editing a file nothing reads.
+/// §FS-rhei-templates.1.3
+fn warn_deprecated_rhei_home(read: &Path, move_to: &Path) {
+    static WARNED: std::sync::OnceLock<Mutex<HashSet<PathBuf>>> = std::sync::OnceLock::new();
+    let warned = WARNED.get_or_init(|| Mutex::new(HashSet::new()));
+    let Ok(mut warned) = warned.lock() else {
+        return;
+    };
+    if !warned.insert(read.to_path_buf()) {
+        return;
+    }
+    eprintln!(
+        "warning: read rhei material from {}, which is deprecated. Move it to {} — \
+         `.agents/` holds agent instructions and an agent runtime may mount it read-only, \
+         so rhei's own files cannot stay there. Move rather than copy: a copy left behind \
+         is shadowed and nothing reads it.",
+        read.display(),
+        move_to.display()
+    );
+}

@@ -195,7 +195,7 @@ fn the_map_names_the_log_directory_the_run_writes() {
     write_fixture_file(&dir, "index.panta.md", "# Panta: Two Roots\n");
     let machine_path = write_fixture_file(&dir, "states.yaml", MEMORY_MACHINE);
     let script = write_python_agent(&dir, "mock-agent.py", LOG_MAP_AGENT);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("settings dir");
     let command = fixture_command(&script);
     fs::write(

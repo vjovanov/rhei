@@ -69,7 +69,7 @@ fn setup_laid_output_project(prefix: &str) -> (TestDir, PathBuf, PathBuf) {
 /// it for the `implement` state's `agent: mock`.
 fn write_laid_output_agent_settings(project: &Path) {
     let script = write_python_agent(project, "mock-agent.py", WRITE_REPORT_UNDER_PROMPT_ROOT);
-    let settings_dir = project.join(".agents/rhei");
+    let settings_dir = project.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("settings dir");
     fs::write(
         settings_dir.join("settings.json"),

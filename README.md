@@ -240,7 +240,7 @@ rhei completions elvish --install
 ```
 
 Installed completions are dynamic, so `rhei instantiate <TAB>` offers template
-names from `.agents/rhei/templates/`, `~/.agents/rhei/templates/`, and the
+names from `.agent-grounds/rhei/templates/`, `~/.agent-grounds/rhei/templates/`, and the
 built-in library shipped with the binary.
 
 See [Tab Completions](docs/functional-spec/tab-completions.md) for shell-specific setup notes,

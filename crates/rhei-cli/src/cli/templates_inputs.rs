@@ -638,14 +638,20 @@
             }
 
             // §FS-rhei-templates.6.1.2: root settings become project settings
-            // in the agent config tree; non-root `settings.json` stays put.
+            // in rhei's project-local home; non-root `settings.json` stays put.
+            // Rhei writes the current home only. §FS-rhei-templates.1.1
             let at_template_root = src_dir == template_root;
             let dest_path = if at_template_root && name_str == "settings.json" {
-                let settings_dir = dest_dir.join(".agents").join("rhei");
+                let settings_path = rhei_home_write_path(dest_dir, "settings.json");
+                let settings_dir = settings_path.parent().unwrap_or(dest_dir).to_path_buf();
                 fs::create_dir_all(&settings_dir).map_err(|err| {
-                    target.io_report(&settings_dir, "failed to create .agents/rhei directory", err)
+                    target.io_report(
+                        &settings_dir,
+                        "failed to create the .agent-grounds/rhei directory",
+                        err,
+                    )
                 })?;
-                settings_dir.join("settings.json")
+                settings_path
             } else {
                 dest_dir.join(&name)
             };

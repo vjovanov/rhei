@@ -1,7 +1,7 @@
 # ui-test-canonical - example
 
 A pre-rendered instantiation of the
-[`ui-test-canonical`](../../.agents/rhei/templates/ui-test-canonical/)
+[`ui-test-canonical`](../../.agent-grounds/rhei/templates/ui-test-canonical/)
 template. This example is a smoke test and a convenient fixture for developing
 the Rhei UI against deterministic mock execution.
 
@@ -54,10 +54,10 @@ and `instantiation-values.yaml`. To regenerate:
 
 ```bash
 rm -rf examples/ui-test-canonical-example
-rhei instantiate .agents/rhei/templates/ui-test-canonical \
-  --values .agents/rhei/templates/ui-test-canonical/.example-values.yaml \
+rhei instantiate .agent-grounds/rhei/templates/ui-test-canonical \
+  --values .agent-grounds/rhei/templates/ui-test-canonical/.example-values.yaml \
   --output examples/ui-test-canonical-example
-cp .agents/rhei/templates/ui-test-canonical/.example-values.yaml \
+cp .agent-grounds/rhei/templates/ui-test-canonical/.example-values.yaml \
   examples/ui-test-canonical-example/instantiation-values.yaml
 git checkout -- examples/ui-test-canonical-example/README.md
 ```

@@ -14,7 +14,7 @@ fn state_machine_help() -> &'static str {
 
 /// Help for a settings file that is missing or malformed.
 fn settings_help() -> &'static str {
-    "settings merge from ~/.config/rhei/settings.json then .agents/rhei/settings.json. \
+    "settings merge from ~/.config/rhei/settings.json then .agent-grounds/rhei/settings.json. \
      Check both with: rhei diag"
 }
 

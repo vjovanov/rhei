@@ -96,7 +96,7 @@ fn setup_supervised_workspace(
         .expect("write task file");
 
     let agent_script = write_fixture_file(&dir, "mock-agent.sh", agent_body);
-    let settings_dir = workspace.join(".agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let script_json =
         serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
@@ -662,7 +662,7 @@ exec sleep 300
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let agent_script = write_fixture_file(&dir, "mock-agent.sh", agent);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let script_json =
         serde_json::to_string(&agent_script.display().to_string()).expect("script path json");
@@ -962,7 +962,7 @@ transitions:
         .expect("write task file");
 
     let agent_script = write_fixture_file(&dir, "mock-agent.sh", LOST_OUTPUT_AGENT);
-    let settings_dir = workspace.join(".agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let script_json =
         serde_json::to_string(&agent_script.display().to_string()).expect("script path json");

@@ -47,7 +47,7 @@ pub(super) const FANOUT_PLAN: &str = r#"# Rhei: Fanout Result
 /// Settings whose `mock` agent runs `script`, with a model registry both fan-out
 /// targets resolve through.
 pub(super) fn write_fanout_agent_settings(workspace_root: &Path, script: &Path) {
-    let settings_dir = workspace_root.join(".agents/rhei");
+    let settings_dir = workspace_root.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(script);
     fs::write(

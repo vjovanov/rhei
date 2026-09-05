@@ -358,7 +358,7 @@ append(
 result('## Result\n\nMock agent finished.\n')
 "#,
     );
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(
@@ -487,7 +487,7 @@ write(workspace / 'runtime' / 'outputs' / (model + '.txt'), 'model={}\n'.format(
 result('## Result\n\nMock agent finished.\n')
 "#,
     );
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(
@@ -555,7 +555,7 @@ fn run_does_not_create_agent_work_from_task_override_in_callback_state() {
 append(workspace / 'runtime' / 'logs' / 'agent.log', 'unexpected agent spawn\n')
 "#,
     );
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(
@@ -619,7 +619,7 @@ append(
 result('## Result\n\nMock agent finished.\n')
 "#,
     );
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(
@@ -1492,7 +1492,7 @@ write(root / 'runtime' / 'out' / (task + '.md'), 'done\n')
 result('## Result\n\nFinished.\n')
 "#,
     );
-    let settings_dir = workspace.join(".agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(

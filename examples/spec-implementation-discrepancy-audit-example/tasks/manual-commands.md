@@ -18,7 +18,7 @@ Spec scope:
 Implementation roots:
 - `crates`
 - `skills`
-- `.agents/rhei/templates`
+- `.agent-grounds/rhei/templates`
 - `examples`
 
 Focus on claimability, assignee behavior, state instructions, transition

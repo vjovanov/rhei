@@ -109,7 +109,7 @@ result('## Result\n\nMock agent finished.\n')
 pub fn accounting_workspace(prefix: &str, plan: &str) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let agent_script = write_python_agent(&dir, "mock-claude-code.py", USAGE_REPORTING_AGENT);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);
     fs::write(

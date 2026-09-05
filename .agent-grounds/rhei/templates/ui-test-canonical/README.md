@@ -77,9 +77,9 @@ smoke example lives at `examples/ui-test-canonical-example/`.
 rhei instantiate ui-test-canonical \
   --set scenario_name="dashboard checkout flow" \
   --set step_delay_seconds=0.5 \
-  --output .agents/scratchpad/ui-test-canonical
+  --output .agent-grounds/scratchpad/ui-test-canonical
 
-MOCK_NODE_DELAY_SECONDS=0.5 rhei run .agents/scratchpad/ui-test-canonical --parallel 4 --dashboard
+MOCK_NODE_DELAY_SECONDS=0.5 rhei run .agent-grounds/scratchpad/ui-test-canonical --parallel 4 --dashboard
 ```
 
 The run intentionally stops with tasks in `human-gate` and `blocked` so the UI

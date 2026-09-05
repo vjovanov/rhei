@@ -120,7 +120,7 @@ pub fn setup_supervision_with_agent(
     let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
     let script = write_python_agent(&dir, "mock-agent.py", script);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&script);
     fs::write(

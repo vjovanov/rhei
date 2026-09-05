@@ -55,7 +55,7 @@ pub(super) fn write_silent_agent(dir: &Path) -> PathBuf {
 }
 
 pub(super) fn write_mock_agent_settings(workspace_root: &Path, script: &Path) {
-    let settings_dir = workspace_root.join(".agents/rhei");
+    let settings_dir = workspace_root.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(script);
     fs::write(
