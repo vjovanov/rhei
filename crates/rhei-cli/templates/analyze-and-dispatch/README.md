@@ -73,10 +73,10 @@ The full state machine diagram is in the top comment of
 rhei instantiate analyze-and-dispatch \
   --set subject=docs/functional-spec \
   --set-file analysis_brief=./brief.md \
-  --output .agents/scratchpad/dispatch/
+  --output .agent-grounds/scratchpad/dispatch/
 
-rhei run .agents/scratchpad/dispatch/          # coordinator runs, writes tasks
-rhei run .agents/scratchpad/dispatch/ --parallel 4   # work items run in parallel
+rhei run .agent-grounds/scratchpad/dispatch/          # coordinator runs, writes tasks
+rhei run .agent-grounds/scratchpad/dispatch/ --parallel 4   # work items run in parallel
 ```
 
 ## What's bundled

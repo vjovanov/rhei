@@ -265,7 +265,7 @@ When the CLI is available, validate with `rhei states --state-machine <path>` (a
 
 - `docs/states.yaml` — single machine for the project, auto-discovered by a sibling or workspace-root plan.
 - `docs/states/<name>.yaml` — multiple machines in the project.
-- `.agents/rhei/states.yaml` or `.agents/rhei/states/<name>.yaml` — for projects keeping agent config under `.agents/`.
+- `.agent-grounds/rhei/states.yaml` or `.agent-grounds/rhei/states/<name>.yaml` — for projects keeping rhei's own material in its project-local home rather than under `docs/`.
 
 A plan picks up a sibling or workspace-root `states.yaml` automatically when it declares `**States:** <name>`; the YAML's `name` must match. Use `--state-machine <path>` to override the auto-discovered file.
 

@@ -62,7 +62,7 @@ Flow:
   task files under `tasks/` during the run. `rhei reset` clears state but does
   not delete dynamically appended task files.
 - Instantiate the workspace inside the repository under review, ideally under
-  `.agents/scratchpad/`, so `git rev-parse --show-toplevel` from the workspace
+  `.agent-grounds/scratchpad/`, so `git rev-parse --show-toplevel` from the workspace
   resolves the project root deterministically.
 - The bundled settings add `codex[xhigh]`, which passes
   `model_reasoning_effort="xhigh"` to Codex. The default smart target is

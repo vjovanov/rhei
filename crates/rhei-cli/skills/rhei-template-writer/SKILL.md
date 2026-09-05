@@ -18,7 +18,7 @@ Use this skill when a workflow is instantiated more than once with the same shap
 - An onboarding workflow parameterized by new-hire name and team.
 - A compliance audit parameterized by scope and reviewers.
 - Any "scaffold a workspace" request where plans and state machines would otherwise be copy-pasted.
-- Fixing or extending an existing `.agents/rhei/templates/<name>/` or `~/.agents/rhei/templates/<name>/` template, especially when an instantiated workspace fails `rhei validate` or `rhei run --dry-run`.
+- Fixing or extending an existing `.agent-grounds/rhei/templates/<name>/` or `~/.agent-grounds/rhei/templates/<name>/` template, especially when an instantiated workspace fails `rhei validate` or `rhei run --dry-run`.
 
 Do **not** use it when: the user needs a single plan (use `rhei-plan-writer`); the user needs only a state machine (use `rhei-state-machine-writer`); the user just wants an empty rhei or one more ticket in a project that already exists (that is `rhei new "<title>"` and `rhei new "<title>" --under <parent>` — a blank rhei should not require a template system to exist); or the workflow varies so much that parameterization costs more than it saves.
 
@@ -53,7 +53,7 @@ Rules:
 - The directory name is the template identifier and must match `manifest.name` exactly.
 - Exactly one plan entry point: `plan.rhei.md` **or** `index.rhei.md`. Having both is an error.
 - `template.yaml` is parsed before rendering, is never templated itself, and is excluded from the output. Hidden files/directories (names beginning with `.`) are also excluded.
-- A root-level `settings.json` is moved to `.agents/rhei/settings.json` in the output — do not write the `.agents/rhei/` path in the template source.
+- A root-level `settings.json` is moved to `.agent-grounds/rhei/settings.json` in the output — do not write the `.agent-grounds/rhei/` path in the template source.
 - Binary files (null bytes in the first 8 KiB) are copied verbatim. Text files are rendered through the instantiation environment and must decode as UTF-8.
 
 When a custom state machine is needed, `states.yaml` is a required generated artifact (not design notes): produce the complete YAML in the template directory, and keep the rendered plan's `**States:** <name>` aligned with `states.yaml:name`. See *Required Accompaniments* for its diagram and *Response Discipline* for how to present it.
@@ -171,7 +171,7 @@ The renderer is strict: referencing an undefined variable or missing object prop
 1. **Only bundle `settings.json` when the template references MCP servers, skills, or agent profiles** not guaranteed in the user's global config.
 2. **Use `{{...}}` for workspace-specific values** (workspace ids, hostnames, paths), and the settings file's standard `${VAR}` expansion for secrets — `${VAR}` resolves at `rhei run` time on the user's machine, not at instantiation.
 3. **Every MCP / skill / agent id referenced by the bundled `states.yaml` must be declared here or in the user's global settings** — `rhei validate` (post-instantiation) surfaces dangling references.
-4. **Write `settings.json` at the template root**; `rhei instantiate` moves it to `.agents/rhei/settings.json`.
+4. **Write `settings.json` at the template root**; `rhei instantiate` moves it to `.agent-grounds/rhei/settings.json`.
 
 ### Additional files
 
@@ -225,10 +225,12 @@ Templates are resolved by `rhei instantiate <name>` in this order (first match w
 
 | Priority | Location | Scope |
 |---|---|---|
-| 1 | `<project>/.agents/rhei/templates/<name>/` | Project-local |
-| 2 | `~/.agents/rhei/templates/<name>/` | User-global |
+| 1 | `<project>/.agent-grounds/rhei/templates/<name>/` | Project-local |
+| 2 | `<project>/.agents/rhei/templates/<name>/` | Project-local, deprecated |
+| 3 | `~/.agent-grounds/rhei/templates/<name>/` | User-global |
+| 4 | `~/.agents/rhei/templates/<name>/` | User-global, deprecated |
 
-Place project-scoped templates under `.agents/rhei/templates/` so the team picks them up from the checkout; personal templates under `~/.agents/rhei/templates/` so they're available across projects. A template can also be instantiated from an arbitrary path (`rhei instantiate ./path/to/template/`) — useful for authoring and review.
+`<project>` is the **nearest** level at or above the working directory holding either name, not the repository root, so the table is the order *within* one level once the walk has fixed which level that is; `.agents/rhei/` is the former home, still read, and reading it prints one `warning:` line on stderr naming the `.agent-grounds` path to move the material to. Place project-scoped templates under `.agent-grounds/rhei/templates/` so the team picks them up from the checkout; personal templates under `~/.agent-grounds/rhei/templates/` so they're available across projects. A template can also be instantiated from an arbitrary path (`rhei instantiate ./path/to/template/`) — useful for authoring and review.
 
 ## Instantiation CLI Surface
 
@@ -249,15 +251,15 @@ Place project-scoped templates under `.agents/rhei/templates/` so the team picks
 When a workflow is more than a linear checklist, start from a proven template. Each entry is a checked-in, `rhei validate`-passing reference — read its `states.yaml` (diagram in the top comment), its `tasks/`, and its `README.md`, then adapt. Paths are repo-relative.
 
 **Counted loops** (`review → fix → review …`)
-- Template `.agents/rhei/templates/spec-review/`; examples `examples/spec-review-example/` and the callback-driven `examples/review-fix-visits/`.
+- Template `crates/rhei-cli/templates/spec-review/`; examples `examples/spec-review-example/` and the callback-driven `examples/review-fix-visits/`.
 - Technique: a state pair both declaring `visits: N`, with a transition gated `condition: visitCount < visits` (loop back) vs `visitCount >= visits` (exit). The smallest loop in the repo.
 
 **Multi-agent review + aggregation** (fan out across reviewers, then merge)
-- Template `.agents/rhei/templates/changeset-review/` (the richest: `split → fan-out review → aggregate-reviews → propose-fixes → aggregate-proposals → decide → human gate → fix`); also `.agents/rhei/templates/spec-implementation/`.
+- Template `crates/rhei-cli/templates/changeset-review/` (the richest: `split → fan-out review → aggregate-reviews → propose-fixes → aggregate-proposals → decide → human gate → fix`); also `crates/rhei-cli/templates/spec-implementation/`.
 - Technique: `all_targets: <array_input>` fans one state across many agents inside a single task; a following aggregator state run by a single `smart_target` merges the per-agent artifacts. Reviewer multiplicity is an input, never hardcoded.
 
 **Multi-target / multi-model fan-out**
-- Template `.agents/rhei/templates/multi-model-analysis/`; example `examples/multi-model-analysis-example/`.
+- Template `crates/rhei-cli/templates/multi-model-analysis/`; example `examples/multi-model-analysis-example/`.
 - Technique: an `analyze` state with `all_targets` over an `agents` object-array, then one synthesis state. Per-target artifact paths slugify a structured field: `path: …/{{ t.selector|slug }}.md` (the `|slug` filter — the only filter available).
 
 **Multi-round discussion / deliberation** (participants take each other's points into account across rounds, then converge or escalate)
@@ -266,15 +268,15 @@ When a workflow is more than a linear checklist, start from a proven template. E
 - **Gotcha:** the loop is driven by the judge's `nextState` redirect, **not** by `visits`. Do not put `visits` on the `all_models` `collect` state — the engine runs an `all_models`+`visits` state per-target *per-visit* and spins on a `state → state-2` self-loop. Bound the loop in the judge callback (a `CAP`) instead.
 
 **Dynamic / agent-driven task creation** (a coordinator analyzes, then spawns a run-time-decided number of tasks)
-- Template `.agents/rhei/templates/analyze-and-dispatch/`; example `examples/analyze-and-dispatch-example/`. The same coordinator mechanism also lives inside `spec-implementation/` and `changeset-review/`.
+- Template `crates/rhei-cli/templates/analyze-and-dispatch/`; example `examples/analyze-and-dispatch-example/`. The same coordinator mechanism also lives inside `spec-implementation/` and `changeset-review/`.
 - Technique: the rhei "API" for adding tasks is **writing a conforming `tasks/NN-<slug>.md` file** into a directory workspace — `rhei run` re-parses `tasks/` every pass, so there is no `rhei add` command. A coordinator state's agent decides how many tasks to create (the count is *not* fixed at instantiation), writes one file per work item with `**Prior:** Task {task_id}` — its own runtime-substituted id, copied verbatim, so spawned tasks wait for the coordinator — and optionally a final aggregate task whose `**Prior:**` lists every spawned id. Use when the number of follow-ups depends on what the agent finds; contrast with *Parallel execution* below, where the count is fixed at instantiation by an array input. (`##` headings are reserved in task files, and a multi-line free-text input must not be interpolated into a `states.yaml` block scalar — keep it in the markdown task body.)
 
 **Parallel execution** (many *independent* tasks advancing at once)
-- Template `.agents/rhei/templates/parallel-worktrees/`; example `examples/parallel-worktrees-example/`.
+- Template `crates/rhei-cli/templates/parallel-worktrees/`; example `examples/parallel-worktrees-example/`.
 - Technique: a directory workspace whose `tasks/` file `{% for %}`-fans out sibling tasks with **no `**Prior:**`** between them, and working states marked `concurrent: true`. Both are required (see State machine rule 6). The example README shows the `--parallel N` dry-run beside the sequential one.
 
 **Per-task git worktrees** (isolate concurrent edits)
-- Template `.agents/rhei/templates/parallel-worktrees/` (clean), and the `prepare-workspace` state of `changeset-review/` (worktree as one branch of a `none|branch|worktree|fork` choice).
+- Template `crates/rhei-cli/templates/parallel-worktrees/` (clean), and the `prepare-workspace` state of `changeset-review/` (worktree as one branch of a `none|branch|worktree|fork` choice).
 - Technique: worktree creation is an **instruction the agent runs** (`git worktree add <root>/{task_id} -b <prefix>/{task_id}`), not a Rhei primitive. Key each worktree + branch on `{task_id}` so parallel agents never collide; write runtime artifacts back to the scratchpad, not inside the worktree. Mix instantiation-time `{{...}}` and runtime `{task_id}` in one path to get a per-task, per-instantiation location.
 
 **Supervised delivery pipeline** (a parent that decides what its subtree does next, one step at a time)
@@ -283,7 +285,7 @@ When a workflow is more than a linear checklist, start from a proven template. E
 - **Gotchas, both learned the hard way:** do *not* declare `outputs:` on the supervising state — a satisfied completion condition makes `rhei run` advance a ticket without spawning it, so a file written on visit 1 silently skips every later visit; use an `optional: true` **input** instead and branch on `{if input.<name>.exists}` to tell the first visit from the rest. And chain each later phase to the *first* task of the previous phase, never the last: `cancelled` does not satisfy a prerequisite ([§FS-rhei-states.1.4](../../../../docs/functional-spec/rhei-states.spec.md#14-reserved-state-names)), so the first round the supervisor cancels would strand everything after it.
 
 **Human gates / branch / fork isolation / counted decision loops**
-- Templates `.agents/rhei/templates/changeset-review/` and `.agents/rhei/templates/hourly-human-intervention/`.
+- Templates `crates/rhei-cli/templates/changeset-review/` and `crates/rhei-cli/templates/hourly-human-intervention/`.
 
 ## Example Skeleton
 

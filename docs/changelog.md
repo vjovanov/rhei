@@ -36,9 +36,13 @@
   instantiation, the settings hoist into an enclosing project — now lands under
   `.agent-grounds/rhei/`, so rhei's own output is never a path rhei then warns
   about. `.agents/skills/` does not move: it is genuine agent instruction and
-  other runtimes discover it there. This repository's own `ui-test-canonical`
-  template and the checked-in example workspaces moved with the change.
-  (PR #N)
+  other runtimes discover it there. The skills and templates compiled into the
+  binary — installed by `rhei install-skills`, and copied into every workspace
+  `rhei instantiate` writes — name `.agent-grounds/rhei/` too wherever they
+  tell a reader where rhei's own material goes, so following one of them no
+  longer creates a file the new home shadows. This repository's own
+  `ui-test-canonical` template and the checked-in example workspaces moved with
+  the change. (PR #N)
 - **`input.total` counts every input token, whichever agent reported it, and a
   cached read is charged once.** The field had no stated cache-inclusion
   meaning, so each extractor inherited its provider's: OpenAI counts cached
