@@ -12,8 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::agent_grounds_support::{
-    assert_deprecation_warning, assert_silent_about_the_deprecated_home, run_in, DEPRECATED,
-    GROUNDS,
+    assert_deprecation_warning, assert_names_path, assert_silent_about_the_deprecated_home, run_in,
+    DEPRECATED, GROUNDS,
 };
 use super::*;
 
@@ -259,5 +259,147 @@ transitions:
     assert!(
         !dir.join(DEPRECATED).join("settings.json").exists(),
         "rhei's own output must never be a path rhei then warns about"
+    );
+}
+
+/// The template for the hoist cases: a directory workspace shipping a root
+/// `settings.json`, planted under whichever home the case is about.
+fn write_hoist_template(dir: &Path, home: &str, agent: &str) {
+    let template_dir = dir.join(home).join("templates/audit");
+    fs::create_dir_all(template_dir.join("tasks")).expect("create template directory");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: audit\nversion: 1.0.0\ndescription: Bundles project settings\ninputs: []\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "states.yaml",
+        r#"name: audit
+version: 1
+states:
+  review:
+    initial: true
+    description: Look at it
+  done:
+    final: true
+    description: Finished
+transitions:
+  - from: review
+    to: done
+"#,
+    );
+    write_fixture_file(&template_dir, "index.rhei.md", "# Rhei: audit\n**States:** audit\n");
+    write_fixture_file(
+        &template_dir,
+        "tasks/01-review.md",
+        "### Task 1: Review\n**State:** review\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "settings.json",
+        &format!(
+            r#"{{
+  "agents": {{
+    "{agent}": {{ "command": ["{agent}"], "modes": {{ "yolo": [] }} }}
+  }}
+}}
+"#
+        ),
+    );
+}
+
+/// §FS-rhei-templates.6.2: the hoist merges into the new home, so the operator's
+/// deprecated file is superseded rather than material to move — the generic
+/// warning would name the file rhei has just written and cost the template's
+/// entries. The deprecated file is reported, and left alone: rhei did not write
+/// it.
+#[test]
+fn the_hoist_reports_the_deprecated_project_settings_file_as_superseded() {
+    let dir = unique_temp_dir("grounds-hoist-superseded");
+    write_settings(&dir, DEPRECATED, "operator-agent");
+    write_hoist_template(&dir, GROUNDS, "bundled-agent");
+
+    fs::create_dir_all(dir.join(".git")).expect("mark the repository root");
+    let home = dir.join("home");
+    assert_success(&run_in(&["init", "--here"], &dir, &home));
+    let result = run_in(&["instantiate", "audit"], &dir, &home);
+    assert_success(&result);
+
+    assert!(
+        result.stderr.contains("supersedes it"),
+        "the hoist must say the merged file supersedes the deprecated one; stderr was:\n{}",
+        result.stderr
+    );
+    assert!(
+        !result.stderr.contains("Move it to"),
+        "obeying the generic move-warning here drops the template's entries; stderr was:\n{}",
+        result.stderr
+    );
+    assert_names_path(&result.stderr, &dir, &format!("{DEPRECATED}/settings.json"));
+    assert_names_path(&result.stderr, &dir, &format!("{GROUNDS}/settings.json"));
+
+    let merged = fs::read_to_string(dir.join(GROUNDS).join("settings.json"))
+        .expect("the merge lands in the new home");
+    assert!(
+        merged.contains("operator-agent") && merged.contains("bundled-agent"),
+        "the merge carries the operator's values forward and adds the template's:\n{merged}"
+    );
+
+    let left_behind = fs::read_to_string(dir.join(DEPRECATED).join("settings.json"))
+        .expect("rhei did not write this file, so it does not delete it");
+    assert!(
+        !left_behind.contains("bundled-agent"),
+        "the deprecated file keeps its pre-merge content:\n{left_behind}"
+    );
+}
+
+fn run_completion(dir: &Path, home: &Path, args: &[&str]) -> CliRun {
+    let output = rhei_command(home)
+        .args(args)
+        .current_dir(dir)
+        .env("COMPLETE", "fish")
+        .output()
+        .expect("rhei command should run");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+/// §FS-rhei-templates.1.3: a completion request is answered by a fresh process
+/// per Tab press, so the once-per-process guard cannot hold there. The settings
+/// are still read — the deprecated home's agent is among the candidates — and
+/// nothing is printed over them.
+#[test]
+fn shell_completion_is_silent_about_the_deprecated_home() {
+    let dir = unique_temp_dir("grounds-completion-quiet");
+    let plan = write_plan(&dir);
+    write_settings(&dir, DEPRECATED, "legacy-agent");
+    let home = dir.join("home");
+
+    let completion = run_completion(&dir, &home, &["--", "rhei", "run", "--agent", ""]);
+    assert!(
+        completion.stdout.contains("legacy-agent"),
+        "completion should still read the deprecated settings file; stdout was:\n{}",
+        completion.stdout
+    );
+    assert!(
+        completion.stderr.is_empty(),
+        "a Tab press must not print over the candidate list; stderr was:\n{}",
+        completion.stderr
+    );
+
+    // The control: the same tree warns under an ordinary command, so the
+    // silence above is the suppression and not a quiet fixture.
+    let machine = write_machine(&dir, "completion-control.yaml", "legacy-agent");
+    let ordinary = run_cli("validate", &plan, &machine, &[]);
+    assert_success(&ordinary);
+    assert_deprecation_warning(
+        &ordinary,
+        &dir,
+        &format!("{DEPRECATED}/settings.json"),
+        &format!("{GROUNDS}/settings.json"),
     );
 }

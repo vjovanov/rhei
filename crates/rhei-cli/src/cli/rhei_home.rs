@@ -44,6 +44,13 @@ impl RheiHomePath {
             warn_deprecated_rhei_home(&self.path, move_to);
         }
     }
+
+    /// This path, when it is the deprecated one — for the callers that owe it a
+    /// message of their own rather than the generic move-warning.
+    /// §FS-rhei-templates.1.1
+    fn deprecated_path(&self) -> Option<&Path> {
+        self.move_to.as_ref().map(|_| self.path.as_path())
+    }
 }
 
 /// Both names for `<base>/<home>/rhei/<leaf>`, the current home first. Every
@@ -94,19 +101,46 @@ fn nearest_rhei_home_dirs(start: &Path, leaf: &str) -> Option<Vec<RheiHomePath>>
     None
 }
 
-/// Once per distinct deprecated path per process, on stderr. Templates and
-/// settings are resolved repeatedly inside one `rhei run`, so a per-lookup
-/// warning would bury the run's own output, and stdout would corrupt `--json`.
-/// The verb is **move**: rhei is deliberately silent when both names exist at a
-/// tier, so a reader who copies instead ends up editing a file nothing reads.
-/// §FS-rhei-templates.1.3
-fn warn_deprecated_rhei_home(read: &Path, move_to: &Path) {
+/// Whether this process still owes a warning about `read`, taking the debt when
+/// it does. Once per distinct deprecated path: templates and settings are
+/// resolved repeatedly inside one `rhei run`, so a per-lookup warning would
+/// bury the run's own output. §FS-rhei-templates.1.3
+fn claim_deprecated_rhei_home_warning(read: &Path) -> bool {
+    if serving_shell_completion() {
+        return false;
+    }
     static WARNED: std::sync::OnceLock<Mutex<HashSet<PathBuf>>> = std::sync::OnceLock::new();
     let warned = WARNED.get_or_init(|| Mutex::new(HashSet::new()));
     let Ok(mut warned) = warned.lock() else {
-        return;
+        return false;
     };
-    if !warned.insert(read.to_path_buf()) {
+    warned.insert(read.to_path_buf())
+}
+
+/// Whether this run is answering a Tab press, recorded rather than read from
+/// the environment: `clap_complete` removes `COMPLETE` before it runs the
+/// completer, so by the time a candidate list is being built nothing is left to
+/// read. Every completion is a fresh process, so the once-per-process guard
+/// cannot keep the warning off the candidate list; this is what does.
+/// §FS-rhei-templates.1.3
+static SERVING_SHELL_COMPLETION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Record that this process is serving a completion request, before
+/// `clap_complete` takes over. §FS-rhei-templates.1.3
+fn mark_serving_shell_completion() {
+    SERVING_SHELL_COMPLETION.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn serving_shell_completion() -> bool {
+    SERVING_SHELL_COMPLETION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// On stderr, because stdout would corrupt `--json`. The verb is **move**: a
+/// reader who copies instead ends up editing a file that the copy at the
+/// current name now shadows. §FS-rhei-templates.1.3
+fn warn_deprecated_rhei_home(read: &Path, move_to: &Path) {
+    if !claim_deprecated_rhei_home_warning(read) {
         return;
     }
     eprintln!(
