@@ -130,6 +130,39 @@ fn runs_says_what_retention_hid_rather_than_summing_what_is_left() {
     );
 }
 
+/// At exactly the cap, with nothing ever unlinked, the notice still fires — the
+/// registry cannot know whether a sweep ran before it — but it may not assert
+/// that runs were dropped. Claiming a deletion that never happened is the same
+/// kind of wrong answer as summing a shortened window.
+// §FS-rhei-run-headless.6.2
+#[test]
+fn the_truncation_notice_claims_no_deletion_the_registry_cannot_know_about() {
+    let (_dir, home) = home_with_ended_runs("runs-at-cap", RETAINED_ENDED_RUNS);
+
+    let result = runs(&home, &["--all"]);
+    assert!(
+        result.status.success(),
+        "rhei runs --all should succeed\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    assert!(
+        result.stdout.contains("Retention truncated this window:"),
+        "a registry standing at its cap still bounds the window; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        !result.stdout.contains("were unlinked"),
+        "nothing was unlinked here, so the listing may not say so; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        result.stdout.contains("may reach past what the registry still holds"),
+        "the honest claim is the one true whether or not the sweep ran; got:\n{}",
+        result.stdout
+    );
+}
+
 /// And with no flag at all, the command is what it has always been.
 // §FS-rhei-run-headless.6
 #[test]

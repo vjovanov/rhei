@@ -102,6 +102,11 @@ Putting the workspace's lifetime total there instead says this run spent what
 every run before it spent together — directly above the report's own note that
 no agent ran.
 
+A workspace with no accounting history at all is the one case that gains no
+table. A strip of zeros there would say measurement happened and found nothing,
+where nothing was ever measured; the report stays silent, as `rhei cost` says
+`(no accounting records found)` rather than printing a total of zero.
+
 The end-of-run console summary carries the same quantity under the same scope
 label (§3.1).
 

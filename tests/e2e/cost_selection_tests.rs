@@ -10,7 +10,7 @@ use super::accounting_support::{
     ARCHIVED_TOKENS_2026_08_31, ARCHIVED_TOKENS_2026_09_01, ARCHIVED_TOKENS_2026_09_02,
     ARCHIVED_TOTAL_TOKENS, MOCK_AGENT_TOTAL_TOKENS, TERMINAL_PLAN, WORKING_PLAN,
 };
-use super::{assert_success, run_cli, CliRun};
+use super::{assert_stderr_contains, assert_success, run_cli, CliRun};
 
 /// The key the group of records that name no run is reported under.
 /// §FS-rhei-cost-accounting.8.3
@@ -253,4 +253,30 @@ fn cost_with_no_new_flag_prints_what_it_printed_before() {
     );
     assert!(seeded.stdout.contains("\nBy Node:\n"), "got:\n{}", seeded.stdout);
     assert!(seeded.stdout.contains("\nHighest subtree nodes:\n"), "got:\n{}", seeded.stdout);
+}
+
+/// A `<TIME>` too large to hold is a usage error like any other unreadable one.
+/// Multiplying it out unguarded panics a debug build and wraps a release one
+/// into a window the caller never asked for — the silently wrong answer this
+/// flag exists to refuse.
+// §FS-rhei-cost-accounting.8.1
+#[test]
+fn cost_refuses_a_duration_too_large_to_hold_rather_than_wrapping_it() {
+    let (dir, plan_path, machine_path) = accounting_workspace("cost-overflow", TERMINAL_PLAN);
+    seed_archived_records(&dir);
+
+    for text in ["18446744073709551615d", "999999999999999999h"] {
+        let refused = cost(&plan_path, &machine_path, &["--since", text]);
+        assert!(
+            !refused.status.success(),
+            "--since {text} must be refused, not answered; got:\n{}",
+            refused.stdout
+        );
+        assert_stderr_contains(&refused, &format!("could not read '{text}' as a time for --since"));
+    }
+
+    // The same guard on the other end of the window.
+    let refused = cost(&plan_path, &machine_path, &["--until", "18446744073709551615d"]);
+    assert!(!refused.status.success(), "got:\n{}", refused.stdout);
+    assert_stderr_contains(&refused, "as a time for --until");
 }
