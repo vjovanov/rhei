@@ -28,7 +28,7 @@
   which answers the caveat the entry below left open. Where such a record's
   money has to be corrected and its price book is not reachable, the reading
   reports it as unpriced and says so through the aggregate's coverage rather
-  than passing on an amount it knows to be too high. (PR #N)
+  than passing on an amount it knows to be too high. (PR #186)
 - **An invocation record names the run that produced it, and cost can be
   selected by run and by clock.** The word *run* in the accounting spec meant
   "this workspace, all of it", so there was no vocabulary for one invocation of
