@@ -211,8 +211,8 @@ fn summary_prints_the_aggregate_accounting_table() {
 
     for expected in [
         "| Accounting | Value |",
-        "| total tokens | 90.0k |",
-        "| input tokens | 82.4k |",
+        "| total tokens | 150.0k |",
+        "| input tokens | 142.4k |",
         "| input cached | 60.0k |",
         "| output tokens | 7.6k |",
         "| coverage | Partial |",
