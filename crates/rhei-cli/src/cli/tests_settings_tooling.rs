@@ -239,9 +239,12 @@
 
         let _home = TempHome::new();
         let plan_root = dir.path().join("plan");
-        // Built from the loader's own relative path, so the expectation is
-        // spelled the way the diagnostic is on every platform.
-        let project_settings = plan_root.join(PROJECT_SETTINGS_RELATIVE_PATH);
+        // Rejoined component by component from the loader's own relative path,
+        // so the expectation carries the platform's separator the way the
+        // diagnostic does, rather than the constant's spelling.
+        let project_settings = Path::new(PROJECT_SETTINGS_RELATIVE_PATH)
+            .components()
+            .fold(plan_root.clone(), |path, part| path.join(part));
         fs::create_dir_all(project_settings.parent().expect("settings parent")).expect("mkdir");
         fs::write(&project_settings, "{ not json").expect("write malformed");
 

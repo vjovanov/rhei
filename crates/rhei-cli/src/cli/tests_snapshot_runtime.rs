@@ -1275,7 +1275,7 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())\n",
         assert!(captured.contains(&format!("RHEI_WORKSPACE_ROOT={}", dir.path().display())));
         assert!(captured.contains(&format!(
             "RHEI_PROJECT_SETTINGS_PATH={}",
-            dir.path().join(".agent-grounds/rhei/settings.json").display()
+            dir.path().join(".agent-grounds").join("rhei").join("settings.json").display()
         )));
         assert!(captured.contains("RHEI_GLOBAL_SETTINGS_PATH="));
         assert!(captured.contains("RHEI_REDACTOR_ALLOWED=allowed-value"));
