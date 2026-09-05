@@ -27,7 +27,7 @@
   they report the inflated figure of `vjovanov/rhei#166` — cached reads charged
   twice — in more places than before. That bug is not fixed here; it is about
   what a record means, and this change is about aggregating over records.
-  (PR #N)
+  (PR #185)
 - **Autonomous workers no longer leak the enclosing Rhei identity into their
   child processes.** Rhei now removes `RHEI_ROOT`, `RHEI_PLAN_PATH`,
   `RHEI_RESULT_PATH`, `RHEI_TASK_ID`, and `RHEI_TASK_ID_LOCAL` at every agent
