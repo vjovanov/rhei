@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- **`input.total` counts every input token, whichever agent reported it, and a
+  cached read is charged once.** The field had no stated cache-inclusion
+  meaning, so each extractor inherited its provider's: OpenAI counts cached
+  reads inside `input_tokens`, Anthropic and Pi report them beside it. Both
+  records came out `measured` and both satisfied
+  `total == input.total + output.total`, so nothing exposed that the field
+  meant two different things — and `price_tokens` charged `input.total` at the
+  full input rate *and* the cache dimensions at theirs, which is right only
+  while the two are disjoint, so every `codex` cached read was billed twice.
+  `input.cached_read` and `input.cache_write` are now stated to be parts of
+  `input.total` rather than additions to it, the full input rate applies to
+  what is left once they are subtracted, and every record Rhei writes carries
+  `token_convention` to say so. Two numbers move, in opposite directions: for
+  `claude-code` and `pi`, token totals **grow**, because they finally count the
+  cached reads and cache writes that were silently outside `input.total`, while
+  the money does not move at all — the same tokens are charged at the same
+  rates under either convention. For `codex`, cost **falls**: a real archived
+  invocation of 115,497 input tokens, 94,208 of them cached, was stored at
+  543,431 micro-USD where 166,599 was due. Records already on disk are neither
+  rewritten nor repriced; what changes is what a reading of them produces. A
+  record with no `token_convention` is read under the convention its own
+  `agent` implies rather than at face value, so `rhei cost`, `rhei summary`,
+  the rollups and the run report stop carrying the old double charge forward —
+  which answers the caveat the entry below left open. Where such a record's
+  money has to be corrected and its price book is not reachable, the reading
+  reports it as unpriced and says so through the aggregate's coverage rather
+  than passing on an amount it knows to be too high. (PR #N)
 - **An invocation record names the run that produced it, and cost can be
   selected by run and by clock.** The word *run* in the accounting spec meant
   "this workspace, all of it", so there was no vocabulary for one invocation of

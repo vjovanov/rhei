@@ -78,6 +78,7 @@ include!("cli/intervene.rs");
 include!("cli/accounting_price_book.rs");
 include!("cli/accounting_schemas.rs");
 include!("cli/accounting_records.rs");
+include!("cli/accounting_reading.rs");
 include!("cli/accounting_session.rs");
 include!("cli/accounting_selection.rs");
 include!("cli/accounting.rs");

@@ -62,6 +62,7 @@ fn a_visit_is_printed_only_where_a_task_has_more_than_one_record() {
     // a one-shot step stays clean.
     let inspection = CostInspection {
         summary: None,
+        books: ReachablePriceBooks::builtin_only(),
         invocations: vec![
             (PathBuf::from("a.json"), summary_record("1", 1, "2026-05-20T10:00:00Z", "2026-05-20T10:02:32Z")),
             (PathBuf::from("b.json"), summary_record("2", 1, "2026-05-20T10:03:00Z", "2026-05-20T10:21:04Z")),
@@ -90,19 +91,25 @@ fn a_step_duration_is_omitted_when_a_timestamp_will_not_parse() {
 #[test]
 fn an_unmeasured_record_contributes_no_token_clause() {
     // §FS-rhei-summary.4: an unmeasured record contributes no token line.
+    let books = ReachablePriceBooks::builtin_only();
     let record = summary_record("1", 1, "2026-05-20T10:00:00Z", "2026-05-20T10:02:32Z");
-    assert_eq!(summary_step_tokens(&record), None);
+    assert_eq!(summary_step_tokens(&record, &books), None);
 
     let mut measured = record;
     measured.tokens.input.total = AccountingTokenDimension::measured(41_200);
     measured.tokens.output.total = AccountingTokenDimension::measured(3_800);
-    assert_eq!(summary_step_tokens(&measured).as_deref(), Some("41.2k in / 3.8k out"));
+    assert_eq!(summary_step_tokens(&measured, &books).as_deref(), Some("41.2k in / 3.8k out"));
 }
 
 #[test]
 fn an_empty_accounting_store_still_renders_a_lead_line_and_the_unmeasured_line() {
     // §FS-rhei-summary.5: a freshly instantiated workspace is summarizable.
-    let inspection = CostInspection { summary: None, invocations: Vec::new(), errors: Vec::new() };
+    let inspection = CostInspection {
+        summary: None,
+        invocations: Vec::new(),
+        books: ReachablePriceBooks::builtin_only(),
+        errors: Vec::new(),
+    };
     let rendered =
         render_summary(&summary_plan(&["implement"]), &summary_machine(), &inspection, false);
     assert_eq!(

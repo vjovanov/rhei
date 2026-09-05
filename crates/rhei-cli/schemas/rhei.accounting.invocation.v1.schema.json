@@ -45,6 +45,7 @@
     "scope": {
       "enum": ["aggregate-agent-process", "provider-call", "child-invocation"]
     },
+    "token_convention": { "type": "string", "minLength": 1 },
     "tokens": { "$ref": "#/$defs/tokens" },
     "pricing": { "$ref": "#/$defs/pricing" }
   },

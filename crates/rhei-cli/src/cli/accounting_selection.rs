@@ -113,6 +113,7 @@ impl CostSelection {
     pub(crate) fn apply<'a>(
         &self,
         records: impl IntoIterator<Item = &'a AccountingInvocationRecord>,
+        books: &'a ReachablePriceBooks,
     ) -> CostSelectionResult<'a> {
         // The window comes first: it decides the *scope* the run filter is then
         // applied to, and it is also the scope run attribution is reported
@@ -148,6 +149,7 @@ impl CostSelection {
         CostSelectionResult {
             records: selected,
             unattributed,
+            books,
             attributed_count,
             // Only a *named* run is uncertain. `--run unattributed` asked for
             // exactly the records it got, so it carries ordinary coverage like
@@ -168,6 +170,9 @@ pub(crate) struct CostSelectionResult<'a> {
     /// whatever the coverage is, so an unattributed history cannot be mistaken
     /// for an attributed one. §FS-rhei-cost-accounting.3.5
     pub(crate) unattributed: Vec<&'a AccountingInvocationRecord>,
+    /// The books every rollup over this selection reads its records against.
+    /// §FS-rhei-cost-accounting.5.2
+    pub(crate) books: &'a ReachablePriceBooks,
     /// The records in that scope that do name one.
     pub(crate) attributed_count: u64,
     /// A named run was asked for, so records that name no run put its total in
@@ -192,13 +197,13 @@ impl CostSelectionResult<'_> {
 
     /// The rollup over the selection, with §6.2's demotion applied.
     pub(crate) fn summary(&self) -> Option<rhei_tui::AccountingRunSummary> {
-        let summary = summarize_records(self.records.iter().copied())?;
+        let summary = summarize_records(self.records.iter().copied(), self.books)?;
         Some(demote_if(summary, self.is_uncertain()))
     }
 
     /// The rollup over the records that name no run.
     pub(crate) fn unattributed_summary(&self) -> Option<rhei_tui::AccountingRunSummary> {
-        summarize_records(self.unattributed.iter().copied())
+        summarize_records(self.unattributed.iter().copied(), self.books)
     }
 
     /// Whether one group of the selection may report `complete`.
@@ -219,7 +224,7 @@ impl CostSelectionResult<'_> {
         group_is_unattributed: bool,
         records: &[&AccountingInvocationRecord],
     ) -> Option<rhei_tui::AccountingRunSummary> {
-        let summary = summarize_records(records.iter().copied())?;
+        let summary = summarize_records(records.iter().copied(), self.books)?;
         Some(demote_if(summary, self.group_is_uncertain(by, group_is_unattributed)))
     }
 }

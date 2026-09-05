@@ -16,6 +16,7 @@ fn accounting_test_record() -> AccountingInvocationRecord {
         cli_session: None,
         extraction_status: "measured".to_string(),
         scope: "aggregate-agent-process".to_string(),
+        token_convention: None,
         tokens: AccountingTokens::default(),
         pricing: AccountingPricing {
             status: "unpriced".to_string(),
