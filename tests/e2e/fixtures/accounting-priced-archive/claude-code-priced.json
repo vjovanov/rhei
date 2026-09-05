@@ -1,0 +1,58 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "github-issues-vjovanov-grund-86-fix-issue.ticket.green::green::claude-code-yolo-anthropic-claude-sonnet-5::visit-1",
+  "task_id": "github-issues-vjovanov-grund-86-fix-issue.ticket.green",
+  "state": "green",
+  "visit": 1,
+  "target_slug": "claude-code-yolo-anthropic-claude-sonnet-5",
+  "agent": "claude-code",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
+  "started_at": "2026-09-05T01:56:57Z",
+  "ended_at": "2026-09-05T01:59:09Z",
+  "duration_ms": 132017,
+  "cli_session": {
+    "id": "f3fe8135-8ddf-4c36-8d47-1c532fb74c2f"
+  },
+  "extraction_status": "measured",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "total": {
+      "value": 3526,
+      "source": "agent-usage-capture"
+    },
+    "input": {
+      "total": {
+        "value": 18,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "value": 550496,
+        "source": "agent-usage-capture"
+      },
+      "cache_write": {
+        "value": 52423,
+        "source": "agent-usage-capture"
+      }
+    },
+    "output": {
+      "total": {
+        "value": 3508,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "priced",
+    "currency": "USD",
+    "amount_micro": 276272,
+    "priced_amount_micro": 276272,
+    "price_book_id": "foundation-site-2026-09-02"
+  }
+}

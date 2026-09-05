@@ -179,13 +179,15 @@ fn claude_result_json_extracts_typed_usage_dimensions() {
         OutputUsage::Ignored => panic!("Claude result usage should be measured"),
         OutputUsage::Failed => panic!("valid Claude result should not fail extraction"),
     };
-    assert_eq!(usage.input_total, Some(123));
+    // Anthropic's `input_tokens` excludes its cache dimensions, so the three
+    // are added into one `input.total`. §FS-rhei-cost-accounting.3.1
+    assert_eq!(usage.input_total, Some(657));
     assert_eq!(usage.input_cached_read, Some(456));
     assert_eq!(usage.input_cache_write, Some(78));
     assert_eq!(usage.output_total, Some(90));
     let tokens = tokens_from_usage(usage);
-    assert_eq!(tokens.total.value, Some(213));
-    assert_eq!(tokens.input.total.value, Some(123));
+    assert_eq!(tokens.total.value, Some(747));
+    assert_eq!(tokens.input.total.value, Some(657));
     assert_eq!(tokens.input.cached_read.value, Some(456));
     assert_eq!(tokens.input.cache_write.value, Some(78));
     assert_eq!(tokens.output.total.value, Some(90));
@@ -204,7 +206,9 @@ fn claude_result_json_accepts_typed_model_usage_fallback() {
         OutputUsage::Ignored => panic!("Claude model usage should be measured"),
         OutputUsage::Failed => panic!("valid Claude model usage should not fail extraction"),
     };
-    assert_eq!(usage.input_total, Some(100));
+    // §FS-rhei-cost-accounting.3.1: 100 fresh, 20 cached and 30 written are
+    // 150 input tokens, in the `modelUsage` shape as in the `usage` one.
+    assert_eq!(usage.input_total, Some(150));
     assert_eq!(usage.input_cached_read, Some(20));
     assert_eq!(usage.input_cache_write, Some(30));
     assert_eq!(usage.output_total, Some(40));
@@ -403,7 +407,12 @@ print(json.dumps({
     .expect("record accounting")
     .expect("Claude usage is present");
     assert_eq!(usage.status, rhei_tui::UsageStatus::Measured);
-    assert_eq!(usage.input_total.value, Some(123000));
+    // The tokens grow, because they now count the cached reads and cache
+    // writes that were silently outside `input.total`. The money does not: the
+    // same tokens are charged at the same rates under either convention.
+
+    // §FS-rhei-cost-accounting.3.1 §FS-rhei-cost-accounting.5
+    assert_eq!(usage.input_total.value, Some(657_000));
     assert_eq!(usage.input_cached_read.value, Some(456000));
     assert_eq!(usage.input_cache_write.value, Some(78000));
     assert_eq!(usage.output_total.value, Some(90000));

@@ -143,8 +143,13 @@ fn assert_selected_pricing(root: &Path) {
     assert_eq!(invocation["pricing"]["status"], "priced");
     assert_eq!(invocation["pricing"]["currency"], "CHF");
     assert_eq!(invocation["pricing"]["price_book_id"], "fixture-luna-2026-09-01");
-    assert_eq!(invocation["pricing"]["amount_micro"], 11_125_000);
-    assert_eq!(invocation["pricing"]["priced_amount_micro"], 11_125_000);
+    // 1,250,000 input of which 500,000 cached and 250,000 written: 500,000
+    // fresh at 2 CHF/M, the cache dimensions once each, 750,000 output at
+    // 10 CHF/M. Charging all 1,250,000 at the full rate gave 11,125,000.
+
+    // §FS-rhei-cost-accounting.5
+    assert_eq!(invocation["pricing"]["amount_micro"], 9_625_000);
+    assert_eq!(invocation["pricing"]["priced_amount_micro"], 9_625_000);
 }
 
 fn assert_selected_book_copy(root: &Path) {
@@ -179,8 +184,8 @@ fn sequential_run_prices_luna_with_the_selected_book() {
             .expect("read accounting summary"),
     )
     .expect("parse accounting summary");
-    assert_eq!(summary["summary"]["cost_micro"], 11_125_000);
-    assert_eq!(summary["summary"]["priced_cost_micro"], 11_125_000);
+    assert_eq!(summary["summary"]["cost_micro"], 9_625_000);
+    assert_eq!(summary["summary"]["priced_cost_micro"], 9_625_000);
     assert_eq!(summary["summary"]["pricing_status"], "priced");
     assert_eq!(summary["summary"]["coverage"], "complete");
 }

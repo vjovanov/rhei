@@ -158,6 +158,7 @@ mod tests {
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_accounting.rs");
     include!("cli/tests_accounting_contract.rs");
+    include!("cli/tests_accounting_convention.rs");
     include!("cli/tests_accounting_prices.rs");
     include!("cli/tests_summary.rs");
     include!("cli/tests_settings_tooling.rs");
