@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **CI pins grund 0.13.0.** `GRUND_VERSION` in `.github/workflows/ci.yml` moves
+  from `0.12.3` to `0.13.0`; the gate-tools cache key names that variable, so it
+  rekeys and builds the new binary rather than restoring the old one from
+  cache. Grund 0.13.0 regenerates AGENTS.md's managed grounding block from v7
+  to v8; `grund init` produced that diff and nothing else — the hand-written
+  prose around the block and the `CLAUDE.md` symlink to `AGENTS.md` are
+  untouched. `grund check` was otherwise already clean under the new rules.
+  (PR #194)
+
 ## 2. [0.4.0] - 2026-09-05
 
 - **The fissile config lives at `.agent-grounds/fissile.toml`, where an agent
