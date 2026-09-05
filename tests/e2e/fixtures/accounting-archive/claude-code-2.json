@@ -1,0 +1,52 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "github-issues-vjovanov-rhei-141-fix-issue.ticket::supervising::claude-code-yolo-anthropic-claude-fable-5::visit-1",
+  "task_id": "github-issues-vjovanov-rhei-141-fix-issue.ticket",
+  "state": "supervising",
+  "visit": 1,
+  "target_slug": "claude-code-yolo-anthropic-claude-fable-5",
+  "agent": "claude-code",
+  "provider": "anthropic",
+  "model": "claude-fable-5",
+  "started_at": "2026-09-02T06:20:09Z",
+  "ended_at": "2026-09-02T06:24:09Z",
+  "extraction_status": "measured",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "total": {
+      "value": 17885,
+      "source": "agent-usage-capture"
+    },
+    "input": {
+      "total": {
+        "value": 28,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "value": 884950,
+        "source": "agent-usage-capture"
+      },
+      "cache_write": {
+        "value": 84644,
+        "source": "agent-usage-capture"
+      }
+    },
+    "output": {
+      "total": {
+        "value": 17857,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "unpriced",
+    "currency": "USD",
+    "price_book_id": "builtin-2026-05-20"
+  }
+}
