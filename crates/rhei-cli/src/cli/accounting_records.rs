@@ -9,6 +9,14 @@ static ACCOUNTING_INVOCATION_FILE_SEQUENCE: std::sync::atomic::AtomicU64 =
 struct AccountingInvocationRecord {
     schema: String,
     invocation_id: String,
+    /// The one invocation of `rhei run` that spawned this process.
+    ///
+    /// Optional, and the schema string does not move with it: a record written
+    /// before the field existed still parses, and is *unattributed* — never
+    /// dropped, never folded into a named run.
+    // §FS-rhei-cost-accounting.3.5
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    run_id: Option<String>,
     task_id: String,
     state: String,
     visit: u64,

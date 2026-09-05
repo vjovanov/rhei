@@ -2,6 +2,7 @@ fn accounting_test_record() -> AccountingInvocationRecord {
     AccountingInvocationRecord {
         schema: ACCOUNTING_INVOCATION_SCHEMA.to_string(),
         invocation_id: "1::work::codex::visit-1".to_string(),
+        run_id: None,
         task_id: "1".to_string(),
         state: "work".to_string(),
         visit: 1,
@@ -408,9 +409,13 @@ print(json.dumps({
     assert_eq!(usage.output_total.value, Some(90000));
     assert_eq!(usage.cost_micro, Some(2_148_300));
 
+    // The workspace lifetime total, which is what this rollup has always been;
+    // the run's own share travels beside it. §FS-rhei-cost-accounting.6
     let summary = regenerate_accounting_indexes(dir.path(), &plan)
         .expect("regenerate rollups")
-        .expect("run summary");
+        .expect("run summary")
+        .workspace
+        .expect("workspace rollup");
     assert_eq!(summary.invocation_count, 1);
     assert_eq!(summary.measured_invocation_count, 1);
     assert_eq!(summary.missing_invocation_count, 0);
@@ -502,9 +507,13 @@ print(json.dumps({
     assert_eq!(usage.output_total.value, None);
     assert_eq!(usage.cost_micro, None);
 
+    // The workspace lifetime total, which is what this rollup has always been;
+    // the run's own share travels beside it. §FS-rhei-cost-accounting.6
     let summary = regenerate_accounting_indexes(dir.path(), &plan)
         .expect("regenerate rollups")
-        .expect("run summary");
+        .expect("run summary")
+        .workspace
+        .expect("workspace rollup");
     assert_eq!(summary.invocation_count, 1);
     assert_eq!(summary.measured_invocation_count, 0);
     assert_eq!(summary.missing_invocation_count, 1);

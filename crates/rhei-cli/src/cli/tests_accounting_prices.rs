@@ -61,9 +61,13 @@ fn custom_price_book_prices_luna_usage_and_complete_rollup() {
         "# Rhei: Custom Pricing\n\n## Tasks\n\n### Task 1: Work\n**State:** pending\n",
     )
     .expect("parse plan");
+    // The workspace lifetime total, which is what this rollup has always been;
+    // the run's own share travels beside it. §FS-rhei-cost-accounting.6
     let summary = regenerate_accounting_indexes(dir.path(), &plan)
         .expect("regenerate rollups")
-        .expect("run summary");
+        .expect("run summary")
+        .workspace
+        .expect("workspace rollup");
     assert_eq!(summary.cost_micro, Some(11_125_000));
     assert_eq!(summary.priced_cost_micro, Some(11_125_000));
     assert_eq!(summary.currency.as_deref(), Some("CHF"));

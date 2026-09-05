@@ -19,7 +19,7 @@ pub use event::{
     TaskOutcome, Tee, UsageCoverage, UsageStatus, UsageSummary,
 };
 pub use event_json::{
-    decode as decode_event, encode as encode_event, format_rfc3339, SCHEMA_VERSION,
+    decode as decode_event, encode as encode_event, format_rfc3339, parse_rfc3339, SCHEMA_VERSION,
 };
 pub use event_log::{event_log_path, EventLogReader, EventLogSink};
 pub use frontend::{select_frontend, Frontend, FrontendKind};

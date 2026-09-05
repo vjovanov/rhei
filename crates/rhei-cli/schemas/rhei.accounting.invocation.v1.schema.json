@@ -21,6 +21,7 @@
   "properties": {
     "schema": { "const": "rhei.accounting.invocation.v1" },
     "invocation_id": { "type": "string" },
+    "run_id": { "type": "string", "minLength": 1 },
     "task_id": { "type": "string" },
     "state": { "type": "string" },
     "visit": { "type": "integer", "minimum": 0 },

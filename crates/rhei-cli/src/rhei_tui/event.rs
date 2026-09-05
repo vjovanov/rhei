@@ -31,7 +31,17 @@ pub struct RunSummary {
     pub programs_spawned: u32,
     pub terminal_tasks: usize,
     pub total_tasks: usize,
+    /// What *this run* spent: the rollup over the invocation records that name
+    /// it. §FS-rhei-run-report.2.1
     pub accounting: Option<AccountingRunSummary>,
+    /// `workspace_total`: what the workspace has spent over its whole life.
+    /// Carried beside the run's own so neither is read as the other.
+    ///
+    /// Boxed because `RunEvent` is sized by its largest variant, and a second
+    /// inline rollup here makes `RunFinished` half again the size of every
+    /// other event on the channel.
+    // §FS-rhei-cost-accounting.6
+    pub workspace_accounting: Option<Box<AccountingRunSummary>>,
 }
 
 /// Severity of an engine log message.

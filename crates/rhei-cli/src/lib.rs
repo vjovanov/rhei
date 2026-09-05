@@ -79,6 +79,7 @@ include!("cli/accounting_price_book.rs");
 include!("cli/accounting_schemas.rs");
 include!("cli/accounting_records.rs");
 include!("cli/accounting_session.rs");
+include!("cli/accounting_selection.rs");
 include!("cli/accounting.rs");
 include!("cli/summary_command.rs");
 include!("cli/programs.rs");
@@ -114,6 +115,7 @@ include!("cli/run_parallel_agent_exit.rs");
 include!("cli/run_callback_mode.rs");
 include!("cli/run_failure_transitions.rs");
 include!("cli/run_summary_usage.rs");
+include!("cli/run_summary_accounting.rs");
 include!("cli/run_summary.rs");
 include!("cli/ready_transition.rs");
 include!("cli/ready_halt_causes.rs");
@@ -138,6 +140,7 @@ include!("cli/intervene_command.rs");
 include!("cli/attach_tail.rs");
 include!("cli/attach_command.rs");
 include!("cli/runs_command.rs");
+include!("cli/runs_history.rs");
 include!("cli/diagnostics.rs");
 
 #[cfg(test)]

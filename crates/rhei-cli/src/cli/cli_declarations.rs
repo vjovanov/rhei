@@ -355,6 +355,15 @@ enum Commands {
         /// Emit output as JSON for machine consumption
         #[arg(long)]
         json: bool,
+        /// Also list the ended runs the registry still holds
+        #[arg(long)]
+        all: bool,
+        /// Only runs that started at or after this time; implies --all
+        #[arg(long, value_name = "TIME")]
+        since: Option<String>,
+        /// Only runs that started before this time; implies --all
+        #[arg(long, value_name = "TIME")]
+        until: Option<String>,
     },
     /// Ask a run to stop, entering the same interruption path as Ctrl+C
     Stop {
@@ -401,9 +410,21 @@ enum Commands {
         /// Emit output as JSON for machine consumption
         #[arg(long)]
         json: bool,
-        /// Group run totals in text/JSON output
+        /// Group totals in text/JSON output
         #[arg(long, value_enum, default_value = "node")]
         by: CostGroup,
+        /// Total only one run's invocations; `unattributed` selects the records
+        /// that name no run
+        #[arg(long, value_name = "ID")]
+        run: Option<String>,
+        /// Only invocations that started at or after this time (RFC 3339
+        /// instant, UTC date, or a duration before now such as 7d)
+        #[arg(long, value_name = "TIME")]
+        since: Option<String>,
+        /// Only invocations that started before this time, in the same
+        /// vocabulary as --since
+        #[arg(long, value_name = "TIME")]
+        until: Option<String>,
     },
     /// Print or list published accounting JSON Schemas
     Schema {

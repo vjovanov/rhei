@@ -80,6 +80,13 @@ struct SummaryState {
     usages: UsageLedger,
     /// The finalized run rollup from `RunFinished`, when available.
     accounting: Option<rhei_tui::AccountingRunSummary>,
+    /// `workspace_total` — the workspace's lifetime, kept apart from the run's
+    /// own so neither can stand in for the other.
+    // §FS-rhei-cost-accounting.6 §FS-rhei-run-report.2.1
+    workspace_accounting: Option<rhei_tui::AccountingRunSummary>,
+    /// Which of the strip's two sources produced what it is about to show.
+    // §FS-rhei-run-report.2.1
+    source: AccountingSource,
 }
 
 impl SummarySink {
@@ -100,15 +107,24 @@ impl SummarySink {
         self.inner.lock().map(|state| state.ledger.clone()).unwrap_or_default()
     }
 
-    /// Run-level accounting, preferring the finalized `RunFinished` summary and
+    /// Run-level accounting, preferring the finalized `RunFinished` rollup and
     /// falling back to accumulated usage events for aborted runs.
-    fn accounting(&self) -> Option<rhei_tui::AccountingRunSummary> {
+    ///
+    /// The fallback is where `source` earns its place: a run that never reached
+    /// `RunFinished` lands here with `state.source` still at its
+    /// `RunEvents` default, so the strip it renders is labelled as the events
+    /// summary it is. `Rollup` is written in exactly one place — the
+    /// `RunFinished` arm below — and only together with the rollup itself.
+    // §FS-rhei-run-report.2.1
+    fn accounting(&self) -> RunAccountingStrip {
         self.inner
             .lock()
-            .ok()
-            .and_then(|state| {
-                state.accounting.clone().or_else(|| state.usages.run_rollup())
+            .map(|state| RunAccountingStrip {
+                run: state.accounting.clone().or_else(|| state.usages.run_rollup()),
+                workspace: state.workspace_accounting.clone(),
+                source: state.source,
             })
+            .unwrap_or_default()
     }
 }
 
@@ -185,10 +201,22 @@ impl rhei_tui::EventSink for SummarySink {
                 state.tasks.entry(task).or_default().missing_outputs =
                     Some((stalled_in, entries));
             }
-            rhei_tui::RunEvent::RunFinished { summary } => {
-                state.accounting =
-                    summary.accounting.clone().or_else(|| state.usages.run_rollup());
-            }
+            // The only place the strip's source is decided; a rollup and the
+            // lifetime total arrive together or not at all.
+            // §FS-rhei-run-report.2.1
+            rhei_tui::RunEvent::RunFinished { summary } => match summary.accounting.clone() {
+                Some(rollup) => {
+                    state.accounting = Some(rollup);
+                    state.workspace_accounting =
+                        summary.workspace_accounting.as_deref().cloned();
+                    state.source = AccountingSource::Rollup;
+                }
+                None => {
+                    state.accounting = state.usages.run_rollup();
+                    state.workspace_accounting = None;
+                    state.source = AccountingSource::RunEvents;
+                }
+            },
             _ => {}
         }
     }
@@ -616,7 +644,7 @@ pub struct RunSummaryReport {
     state_counts: Vec<(String, usize, Marker)>,
     total_tasks: usize,
     work: String,
-    accounting: Option<rhei_tui::AccountingRunSummary>,
+    accounting: RunAccountingStrip,
     attention: Vec<AttentionRow>,
     /// Tickets nobody has to act on because someone else's turn is what they
     /// are waiting for. Held descendants dilute Attention: a held ticket's own
@@ -848,20 +876,7 @@ impl RunSummaryReport {
         out.push_str(&self.render_state_labels(&c));
         out.push('\n');
         out.push_str(&format!("  Work      {}\n", self.work));
-        if let Some(accounting) = &self.accounting {
-            // §FS-rhei-cost-accounting.9: End-of-run surfaces show separate input,
-            // cached input, output, and cached output totals.
-            out.push_str(&format!(
-                "  Cost      {} · Total {} · In {} · In cached {} · Out {} · Out cached {} · Coverage {:?}\n",
-                format_summary_cost(accounting),
-                format_dimension_value(&accounting.total),
-                format_dimension_value(&accounting.input_total),
-                format_dimension_value(&accounting.input_cached_read),
-                format_dimension_value(&accounting.output_total),
-                format_dimension_value(&accounting.output_cached_read),
-                accounting.coverage,
-            ));
-        }
+        out.push_str(&self.accounting.render_console());
 
         // Attention.
         if !self.attention.is_empty() {
@@ -982,33 +997,7 @@ impl RunSummaryReport {
         out.push_str(&format!("| terminal at start | {} |\n", self.terminal_at_start));
         out.push_str(&format!("| could not advance | {could_not_advance} |\n"));
         out.push('\n');
-        if let Some(accounting) = &self.accounting {
-            // §FS-rhei-cost-accounting.9: Durable reports carry the run accounting strip.
-            out.push_str("| Accounting | Value |\n| --- | ---: |\n");
-            out.push_str(&format!("| cost | {} |\n", format_summary_cost(accounting)));
-            out.push_str(&format!(
-                "| total tokens | {} |\n",
-                format_dimension_value(&accounting.total)
-            ));
-            out.push_str(&format!(
-                "| input tokens | {} |\n",
-                format_dimension_value(&accounting.input_total)
-            ));
-            out.push_str(&format!(
-                "| input cached | {} |\n",
-                format_dimension_value(&accounting.input_cached_read)
-            ));
-            out.push_str(&format!(
-                "| output tokens | {} |\n",
-                format_dimension_value(&accounting.output_total)
-            ));
-            out.push_str(&format!(
-                "| output cached | {} |\n",
-                format_dimension_value(&accounting.output_cached_read)
-            ));
-            out.push_str(&format!("| coverage | {:?} |\n", accounting.coverage));
-            out.push('\n');
-        }
+        out.push_str(&self.accounting.render_markdown());
         if self.agents_spawned == 0 && self.programs_spawned == 0 {
             out.push_str(
                 "> No agent or program ran this run. Any task that advanced did so through \

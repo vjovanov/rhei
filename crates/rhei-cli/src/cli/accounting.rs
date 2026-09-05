@@ -134,12 +134,17 @@ struct AgentAccountingInvocation<'a> {
     sink: &'a Arc<dyn rhei_tui::EventSink>,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum CostGroup {
     Agent,
     Model,
     State,
     Node,
+    /// §FS-rhei-cost-accounting.8.3: one group per run, plus the never-omitted
+    /// group for the records that name none.
+    Run,
+    /// §FS-rhei-cost-accounting.8.3: the UTC calendar day of `started_at`.
+    Day,
 }
 
 fn record_agent_accounting_invocation(
@@ -187,6 +192,9 @@ fn record_agent_accounting_invocation(
     let record = AccountingInvocationRecord {
         schema: ACCOUNTING_INVOCATION_SCHEMA.to_string(),
         invocation_id: invocation_id.clone(),
+        // §FS-rhei-cost-accounting.3.5: every record written inside a run names
+        // it, so attributing spend to a run is a fact rather than an inference.
+        run_id: current_run_id(),
         task_id: invocation.task.id.to_string(),
         state: invocation.state.to_string(),
         visit: invocation.visit,
@@ -217,10 +225,73 @@ fn record_agent_accounting_invocation(
     Ok(Some(usage))
 }
 
+/// What one run spent, told apart from what its workspace has ever spent.
+///
+/// Two different numbers that were one number until now: the strip an operator
+/// reads after a run was the whole workspace's lifetime total, presented as
+/// what the run had just cost.
+// §FS-rhei-run-report.2.1 §FS-rhei-cost-accounting.6
+#[derive(Clone, Debug)]
+struct RunAccountingRollup {
+    /// The records naming this run. Zero-valued when it spawned no agent,
+    /// because zero is what such a run spent.
+    run: rhei_tui::AccountingRunSummary,
+    /// `workspace_total` — the workspace's whole accounting history.
+    workspace: Option<rhei_tui::AccountingRunSummary>,
+}
+
+/// What a run that spawned no agent spent: nothing, said as a number rather
+/// than left blank for the lifetime total to fill.
+// §FS-rhei-run-report.2.1
+fn zero_run_accounting() -> rhei_tui::AccountingRunSummary {
+    let none_spent = rhei_tui::DimensionSummary {
+        value: Some(0),
+        status: rhei_tui::DimensionStatus::Measured,
+        measured_count: 0,
+        missing_count: 0,
+    };
+    rhei_tui::AccountingRunSummary {
+        total: none_spent.clone(),
+        input_total: none_spent.clone(),
+        input_cached_read: none_spent.clone(),
+        input_cache_write: none_spent.clone(),
+        output_total: none_spent.clone(),
+        output_cached_read: none_spent.clone(),
+        output_cache_write: none_spent,
+        cost_micro: Some(0),
+        priced_cost_micro: Some(0),
+        currency: Some("USD".to_string()),
+        coverage: rhei_tui::UsageCoverage::Complete,
+        pricing_status: rhei_tui::PricingStatus::Priced,
+        invocation_count: 0,
+        measured_invocation_count: 0,
+        missing_invocation_count: 0,
+    }
+}
+
+/// This run's own rollup, over the records that name it.
+///
+/// It is a run selection like any other, so §FS-rhei-cost-accounting.6.2 holds
+/// here too: while the workspace carries records that name no run, one of them
+/// may be this run's, and the reading cannot claim to be complete.
+// §FS-rhei-run-report.2.1 §FS-rhei-cost-accounting.6.2
+fn this_runs_rollup(inspection: &CostInspection) -> rhei_tui::AccountingRunSummary {
+    let Some(run_id) = current_run_id() else {
+        // Nothing published an identity for this process, so nothing on disk
+        // can be attributed to it — and it cannot be sure of that either.
+        return demote_if(zero_run_accounting(), true);
+    };
+    let selection = CostSelection::resolve(Some(&run_id), None, None).unwrap_or_default();
+    let selected = selection.apply(inspection.invocations.iter().map(|(_, record)| record));
+    selected
+        .summary()
+        .unwrap_or_else(|| demote_if(zero_run_accounting(), !selected.unattributed.is_empty()))
+}
+
 fn regenerate_accounting_indexes(
     workspace_root: &Path,
     rhei: &rhei_core::ast::Rhei,
-) -> MietteResult<Option<rhei_tui::AccountingRunSummary>> {
+) -> MietteResult<Option<RunAccountingRollup>> {
     // §FS-rhei-cost-accounting.6: Task and run rollups are derived indexes.
     let accounting_root = workspace_root.join("runtime/accounting");
     let inspection = read_cost_inspection(&accounting_root);
@@ -268,24 +339,30 @@ fn regenerate_accounting_indexes(
         });
         write_json_atomic(&accounting_root.join("summary.json"), &payload)?;
     }
-    Ok(inspection.summary)
+    // §FS-rhei-run-report.2.1: the run's own total and the workspace lifetime
+    // total travel together, and named apart, so neither can stand in for the
+    // other on the strip an operator reads.
+    Ok(Some(RunAccountingRollup {
+        run: this_runs_rollup(&inspection),
+        workspace: inspection.summary,
+    }))
 }
 
-fn cost_command(
-    input: &Path,
-    task: Option<&str>,
-    json: bool,
-    by: CostGroup,
-) -> MietteResult<()> {
+fn cost_command(options: CostCommandOptions<'_>) -> MietteResult<()> {
     // §FS-rhei-cost-accounting.8: `rhei cost` inspects without changing plan.
-    let input_buf = normalize_workspace_input(input);
+    let input_buf = normalize_workspace_input(options.input);
+    // §FS-rhei-cost-accounting.8.2: an unreadable `<TIME>` is refused before
+    // any record is read, so nothing can report an empty window as an answer.
+    let selection = CostSelection::resolve(options.run, options.since, options.until)?;
     let loaded = load_plan(&input_buf)?;
     let workspace_root = execution_workspace_root(&input_buf);
     let accounting_root = workspace_root.join("runtime/accounting");
     let inspection = read_cost_inspection(&accounting_root);
+    let selected = selection.apply(inspection.invocations.iter().map(|(_, record)| record));
 
-    if json {
-        let payload = cost_json_payload(&loaded.rhei, &inspection, task, by);
+    if options.json {
+        let payload =
+            cost_json_payload(&loaded.rhei, &inspection, &selection, &selected, options);
         println!("{}", serde_json::to_string_pretty(&payload).expect("cost json serializes"));
         return Ok(());
     }
@@ -298,13 +375,34 @@ fn cost_command(
         println!("(no accounting records found)");
         return Ok(());
     }
+    if selection.is_active() && selected.records.is_empty() {
+        // §FS-rhei-cost-accounting.8.2: a selection that matched nothing is a
+        // different answer from a workspace that holds nothing.
+        println!("(no accounting records match the selection)");
+        return Ok(());
+    }
 
-    if let Some(task_id) = task {
-        print_task_cost(&loaded.rhei, &inspection, task_id);
+    if let Some(task_id) = options.task {
+        if selection.is_active() {
+            print_selection_lines(&selection, &selected);
+        }
+        print_task_cost(&loaded.rhei, &selected.records, task_id);
     } else {
-        print_run_cost(&loaded.rhei, &inspection, by);
+        print_run_cost(&loaded.rhei, &selection, &selected, options.by);
     }
     Ok(())
+}
+
+/// What `rhei cost` was asked for. §FS-rhei-cost-accounting.8
+#[derive(Clone, Copy)]
+struct CostCommandOptions<'a> {
+    input: &'a Path,
+    task: Option<&'a str>,
+    json: bool,
+    by: CostGroup,
+    run: Option<&'a str>,
+    since: Option<&'a str>,
+    until: Option<&'a str>,
 }
 
 fn read_cost_inspection(accounting_root: &Path) -> CostInspection {
@@ -341,24 +439,49 @@ fn read_cost_inspection(accounting_root: &Path) -> CostInspection {
     CostInspection { summary, invocations, errors }
 }
 
+/// The `rhei.accounting.cost.v1` payload.
+///
+/// `selection` and `run_attribution` are on every payload, whatever flags were
+/// given: adding keys is additive, and a caller must be able to see the
+/// unattributed share without having thought to ask for a grouping.
+// §FS-rhei-cost-accounting.8.4
 fn cost_json_payload(
     rhei: &rhei_core::ast::Rhei,
     inspection: &CostInspection,
-    task: Option<&str>,
-    by: CostGroup,
+    selection: &CostSelection,
+    selected: &CostSelectionResult<'_>,
+    options: CostCommandOptions<'_>,
 ) -> serde_json::Value {
     serde_json::json!({
         "schema": "rhei.accounting.cost.v1",
-        "summary": inspection.summary,
-        "task": task.map(|task_id| task_cost_json(rhei, inspection, task_id)),
-        "groups": grouped_cost_json(inspection, by),
+        "selection": {
+            "run": selection.run_label(),
+            "since": selection.since_label(),
+            "until": selection.until_label(),
+            "invocation_count": selected.records.len() as u64,
+            "undated_invocation_count": selected.undated,
+        },
+        "run_attribution": {
+            "attributed_invocation_count": selected.attributed_count,
+            "unattributed_invocation_count": selected.unattributed.len() as u64,
+            "unattributed": selected.unattributed_summary(),
+        },
+        "summary": selected.summary(),
+        "task": options.task.map(|task_id| task_cost_json(rhei, &selected.records, task_id)),
+        "groups": grouped_cost_json(selected, options.by),
         "errors": inspection.errors,
     })
 }
 
+/// One task node's direct and subtree totals, over the selection.
+///
+/// The plan tree is a selection axis like the others and composes with them, so
+/// a task's totals are drawn from what `--run` and the window left standing —
+/// not from every record the workspace holds.
+// §FS-rhei-cost-accounting.6.1 §FS-rhei-cost-accounting.8.2
 fn task_cost_json(
     rhei: &rhei_core::ast::Rhei,
-    inspection: &CostInspection,
+    records: &[&AccountingInvocationRecord],
     task_id: &str,
 ) -> serde_json::Value {
     let title = flatten_tasks(rhei)
@@ -369,29 +492,57 @@ fn task_cost_json(
         // §FS-rhei-cost-accounting.8: JSON uses stable runtime schema names.
         "task_id": task_id,
         "title": title,
-        "direct": summarize_records(inspection.invocations.iter().filter(|(_, record)| record.task_id == task_id).map(|(_, record)| record)),
-        "subtree": summarize_records(inspection.invocations.iter().filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, task_id)).map(|(_, record)| record)),
-        "invocations": inspection.invocations.iter().filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, task_id)).map(|(_, record)| record).collect::<Vec<_>>(),
+        "direct": summarize_records(direct_records(records, task_id)),
+        "subtree": summarize_records(subtree_records(records, task_id)),
+        "invocations": subtree_records(records, task_id).collect::<Vec<_>>(),
     })
 }
 
-fn grouped_cost_json(inspection: &CostInspection, by: CostGroup) -> Vec<serde_json::Value> {
-    grouped_records(inspection, by)
+/// The records charged to one node. §FS-rhei-cost-accounting.6
+fn direct_records<'a, 'r>(
+    records: &'a [&'r AccountingInvocationRecord],
+    task_id: &'a str,
+) -> impl Iterator<Item = &'r AccountingInvocationRecord> + 'a {
+    records.iter().copied().filter(move |record| record.task_id == task_id)
+}
+
+/// The records charged to one node or to any descendant of it.
+/// §FS-rhei-cost-accounting.6
+fn subtree_records<'a, 'r>(
+    records: &'a [&'r AccountingInvocationRecord],
+    task_id: &'a str,
+) -> impl Iterator<Item = &'r AccountingInvocationRecord> + 'a {
+    records.iter().copied().filter(move |record| {
+        record.task_id == task_id || is_descendant_id(&record.task_id, task_id)
+    })
+}
+
+fn grouped_cost_json(
+    selected: &CostSelectionResult<'_>,
+    by: CostGroup,
+) -> Vec<serde_json::Value> {
+    grouped_records(selected, by)
         .into_iter()
         .map(|(key, records)| {
             serde_json::json!({
-                "key": key,
-                "summary": summarize_records(records.into_iter()),
+                "key": key.key,
+                "unattributed": key.unattributed,
+                "summary": selected.group_summary(by, key.unattributed, &records),
             })
         })
         .collect()
 }
 
-fn print_run_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, by: CostGroup) {
-    if let Some(summary) = inspection.summary.as_ref() {
+fn print_run_cost(
+    rhei: &rhei_core::ast::Rhei,
+    selection: &CostSelection,
+    selected: &CostSelectionResult<'_>,
+    by: CostGroup,
+) {
+    if let Some(summary) = selected.summary() {
         println!(
             "Cost {} | Total {} | In {} | Out {} | Coverage {:?} | Invocations {}",
-            format_summary_cost(summary),
+            format_summary_cost(&summary),
             format_dimension_value(&summary.total),
             format_dimension_value(&summary.input_total),
             format_dimension_value(&summary.output_total),
@@ -399,11 +550,18 @@ fn print_run_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, by: 
             summary.invocation_count
         );
     }
+    // §FS-rhei-cost-accounting.8.4: the unselected reading prints exactly what
+    // it printed before, so what the selection has to say is said only when one
+    // was asked for. `--json` carries it either way.
+    if selection.is_active() {
+        print_selection_lines(selection, selected);
+    }
     println!("\nBy {:?}:", by);
-    for (key, records) in grouped_records(inspection, by) {
-        if let Some(summary) = summarize_records(records.into_iter()) {
+    for (key, records) in grouped_records(selected, by) {
+        if let Some(summary) = selected.group_summary(by, key.unattributed, &records) {
             println!(
-                "  {key}: {} total={} in={} out={} coverage={:?}",
+                "  {}: {} total={} in={} out={} coverage={:?}",
+                key.key,
                 format_summary_cost(&summary),
                 format_dimension_value(&summary.total),
                 format_dimension_value(&summary.input_total),
@@ -413,40 +571,58 @@ fn print_run_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, by: 
         }
     }
     println!("\nHighest subtree nodes:");
-    for (task_id, title, summary) in highest_subtree_nodes(rhei, inspection).into_iter().take(8) {
+    for (task_id, title, summary) in
+        highest_subtree_nodes(rhei, &selected.records).into_iter().take(8)
+    {
         println!("  {task_id} {title}: {}", format_summary_cost(&summary));
     }
 }
 
-fn print_task_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, task_id: &str) {
+/// What the selection was, and how much of it nothing could attribute — said
+/// beside the total whatever the coverage turned out to be.
+// §FS-rhei-cost-accounting.6.2 §FS-rhei-cost-accounting.8.2
+fn print_selection_lines(selection: &CostSelection, selected: &CostSelectionResult<'_>) {
+    let mut parts = Vec::new();
+    if let Some(run) = selection.run_label() {
+        parts.push(format!("run {run}"));
+    }
+    if let Some(since) = selection.since_label() {
+        parts.push(format!("since {since}"));
+    }
+    if let Some(until) = selection.until_label() {
+        parts.push(format!("until {until}"));
+    }
+    println!("Selection: {} | Invocations {}", parts.join(" | "), selected.records.len());
+    println!(
+        "Attribution: {} named a run, {} named none",
+        selected.attributed_count,
+        selected.unattributed.len()
+    );
+    if selected.undated > 0 {
+        println!(
+            "Undated: {} record(s) could not be placed in this window",
+            selected.undated
+        );
+    }
+}
+
+fn print_task_cost(
+    rhei: &rhei_core::ast::Rhei,
+    records: &[&AccountingInvocationRecord],
+    task_id: &str,
+) {
     let title = flatten_tasks(rhei)
         .into_iter()
         .find(|task| task.id.to_string() == task_id)
         .map(|task| task.title.clone())
         .unwrap_or_else(|| "(unknown task)".to_string());
     println!("Task {task_id}: {title}");
-    let direct = summarize_records(
-        inspection
-            .invocations
-            .iter()
-            .filter(|(_, record)| record.task_id == task_id)
-            .map(|(_, record)| record),
-    );
-    let subtree = summarize_records(
-        inspection
-            .invocations
-            .iter()
-            .filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, task_id))
-            .map(|(_, record)| record),
-    );
+    let direct = summarize_records(direct_records(records, task_id));
+    let subtree = summarize_records(subtree_records(records, task_id));
     println!("  Direct: {}", direct.as_ref().map(format_summary_cost).unwrap_or_else(|| "none".to_string()));
     println!("  Subtree: {}", subtree.as_ref().map(format_summary_cost).unwrap_or_else(|| "none".to_string()));
     println!("  Invocations:");
-    for (_, record) in inspection
-        .invocations
-        .iter()
-        .filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, task_id))
-    {
+    for record in subtree_records(records, task_id) {
         let usage = usage_summary_from_record(record);
         println!(
             "    {} {} {} {}",
@@ -458,38 +634,34 @@ fn print_task_cost(rhei: &rhei_core::ast::Rhei, inspection: &CostInspection, tas
     }
 }
 
-fn grouped_records(
-    inspection: &CostInspection,
+/// Partition the selection. Every selected record lands in exactly one group,
+/// whatever its `run_id` says or does not say.
+// §FS-rhei-cost-accounting.6.1
+fn grouped_records<'a>(
+    selected: &CostSelectionResult<'a>,
     by: CostGroup,
-) -> Vec<(String, Vec<&AccountingInvocationRecord>)> {
-    let mut groups: BTreeMap<String, Vec<&AccountingInvocationRecord>> = BTreeMap::new();
-    for (_, record) in &inspection.invocations {
-        let key = match by {
-            CostGroup::Agent => record.agent.clone(),
-            CostGroup::Model => record.model.clone().unwrap_or_else(|| "(unknown)".to_string()),
-            CostGroup::State => record.state.clone(),
-            CostGroup::Node => record.task_id.clone(),
-        };
-        groups.entry(key).or_default().push(record);
+) -> Vec<(CostGroupKey, Vec<&'a AccountingInvocationRecord>)> {
+    let mut groups: BTreeMap<String, (bool, Vec<&AccountingInvocationRecord>)> = BTreeMap::new();
+    for record in selected.records.iter().copied() {
+        let key = cost_group_key(record, by);
+        let entry = groups.entry(key.key).or_insert_with(|| (key.unattributed, Vec::new()));
+        entry.1.push(record);
     }
-    groups.into_iter().collect()
+    groups
+        .into_iter()
+        .map(|(key, (unattributed, records))| (CostGroupKey { key, unattributed }, records))
+        .collect()
 }
 
 fn highest_subtree_nodes(
     rhei: &rhei_core::ast::Rhei,
-    inspection: &CostInspection,
+    records: &[&AccountingInvocationRecord],
 ) -> Vec<(String, String, rhei_tui::AccountingRunSummary)> {
     let mut rows = Vec::new();
     for task in flatten_tasks(rhei) {
         let task_id = task.id.to_string();
         // §FS-rhei-cost-accounting.6: subtree(node)=direct+descendants.
-        if let Some(summary) = summarize_records(
-            inspection
-                .invocations
-                .iter()
-                .filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, &task_id))
-                .map(|(_, record)| record),
-        ) {
+        if let Some(summary) = summarize_records(subtree_records(records, &task_id)) {
             rows.push((task_id, task.title.clone(), summary));
         }
     }
