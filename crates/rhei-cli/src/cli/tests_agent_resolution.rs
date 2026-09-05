@@ -1,6 +1,7 @@
     #[test]
     fn resolve_legacy_agent_uses_defaults_agent_timeout() {
         let settings = RheiSettings {
+            project_settings_file: ProjectSettingsFile::default(),
             agent: Some(AgentConfig::from("codex")),
             agent_mode: None,
             model: None,
@@ -33,6 +34,7 @@
 
     fn default_settings() -> RheiSettings {
         RheiSettings {
+            project_settings_file: ProjectSettingsFile::default(),
             agent: None,
             agent_mode: None,
             model: None,

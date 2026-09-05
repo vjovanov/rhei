@@ -860,6 +860,7 @@ transitions:
         registry: BTreeMap<String, McpServerProfile>,
     ) -> RheiSettings {
         RheiSettings {
+            project_settings_file: ProjectSettingsFile::default(),
             agent: None,
             agent_mode: None,
             model: None,

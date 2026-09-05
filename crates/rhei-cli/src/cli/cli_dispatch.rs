@@ -373,7 +373,12 @@ fn run_on_cli_stack() {
     // `clap_complete` removes `COMPLETE` from the environment before running
     // the completer, so what kind of run this is has to be recorded here or it
     // cannot be known later. §FS-rhei-templates.1.3
-    if std::env::var_os("COMPLETE").is_some_and(|shell| !shell.is_empty()) {
+
+    // Empty and `0` are `clap_complete`'s own way of turning dynamic completion
+    // off, so a run carrying either is an ordinary one. §FS-rhei-templates.1.3
+    if std::env::var_os("COMPLETE")
+        .is_some_and(|shell| !matches!(shell.to_string_lossy().as_ref(), "" | "0"))
+    {
         mark_serving_shell_completion();
     }
     CompleteEnv::with_factory(cli_command).bin(invoked_bin_name()).complete();

@@ -47,7 +47,20 @@
   entries; the file itself is left alone, because rhei did not write it. And
   the warning is suppressed while a process is answering shell completion,
   where every Tab press is a fresh process and the once-per-process guard
-  cannot hold. This repository's own
+  cannot hold — but only when `COMPLETE` names a shell, since an empty
+  `COMPLETE` and `COMPLETE=0` are how `clap_complete` itself turns dynamic
+  completion *off* and a run carrying either is an ordinary one. Rhei's own
+  remediation messages — where to define an agent, a model, or a default —
+  name the settings file the project resolves rather than the path rhei
+  writes, so a project still on the old home is never told to create a file
+  that would shadow the registry the same error just listed; the two messages
+  with no plan root in scope name both paths instead of choosing one. An
+  `rhei instantiate` whose validation fails now undoes the settings hoist
+  along with the workspace it discards, so a failed command cannot change
+  which settings file a project reads. `rhei templates` lists both names of
+  the level its search settled on, marking the absent one
+  `(does not exist)`, rather than advertising the deprecated home alone to
+  someone about to write their first template. This repository's own
   `ui-test-canonical` template and the checked-in example workspaces moved with
   the change. (PR #N)
 - **`input.total` counts every input token, whichever agent reported it, and a

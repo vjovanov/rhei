@@ -355,10 +355,15 @@ fn the_hoist_reports_the_deprecated_project_settings_file_as_superseded() {
 }
 
 fn run_completion(dir: &Path, home: &Path, args: &[&str]) -> CliRun {
+    run_with_complete(dir, home, "fish", args)
+}
+
+/// The same, with `COMPLETE` set to whatever the case is about.
+fn run_with_complete(dir: &Path, home: &Path, complete: &str, args: &[&str]) -> CliRun {
     let output = rhei_command(home)
         .args(args)
         .current_dir(dir)
-        .env("COMPLETE", "fish")
+        .env("COMPLETE", complete)
         .output()
         .expect("rhei command should run");
     CliRun {
@@ -401,5 +406,140 @@ fn shell_completion_is_silent_about_the_deprecated_home() {
         &dir,
         &format!("{DEPRECATED}/settings.json"),
         &format!("{GROUNDS}/settings.json"),
+    );
+}
+
+/// §FS-rhei-templates.1.3: an empty `COMPLETE` and `COMPLETE=0` are
+/// `clap_complete`'s own way of turning dynamic completion off, so a run
+/// carrying either is ordinary and warns. Reading them as a completion request
+/// takes the warning off every command for as long as the switch is exported.
+#[test]
+fn the_completion_off_switch_is_an_ordinary_run_that_still_warns() {
+    let dir = unique_temp_dir("grounds-completion-off");
+    let plan = write_plan(&dir).display().to_string();
+    let machine = write_machine(&dir, "states.yaml", "legacy-agent").display().to_string();
+    write_settings(&dir, DEPRECATED, "legacy-agent");
+    let home = dir.join("home");
+    let args = ["validate", &plan, "--state-machine", &machine];
+
+    for off in ["0", ""] {
+        let result = run_with_complete(&dir, &home, off, &args);
+        assert_success(&result);
+        assert_deprecation_warning(
+            &result,
+            &dir,
+            &format!("{DEPRECATED}/settings.json"),
+            &format!("{GROUNDS}/settings.json"),
+        );
+    }
+}
+
+/// A run that fails at agent or model resolution, before anything is spawned.
+fn run_args(flag: &str) -> [&str; 6] {
+    ["run", "plan.rhei.md", "--state-machine", "states.yaml", flag, "nope"]
+}
+
+/// The output with miette's wrapping collapsed, so a path can be matched
+/// together with the words that introduce it.
+fn one_line(result: &CliRun) -> String {
+    let whole = format!("{}{}", result.stdout, result.stderr);
+    whole.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// §FS-rhei-agents.1.1: a message that tells an author where to define an agent
+/// or a model names the file the project resolves. Naming the write path to a
+/// project on the deprecated home has it create a file that shadows the very
+/// registry the error just listed, and the operator's agents go silent.
+#[test]
+fn remediation_names_the_project_settings_file_that_was_read() {
+    let dir = unique_temp_dir("grounds-remediation-path");
+    write_plan(&dir);
+    write_machine(&dir, "states.yaml", "legacy-agent");
+    write_settings(&dir, DEPRECATED, "legacy-agent");
+    let home = dir.join("home");
+
+    for (flag, lead) in [("--agent", "`agents.<id>` in"), ("--model", "`models.nope` entry to")] {
+        let help = one_line(&run_in(&run_args(flag), &dir, &home));
+        assert!(
+            help.contains(&format!("{lead} {DEPRECATED}/settings.json")),
+            "{flag} must send the author to the file rhei read; output was:\n{help}"
+        );
+    }
+
+    // The control: the same command in a project on the current home names that
+    // home, so the assertion above pins the resolution and not a constant.
+    let current = unique_temp_dir("grounds-remediation-current");
+    write_plan(&current);
+    write_machine(&current, "states.yaml", "ground-agent");
+    write_settings(&current, GROUNDS, "ground-agent");
+    let help = one_line(&run_in(&run_args("--agent"), &current, &current.join("home")));
+    assert!(
+        help.contains(&format!("`agents.<id>` in {GROUNDS}/settings.json")),
+        "the current home is what this project resolves; output was:\n{help}"
+    );
+}
+
+/// The hoist template again, with a machine nothing can validate, so
+/// `rhei instantiate` fails *after* the hoist has written the project's file.
+fn write_unvalidatable_hoist_template(dir: &Path, home: &str, agent: &str) {
+    write_hoist_template(dir, home, agent);
+    write_fixture_file(
+        &dir.join(home).join("templates/audit"),
+        "states.yaml",
+        r#"name: audit
+version: 1
+states:
+  review:
+    initial: true
+    agent: nobody-declares-this
+    description: Look at it
+  done:
+    final: true
+    description: Finished
+transitions:
+  - from: review
+    to: done
+"#,
+    );
+}
+
+/// §FS-rhei-templates.6.2: validation runs after the hoist, so discarding the
+/// output undoes the hoist too. A project with no file at the current home is
+/// left reading its deprecated one, and a project that had one gets its
+/// pre-merge content back: a failed command cannot change which file is read.
+#[test]
+fn a_discarded_instantiation_leaves_no_hoist_behind() {
+    let dir = unique_temp_dir("grounds-hoist-rollback");
+    write_settings(&dir, DEPRECATED, "operator-agent");
+    write_unvalidatable_hoist_template(&dir, GROUNDS, "bundled-agent");
+
+    fs::create_dir_all(dir.join(".git")).expect("mark the repository root");
+    let home = dir.join("home");
+    assert_success(&run_in(&["init", "--here"], &dir, &home));
+    let result = run_in(&["instantiate", "audit"], &dir, &home);
+    assert!(!result.status.success(), "the template's machine cannot validate");
+
+    assert!(
+        !dir.join(GROUNDS).join("settings.json").exists(),
+        "the project had no file here, so the failed hoist must leave none"
+    );
+    let kept = fs::read_to_string(dir.join(DEPRECATED).join("settings.json"))
+        .expect("the project still reads the file it always read");
+    assert!(
+        kept.contains("operator-agent") && !kept.contains("bundled-agent"),
+        "the operator's registry is untouched:\n{kept}"
+    );
+
+    // The other case: a project that did have a file at the current home gets
+    // its pre-merge content back rather than losing it to the merge.
+    let existing = dir.join(GROUNDS).join("settings.json");
+    write_settings(&dir, GROUNDS, "current-agent");
+    let before = fs::read_to_string(&existing).expect("the project's own file");
+    let result = run_in(&["instantiate", "audit"], &dir, &home);
+    assert!(!result.status.success(), "the template's machine still cannot validate");
+    assert_eq!(
+        fs::read_to_string(&existing).expect("the project's own file survives"),
+        before,
+        "a discarded instantiation restores what the merge overwrote"
     );
 }

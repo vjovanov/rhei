@@ -345,11 +345,15 @@ fn run_agent_mode(
                         .clone()
                         .or_else(|| settings.defaults.model.clone())
                         .or_else(|| settings.model.clone());
+                    // The settings file the project resolves, so an operator
+                    // on the deprecated home is not sent to a path that would
+                    // shadow it. §FS-rhei-agents.1.1
+                    let project_settings = settings.project_settings_file.relative_path();
                     let model_remediation = match &resolved_model {
                         Some(id) => format!(
                             "models.{id}.default_agent in {}/{}",
                             workspace_root.display(),
-                            PROJECT_SETTINGS_RELATIVE_PATH
+                            project_settings
                         ),
                         None => "models.<id>.default_agent (in settings.json)".to_string(),
                     };
@@ -361,7 +365,7 @@ fn run_agent_mode(
                         help = run_report_help(),
                         "{header}\n\nSet one of:\n  \u{2022} defaults.agent in {}/{} or ~/.config/rhei/settings.json\n  \u{2022} the state's `agent:` in states.yaml\n  \u{2022} {model_remediation}\n  \u{2022} --agent <AGENT> on the rhei run command line (e.g. rhei run {} --agent claude-code)\n\nBuilt-in agents: claude-code, codex, gemini, cursor, kilocode, pi",
                         workspace_root.display(),
-                        PROJECT_SETTINGS_RELATIVE_PATH,
+                        project_settings,
                         input.display()
                     ));
                 }

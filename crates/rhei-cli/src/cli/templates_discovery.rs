@@ -124,12 +124,16 @@
                 help = cwd_help(),
                 "failed to determine working directory: {e}"
             ))?;
-        if let Some(roots) = nearest_rhei_home_dirs(&cwd, "templates") {
-            return Ok(roots);
-        }
-        // No ancestor holds either name: the project root supplies the base,
-        // and the current home is preferred there too. §FS-rhei-templates.1.2
-        Ok(rhei_home_paths(&find_project_root()?, "templates").into_iter().collect())
+        let level = match nearest_rhei_home_level(&cwd, "templates") {
+            Some(level) => level,
+            // No ancestor holds either name: the project root supplies the
+            // base. §FS-rhei-templates.1.2
+            None => find_project_root()?,
+        };
+        // Both of the level's names, even when only one is a directory: the
+        // absent one is where a first template belongs, and the "searched"
+        // listing is where an author reads that. §FS-rhei-templates.1.2
+        Ok(rhei_home_paths(&level, "templates").into_iter().collect())
     }
 
     /// A template resolved to a directory the instantiation pipeline can read.

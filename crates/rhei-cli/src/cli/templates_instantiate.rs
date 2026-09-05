@@ -117,15 +117,21 @@
         // Place relative to the owning project before validating. The
         // template's machine needs no reconciling: a member rhei's own
         // declaration overrides the project default. §FS-rhei-templates.6.2
-        let discard_output = || {
+
+        // The hoist below runs before validation, so whatever discards the
+        // output takes the hoist with it. §FS-rhei-templates.6.2
+        let discard_output = |hoisted: Option<&HoistedSettings>| {
             if !dry_run && !keep_on_error {
                 let _ = remove_path(&target_dir, false);
+                if let Some(hoisted) = hoisted {
+                    hoisted.undo();
+                }
             }
         };
         let placement = match plan_project_placement(&output_dir, &materialized.output_dir) {
             Ok(placement) => placement,
             Err(err) => {
-                discard_output();
+                discard_output(None);
                 return Err(err);
             }
         };
@@ -136,7 +142,7 @@
                 match hoist_workspace_settings_into_project(&materialized.output_dir, project) {
                     Ok(hoisted) => hoisted_settings = hoisted,
                     Err(err) => {
-                        discard_output();
+                        discard_output(None);
                         return Err(err);
                     }
                 }
@@ -152,7 +158,7 @@
             _ => run_validation_once(&entrypoint, state_machine_path.as_deref()),
         };
         if let Err(err) = validation {
-            discard_output();
+            discard_output(hoisted_settings.as_ref());
             return Err(err);
         }
 

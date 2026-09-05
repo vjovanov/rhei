@@ -108,8 +108,10 @@ repository's old-style one. A child holding `.agents/rhei/templates` under a
 parent holding `.agent-grounds/rhei/templates` therefore resolves to the
 **child**.
 
-When no ancestor holds either directory, the project root supplies the base and
-`.agent-grounds/rhei/templates` is preferred there too.
+The level the walk settles on contributes **both** names whether or not both
+exist, so a listing of what was searched never advertises the deprecated home
+alone. When no ancestor holds either directory, the project root supplies the
+base and `.agent-grounds/rhei/templates` is preferred there too.
 
 ### 1.3. The deprecation warning
 
@@ -137,7 +139,9 @@ The warning's contract:
 - It is suppressed while the process is serving a shell completion request.
   Every completion is a fresh process, so the once-per-process guard cannot
   hold there: without this, a project on the deprecated home prints the whole
-  paragraph over the candidate list on every Tab press.
+  paragraph over the candidate list on every Tab press. A run is serving one
+  only when `COMPLETE` names a shell: the values that turn dynamic completion
+  *off* — unset, empty, and `0` — are ordinary runs and warn like any other.
 
 ## 2. Directory Layout
 
@@ -610,6 +614,13 @@ it drops the template's entries. The hoist therefore says its own piece
 instead, naming the deprecated file, stating that the merged file supersedes it
 and that it can be deleted. Rhei does not delete it — rhei wrote the workspace
 copy it removes above, and it did not write this one.
+
+**A discarded instantiation leaves no hoist behind.** Validation runs after the
+hoist, so output that fails it has already written the project's settings file.
+Discarding the output undoes the hoist: a project with no file at the current
+home has the written one and its new directories removed, and one that had a
+file gets its pre-merge content back. A command that failed must not change
+which file the project reads. `--keep-on-error` keeps the hoist with the output.
 
 **Standalone output inside a git repository.** A standalone workspace — what
 `--output` outside any project produces — lands outside any project, so

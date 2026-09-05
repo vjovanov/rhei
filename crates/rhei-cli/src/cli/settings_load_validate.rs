@@ -42,9 +42,14 @@ fn load_merged_settings_for_completion(plan_root: &Path) -> RheiSettings {
 /// The settings file's name under either home. §FS-rhei-agents.1.1
 const PROJECT_SETTINGS_FILE: &str = "settings.json";
 
-/// Where rhei writes a project settings file, for the messages that tell an
-/// author where to put one. §FS-rhei-templates.1.1
+/// Where rhei writes a project settings file, and what a message names when
+/// this is the file the project resolves. §FS-rhei-templates.1.1
 const PROJECT_SETTINGS_RELATIVE_PATH: &str = ".agent-grounds/rhei/settings.json";
+
+/// The deprecated file, named by the same messages when it is the one being
+/// read: telling that project to write to the path above would have it create
+/// a file that shadows its own registry. §FS-rhei-agents.1.1
+const DEPRECATED_PROJECT_SETTINGS_RELATIVE_PATH: &str = ".agents/rhei/settings.json";
 
 /// The project settings file: `.agent-grounds/rhei/settings.json`, and failing
 /// that the deprecated `.agents/rhei/settings.json`. First match wins and the
@@ -69,6 +74,12 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
 
     // §FS-rhei-agents.1.1: project settings live in rhei's project-local home.
     let project_settings = project_settings_home(plan_root);
+    // Which of the two was read is what every later message about project
+    // settings names. §FS-rhei-agents.1.1
+    let project_settings_file = match project_settings.deprecated_path() {
+        Some(_) => ProjectSettingsFile::Deprecated,
+        None => ProjectSettingsFile::Current,
+    };
     project_settings.warn_if_deprecated();
     let project = load_settings_document(project_settings.path())?;
     let project_raw = &project.raw;
@@ -178,6 +189,7 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
     };
 
     Ok(RheiSettings {
+        project_settings_file,
         agent: if json_field_present(project_raw, "agent") { project.agent } else { global.agent },
         agent_mode: if json_field_present(project_raw, "agent_mode") {
             project.agent_mode
@@ -212,9 +224,10 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
 /// guessing at names nothing else lists. §FS-rhei-agents.1.1
 fn known_agents_hint(settings: &RheiSettings) -> String {
     if settings.agents.is_empty() {
-        return "no agents are configured; declare one under `agents` in \
-                .agent-grounds/rhei/settings.json"
-            .to_string();
+        return format!(
+            "no agents are configured; declare one under `agents` in {}",
+            settings.project_settings_file.relative_path()
+        );
     }
     let names: Vec<&str> = settings.agents.keys().map(String::as_str).collect();
     format!("known agents: {}", names.join(", "))

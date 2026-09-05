@@ -55,6 +55,15 @@ contract — stderr, once per distinct path per process, silent when only
 the directory moved is §FS-rhei-templates.1.1. Rhei writes only
 `.agent-grounds/rhei/settings.json`.
 
+**A message that names the project settings file names the one being read.**
+Where rhei tells an author to define an agent, a model, or a default in project
+settings, the path it prints is the file the merge resolved — the deprecated one
+when that is what the project has. Naming the write path there would tell a
+project still on the old home to create a file that shadows the one rhei is
+reading, and following that advice drops the registry the same error just
+listed. A message with no plan root in scope names both paths rather than
+choosing one.
+
 ```json
 {
   "defaults": {
