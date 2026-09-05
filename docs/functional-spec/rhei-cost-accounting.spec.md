@@ -614,6 +614,14 @@ subtree cost. `--task <ID>` shows that node's direct and subtree totals plus
 the contributing invocation records. `--json` emits the same data with stable
 field names matching the runtime artifact schema.
 
+The two halves of a `--task` payload are not read the same way. Its
+`invocations` are the durable records themselves, emitted as stored and never
+rewritten (§5.1), while the `direct` and `subtree` rollups beside them have
+already been read under §3.6's inference. On a record that carries no
+`token_convention` the two therefore disagree, and the payload names the
+difference only by that field's absence. A consumer summing `invocations` to
+compare the sum against a rollup must apply the inference table first.
+
 When no accounting artifacts exist, `rhei cost` exits 0 and prints:
 
 ```text
