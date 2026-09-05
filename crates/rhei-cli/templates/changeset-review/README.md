@@ -23,7 +23,7 @@ from any prepared worktree/fork the workflow creates later).
 | `fix_prepare` | string | `none` | Optional pre-fix workspace isolation: `none`, `branch`, `worktree`, `fork` |
 | `fix_commit` | string | `none` | Optional post-fix commit step: `none`, `commit`, `push`, `pr` |
 
-The template ships a project `.agents/rhei/settings.json` that adds `high` and
+The template ships a project `.agent-grounds/rhei/settings.json` that adds `high` and
 `xhigh` Codex modes. The default GPT-5.5 target uses `xhigh` reasoning effort.
 Claude Code remains available as a second default reviewer, but Rhei does not
 currently expose a Claude reasoning-effort flag; override the target arrays if
@@ -65,7 +65,7 @@ rhei instantiate changeset-review \
   --set change_ref=PR#42 \
   --set review_targets='["claude-code[yolo]:anthropic:claude-opus-4-7","codex[xhigh]:openai:gpt-5.5"]' \
   --set review_focus='["performance","security","concurrency"]' \
-  --output ./.agents/scratchpad/changeset-review/
+  --output ./.agent-grounds/scratchpad/changeset-review/
 ```
 
 ## Example

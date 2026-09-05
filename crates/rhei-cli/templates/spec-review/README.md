@@ -62,9 +62,9 @@ Per-task path:
 rhei instantiate spec-review \
   --set spec=docs/functional-spec/rhei-templates.spec.md \
   --set criteria="thread safety, backward compatibility" \
-  --output .agents/scratchpad/spec-review/
+  --output .agent-grounds/scratchpad/spec-review/
 
-rhei run .agents/scratchpad/spec-review/
+rhei run .agent-grounds/scratchpad/spec-review/
 ```
 
 ## What's bundled

@@ -180,14 +180,14 @@ names:
 # Single spec
 rhei instantiate spec-implementation \
   --set spec_path=docs/functional-spec/my-feature.spec.md \
-  --output .agents/scratchpad/spec-implementation/
+  --output .agent-grounds/scratchpad/spec-implementation/
 
 # All specs changed on the current branch
 rhei instantiate spec-implementation \
   --set spec_ref=main..HEAD \
-  --output .agents/scratchpad/spec-implementation/
+  --output .agent-grounds/scratchpad/spec-implementation/
 
-rhei run .agents/scratchpad/spec-implementation/
+rhei run .agent-grounds/scratchpad/spec-implementation/
 ```
 
 For non-scalar inputs (`review_targets`, `focus_areas`), use a values file:
@@ -195,7 +195,7 @@ For non-scalar inputs (`review_targets`, `focus_areas`), use a values file:
 ```bash
 rhei instantiate spec-implementation \
   --values my-values.yaml \
-  --output .agents/scratchpad/spec-implementation/
+  --output .agent-grounds/scratchpad/spec-implementation/
 ```
 
 ## Where things land

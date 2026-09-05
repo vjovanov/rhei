@@ -82,9 +82,9 @@ branch_prefix: docs-pass
 ```bash
 rhei instantiate parallel-worktrees \
   --values batch.yaml \
-  --output .agents/scratchpad/parallel-worktrees/
+  --output .agent-grounds/scratchpad/parallel-worktrees/
 
-rhei run .agents/scratchpad/parallel-worktrees/ --parallel 3
+rhei run .agent-grounds/scratchpad/parallel-worktrees/ --parallel 3
 ```
 
 ## What's bundled

@@ -3,7 +3,7 @@
 Instantiate this from the coordination workspace root:
 
 ```sh
-rhei instantiate hourly-human-intervention --output .agents/scratchpad/hourly-human-intervention-$(date -u +%Y%m%dT%H%M%SZ)
+rhei instantiate hourly-human-intervention --output .agent-grounds/scratchpad/hourly-human-intervention-$(date -u +%Y%m%dT%H%M%SZ)
 ```
 
 The instantiate output prints the generated file tree, the task tree, the last
@@ -13,7 +13,7 @@ execution because `--execute` was not passed.
 Then run the instantiated workspace:
 
 ```sh
-rhei run .agents/scratchpad/hourly-human-intervention-<timestamp> --parallel 1
+rhei run .agent-grounds/scratchpad/hourly-human-intervention-<timestamp> --parallel 1
 ```
 
 The template creates three initial tasks:

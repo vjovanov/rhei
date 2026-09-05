@@ -40,7 +40,7 @@ The state machine and loop diagram live in [states.yaml](states.yaml).
 rhei instantiate product-management \
   --set product_name="Rhei" \
   --set-file product_brief=./product-brief.md \
-  --output .agents/scratchpad/product-management
+  --output .agent-grounds/scratchpad/product-management
 ```
 
 For structured inputs such as custom targets, use a values file:
@@ -48,7 +48,7 @@ For structured inputs such as custom targets, use a values file:
 ```bash
 rhei instantiate product-management \
   --values product-management-values.yaml \
-  --output .agents/scratchpad/product-management
+  --output .agent-grounds/scratchpad/product-management
 ```
 
 See the pre-rendered example at `examples/product-management-example/`.
