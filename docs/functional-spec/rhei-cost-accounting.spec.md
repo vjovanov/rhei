@@ -418,10 +418,12 @@ the records that name no run one explicit group of their own, keyed
 Every aggregate carries coverage in the vocabulary above, and a selection can be
 incomplete in a way no single record's status shows.
 
-- A selection **by run** never reports `complete` while the workspace holds any
-  unattributed record, because one of those records may belong to the run that
-  was asked for: a `complete` reading becomes `partial`. How many records could
-  not be attributed is reported beside the total whatever the coverage is.
+- A selection **by run** never reports `complete` while any unattributed record
+  falls inside the window the run was asked for within, because one of those
+  records may belong to that run: a `complete` reading becomes `partial`. A
+  record the window excludes is not part of what the aggregate claims, so it
+  cannot put that claim in doubt. How many records could not be attributed is
+  reported beside the total whatever the coverage is.
 - The `(unattributed)` group carries its own coverage, computed from its own
   records like any other group.
 - A **window** is not made incomplete by unattributed records: `started_at` is
@@ -588,9 +590,13 @@ given, the `rhei.accounting.cost.v1` payload carries `selection` and
 }
 ```
 
-`run_attribution` counts over the selection, and `run_attribution.unattributed`
-rolls up the records in it that name no run. A caller reading `summary` alone
-therefore cannot mistake an unattributed history for an attributed one.
+`run_attribution` counts over the set the run filter was applied to — the
+window's scope, after `--since` and `--until` and before `--run` — and
+`run_attribution.unattributed` rolls up the records in it that name no run.
+Counting after `--run` would report zero unattributed records whenever a run was
+asked for, which is exactly when the doubt §6.2 demotes for has to be visible. A
+caller reading `summary` alone therefore cannot mistake an unattributed history
+for an attributed one.
 
 ## 9. Visualization
 

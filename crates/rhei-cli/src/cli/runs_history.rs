@@ -62,9 +62,13 @@ impl RunHistoryQuery {
 
     /// Whether the window reaches back past what the registry still holds.
     ///
-    /// Two facts together: the registry is standing at its cap, so entries were
-    /// unlinked; and the window begins before the earliest entry that survived.
-    /// A window entirely inside what is held is answerable in full.
+    /// Two facts together: the registry is standing at its cap, so anything
+    /// older than what it holds is gone if it ever existed; and the window
+    /// begins before the earliest entry still held. A window entirely inside
+    /// what is held is answerable in full. The registry keeps no record of what
+    /// it unlinked, so the notice says the window *may* reach past its history
+    /// rather than asserting entries were dropped — true whether or not the
+    /// sweep has ever run.
     // §FS-rhei-run-headless.6.2
     fn truncation(&self, ended: &[RunDescriptor]) -> Option<RetentionTruncation> {
         if ended.len() < RETAINED_ENDED_RUNS {
@@ -145,7 +149,7 @@ fn print_retention_truncation(truncated: &RetentionTruncation) {
          runs, and the earliest it still holds started {}.",
         truncated.earliest_started_at
     );
-    println!("  Runs that started before that were unlinked; this window cannot be answered in full.");
+    println!("  This window may reach past what the registry still holds, so it cannot be answered in full.");
 }
 
 fn print_run_history_json(

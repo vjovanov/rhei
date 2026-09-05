@@ -307,7 +307,10 @@ pub(crate) fn parse_selection_time(text: &str, flag: &str) -> MietteResult<Selec
             )
         })?;
     let secs = epoch_secs(instant).ok_or_else(|| {
-        miette!("'{text}' names an instant before 1970, which {flag} cannot select from")
+        miette!(
+            help = "give an instant on or after 1970-01-01T00:00:00Z",
+            "'{text}' names an instant before 1970, which {flag} cannot select from"
+        )
     })?;
     Ok(SelectionInstant { secs, label: rhei_tui::format_rfc3339(instant) })
 }
@@ -330,5 +333,9 @@ fn parse_duration_before_now(text: &str) -> Option<std::time::SystemTime> {
         "s" => 1,
         _ => return None,
     };
-    std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(count * seconds))
+    // A duration too large to hold is unreadable, not a window: wrapping the
+    // multiply would answer over a span nobody asked for.
+    // §FS-rhei-cost-accounting.8.1
+    let span = count.checked_mul(seconds)?;
+    std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(span))
 }
