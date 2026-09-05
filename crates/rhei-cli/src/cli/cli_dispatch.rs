@@ -370,6 +370,12 @@ pub fn run() {
 fn run_on_cli_stack() {
     install_quiet_broken_pipe_exit();
     install_diagnostic_handler();
+    // `clap_complete` removes `COMPLETE` from the environment before running
+    // the completer, so what kind of run this is has to be recorded here or it
+    // cannot be known later. §FS-rhei-templates.1.3
+    if std::env::var_os("COMPLETE").is_some_and(|shell| !shell.is_empty()) {
+        mark_serving_shell_completion();
+    }
     CompleteEnv::with_factory(cli_command).bin(invoked_bin_name()).complete();
 
     let cli = match Cli::try_parse() {

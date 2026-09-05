@@ -39,6 +39,13 @@ Templates are resolved in order, first match wins:
 | 4 | `~/.agents/rhei/templates/<name>/` | User-global, deprecated |
 | 5 | compiled into the `rhei` binary | Built-in |
 
+`<project>` is the **nearest** level at or above the working directory holding
+either name, not the repository root; §1.2 gives the walk that finds it. The
+table is therefore the order *within* one level, once the walk has fixed which
+level that is — a child holding only `.agents/rhei/templates` wins over a
+parent holding `.agent-grounds/rhei/templates`, because the walk stops at the
+child and the parent's rows are never reached.
+
 The `<name>` is the directory name and serves as the template identifier used in CLI commands.
 
 **Built-in templates** ship inside the binary. They are the tier every install
@@ -119,10 +126,18 @@ The warning's contract:
 - It fires **once per distinct deprecated path per process**, not once per
   lookup. Templates and settings are resolved repeatedly inside one `rhei run`,
   and a per-lookup warning would bury the run's own output.
-- It fires only when a deprecated path is the one actually read. Rhei is silent
-  when only `.agent-grounds/rhei/` is present, and silent when both names exist
-  at a tier — there the `.agents` directory is shadowed and nothing is read
-  from it.
+- It fires only when a deprecated path is the one actually read, so rhei is
+  silent when only `.agent-grounds/rhei/` is present. Where both names exist at
+  a tier, what is shadowed decides: a project settings file resolves to exactly
+  one file, so the deprecated one is never read and never warned about, while
+  discovery reads a *directory* and reports per template — a template found
+  only under the deprecated name warns even though the `.agent-grounds`
+  directory beside it exists, and a deprecated directory whose every template
+  is shadowed says nothing.
+- It is suppressed while the process is serving a shell completion request.
+  Every completion is a fresh process, so the once-per-process guard cannot
+  hold there: without this, a project on the deprecated home prints the whole
+  paragraph over the candidate list on every Tab press.
 
 ## 2. Directory Layout
 
@@ -585,6 +600,16 @@ key-by-key into whatever is already there. Values the project already defines
 always win — a template must not quietly redefine an agent the operator
 configured — and both the added keys and the kept ones are reported. No copy is
 left in the workspace, where nothing would read it.
+
+**A project settings file the hoist read from the deprecated home is reported
+as superseded, not as material to move.** The merge is written to
+`.agent-grounds/rhei/settings.json` and the deprecated file is left on disk
+holding its pre-merge content, so the generic move-warning (§1.3) would be
+actively wrong here: it names a path rhei has just written itself, and obeying
+it drops the template's entries. The hoist therefore says its own piece
+instead, naming the deprecated file, stating that the merged file supersedes it
+and that it can be deleted. Rhei does not delete it — rhei wrote the workspace
+copy it removes above, and it did not write this one.
 
 **Standalone output inside a git repository.** A standalone workspace — what
 `--output` outside any project produces — lands outside any project, so

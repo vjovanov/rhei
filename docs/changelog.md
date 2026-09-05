@@ -40,7 +40,14 @@
   binary — installed by `rhei install-skills`, and copied into every workspace
   `rhei instantiate` writes — name `.agent-grounds/rhei/` too wherever they
   tell a reader where rhei's own material goes, so following one of them no
-  longer creates a file the new home shadows. This repository's own
+  longer creates a file the new home shadows. A settings hoist that read the
+  project's own file from the deprecated home reports that file as
+  **superseded** by the merge it has just written, rather than asking for it
+  to be moved over that merge, which would have dropped the template's
+  entries; the file itself is left alone, because rhei did not write it. And
+  the warning is suppressed while a process is answering shell completion,
+  where every Tab press is a fresh process and the once-per-process guard
+  cannot hold. This repository's own
   `ui-test-canonical` template and the checked-in example workspaces moved with
   the change. (PR #N)
 - **`input.total` counts every input token, whichever agent reported it, and a

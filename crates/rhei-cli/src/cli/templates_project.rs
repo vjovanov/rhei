@@ -129,12 +129,12 @@
         // The merge base is whatever the project already resolves, so a hoist
         // into a project still on the old home carries its values forward
         // rather than shadowing them. §FS-rhei-agents.1.1
+
+        // Reading it from the deprecated home is reported once the merge
+        // exists, by the message below. §FS-rhei-templates.6.2
         let existing = resolve_rhei_home_file(project, WORKSPACE_SETTINGS_FILE);
         let mut merged = match &existing {
-            Some(found) => {
-                found.warn_if_deprecated();
-                read_settings_value(found.path())?
-            }
+            Some(found) => read_settings_value(found.path())?,
             None => serde_json::json!({}),
         };
         let target = project_settings_write_path(project);
@@ -155,6 +155,10 @@ help = template_manifest_help(),
         fs::write(&target, format!("{rendered}\n"))
             .map_err(|err| file_io_report(&target, "failed to write project settings", err))?;
 
+        if let Some(superseded) = existing.as_ref().and_then(RheiHomePath::deprecated_path) {
+            warn_settings_superseded_by_hoist(superseded, &target);
+        }
+
         // Leaving the workspace copy in place would keep advertising settings
         // nothing reads.
         fs::remove_file(source.path())
@@ -162,6 +166,24 @@ help = template_manifest_help(),
         prune_empty_parents(source.path(), workspace);
 
         Ok(Some(HoistedSettings { added, kept }))
+    }
+
+    /// What became of a project settings file the hoist read from the deprecated
+    /// home. The generic move-warning cannot be the last word here: it names the
+    /// path the hoist has just written itself, so obeying it would drop the
+    /// template's entries. Claim that path's one warning too, so the generic
+    /// message cannot follow later in the process and contradict this one.
+    /// §FS-rhei-templates.6.2
+    fn warn_settings_superseded_by_hoist(superseded: &Path, merged: &Path) {
+        let _ = claim_deprecated_rhei_home_warning(superseded);
+        eprintln!(
+            "warning: {} is deprecated, and the merge just written to {} supersedes it — \
+             the merged file holds that file's keys plus the template's. Nothing reads the \
+             deprecated file any more, and moving it over the merged one would drop the \
+             template's entries, so delete it once the merge looks right.",
+            superseded.display(),
+            merged.display()
+        );
     }
 
     /// Where a project's settings file is written. §FS-rhei-templates.1.1
