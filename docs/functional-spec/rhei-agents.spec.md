@@ -34,10 +34,26 @@ bundle when agent mode is enabled.
 Files:
 
 - Global: `~/.config/rhei/settings.json`
-- Project: `.agents/rhei/settings.json` in the workspace or plan directory
+- Project: `<plan-root>/.agent-grounds/rhei/settings.json`, and failing that
+  `<plan-root>/.agents/rhei/settings.json`, in the workspace or plan directory
 
 Both files use the same schema. Project settings compose with global settings by
 key rather than replacing the whole file.
+
+**The project settings file is resolved by first match, and the two project
+paths are never merged.** `.agent-grounds/rhei/settings.json` is read when it
+exists; only when it does not is `.agents/rhei/settings.json` read. Merging the
+two would invent a fourth precedence tier between global and project that
+nothing else in this specification has, and would leave the deprecation with no
+end. Whichever file is chosen then composes with global settings exactly as
+above.
+
+`.agents/rhei/` is the deprecated home for rhei's project-local material and
+reading from it prints a deprecation warning naming both paths; the warning's
+contract — stderr, once per distinct path per process, silent when only
+`.agent-grounds/rhei/` is present — is §FS-rhei-templates.1.3, and the reason
+the directory moved is §FS-rhei-templates.1.1. Rhei writes only
+`.agent-grounds/rhei/settings.json`.
 
 ```json
 {
@@ -182,7 +198,7 @@ keeps reading stdin after it starts, and set both `stdin_prompt` and
 `intervene_stdin`:
 
 ```json
-// .agents/rhei/settings.json — an agent reachable for live intervention
+// .agent-grounds/rhei/settings.json — an agent reachable for live intervention
 {
   "agents": {
     "my-interactive-agent": {
@@ -323,7 +339,7 @@ it resolves the model id in this order:
 
 1. **CLI override** — `--model <MODEL>`
 2. **State-level** — `model` on the state definition in `states.yaml`
-3. **Project defaults** — `.agents/rhei/settings.json` `defaults.model`
+3. **Project defaults** — `.agent-grounds/rhei/settings.json` `defaults.model`
 4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.model`
 
 The resolved model id must exist in the merged `models` registry. If no model
@@ -335,7 +351,7 @@ this order:
 
 1. **CLI override** — `--agent <AGENT>`
 2. **State-level** — `agent` on the state definition in `states.yaml`
-3. **Project defaults** — `.agents/rhei/settings.json` `defaults.agent`
+3. **Project defaults** — `.agent-grounds/rhei/settings.json` `defaults.agent`
 4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.agent`
 5. **Model default** — `models.<id>.default_agent`
 
@@ -345,7 +361,7 @@ configuration error:
 
 ```
 error: agent 'my-agent' is not defined. Add an entry to agents.<id> in
-.agents/rhei/settings.json or ~/.config/rhei/settings.json, or reference one of the
+.agent-grounds/rhei/settings.json or ~/.config/rhei/settings.json, or reference one of the
 built-in ids (claude-code, codex, cursor, gemini, kilocode).
 ```
 
@@ -374,7 +390,7 @@ When the resolved agent declares `modes`, `rhei run` picks one at spawn time:
 
 1. **CLI override** — `--agent-mode <MODE>`
 2. **State-level** — `agent_mode` on the state definition in `states.yaml`
-3. **Project defaults** — `.agents/rhei/settings.json` `defaults.agent_mode`
+3. **Project defaults** — `.agent-grounds/rhei/settings.json` `defaults.agent_mode`
 4. **Global defaults** — `~/.config/rhei/settings.json` `defaults.agent_mode`
 5. **Registry default** — the first declared mode in the agent entry's
    `modes` map
@@ -414,7 +430,7 @@ states:
 ```
 
 ```json
-// .agents/rhei/settings.json — project sets the default agent transport
+// .agent-grounds/rhei/settings.json — project sets the default agent transport
 {
   "defaults": {
     "agent": "codex"
