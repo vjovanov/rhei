@@ -33,9 +33,11 @@ Templates are resolved in order, first match wins:
 
 | Priority | Location | Scope |
 |----------|----------|-------|
-| 1 | `<project>/.agents/rhei/templates/<name>/` | Project-local |
-| 2 | `~/.agents/rhei/templates/<name>/` | User-global |
-| 3 | compiled into the `rhei` binary | Built-in |
+| 1 | `<project>/.agent-grounds/rhei/templates/<name>/` | Project-local |
+| 2 | `<project>/.agents/rhei/templates/<name>/` | Project-local, deprecated |
+| 3 | `~/.agent-grounds/rhei/templates/<name>/` | User-global |
+| 4 | `~/.agents/rhei/templates/<name>/` | User-global, deprecated |
+| 5 | compiled into the `rhei` binary | Built-in |
 
 The `<name>` is the directory name and serves as the template identifier used in CLI commands.
 
@@ -48,7 +50,7 @@ guarantees, so the library is embedded at compile time instead.
 
 Because built-ins sit last in the search order, a project or user template of
 the same name shadows one, which is how a built-in is customized: copy it into
-`.agents/rhei/templates/<name>/` and edit.
+`.agent-grounds/rhei/templates/<name>/` and edit.
 
 A built-in is extracted to a temporary directory when it is instantiated, so
 every later step — manifest validation, layout detection, rendering — sees an
@@ -59,6 +61,68 @@ Discovery errors are handled per command:
 - `rhei templates` skips unreadable or invalid template directories and prints a warning naming the skipped path. `--source` selects a tier: `project`, `user`, `builtin`, or `all`.
 - `rhei instantiate <name>` fails if the matched template directory is unreadable or invalid.
 - `rhei instantiate <path>` fails if the explicit template path is unreadable or invalid.
+
+### 1.1. Rhei's project-local home, and its deprecated predecessor
+
+Rhei's own project-local material — templates and project settings — lives
+under `.agent-grounds/rhei/`. The former home, `.agents/rhei/`, is still read
+and is deprecated.
+
+The two names are separate because the directories hold different kinds of
+thing. `.agents/` is where agent *instructions* live, and an agent runtime may
+mount it read-only inside a checkout — Codex's managed permission profile does.
+Rhei's templates and settings are product files an agent working in the
+repository has to be able to edit, so they cannot live behind that protection.
+`.agents/skills/` is agent instruction, is discovered there by other runtimes,
+and does not move.
+
+Both names exist at every tier that has a project-local or user-global root,
+and the new name is searched first at that tier. A template present under both
+names at one tier resolves to the `.agent-grounds` copy and is listed once.
+
+Rhei never *writes* to `.agents/rhei/`. Every path that creates project-local
+rhei material — a template's root `settings.json` on instantiation (§4), the
+settings hoist into an enclosing project (§6.2) — writes under
+`.agent-grounds/rhei/`, so rhei's own output is never a path rhei then warns
+about.
+
+### 1.2. The ancestor walk checks both names at each level
+
+The project-local root is the **nearest** one at or above the working
+directory. Discovery walks upward from the working directory and, at each
+level, checks `.agent-grounds/rhei/templates` and then `.agents/rhei/templates`
+**before ascending to the parent**. The first level holding either directory
+wins, and within that level the `.agent-grounds` name wins.
+
+Checking both names per level is what preserves nearest-directory-wins. Walking
+the whole ancestry for `.agent-grounds` and then walking it again for `.agents`
+would let a distant ancestor's new-style directory beat the enclosing
+repository's old-style one. A child holding `.agents/rhei/templates` under a
+parent holding `.agent-grounds/rhei/templates` therefore resolves to the
+**child**.
+
+When no ancestor holds either directory, the project root supplies the base and
+`.agent-grounds/rhei/templates` is preferred there too.
+
+### 1.3. The deprecation warning
+
+When rhei reads project-local material from a `.agents/rhei/` path, it prints a
+warning naming **both** the path it read and the `.agent-grounds` path to move
+that material to. A warning that only says "deprecated" sends the reader
+hunting for what to do about it.
+
+The warning's contract:
+
+- It is written to **stderr**, never stdout, so `--json` output stays parseable.
+- It is a `warning:` line that says the path it read is deprecated, and names
+  the `.agent-grounds` path in the same message.
+- It fires **once per distinct deprecated path per process**, not once per
+  lookup. Templates and settings are resolved repeatedly inside one `rhei run`,
+  and a per-lookup warning would bury the run's own output.
+- It fires only when a deprecated path is the one actually read. Rhei is silent
+  when only `.agent-grounds/rhei/` is present, and silent when both names exist
+  at a tier — there the `.agents` directory is shadowed and nothing is read
+  from it.
 
 ## 2. Directory Layout
 
@@ -155,7 +219,7 @@ are resolved at instantiation time so a template can parameterize
 workspace-specific values (workspace ids, paths, hostnames) without exposing
 host secrets.
 
-On instantiation the rendered file is written to `.agents/rhei/settings.json`
+On instantiation the rendered file is written to `.agent-grounds/rhei/settings.json`
 in the output tree, where `rhei run` and `rhei validate` automatically pick it
 up and compose it over the user's global `~/.config/rhei/settings.json`.
 
@@ -208,7 +272,7 @@ Rules:
   or expect the user to provide them in their global settings. `rhei
   validate` (step 7 below) surfaces any remaining dangling references as
   errors.
-- Users may edit `.agents/rhei/settings.json` after instantiation to replace
+- Users may edit `.agent-grounds/rhei/settings.json` after instantiation to replace
   template-declared entries, add project-specific overrides, or clear the
   `defaults` lists.
 
@@ -374,8 +438,8 @@ Input arguments are parsed as follows:
 3. **Load manifest.** Parse `template.yaml`, validate schema.
 4. **Collect inputs.** Resolve inputs using this precedence order: manifest defaults < `--values` files from left to right < positional input values < `KEY=VALUE` input arguments and `--set` flags from left to right < `--set-file` flags from left to right. Error on missing required inputs, unknown input names, ambiguous positional values, or duplicate `positional` declarations. Validate types and `validate` patterns. For `array` / `object` inputs, positional values, `KEY=VALUE`, `--set`, and `--set-file` values are parsed as YAML/JSON snippets before validation.
 5. **Render templates.** Walk all materialized text files in the template directory and render them through the restricted MiniJinja environment. `template.yaml` is parsed before this step and is never rendered into the output. Error on any unresolved instantiation template reference.
-6. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.agents/rhei/settings.json` under the output root; all other files preserve their template-relative paths.
-7. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then output-root `.agents/rhei/settings.json`) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
+6. **Write output.** In normal mode, copy the resolved tree to `--output`. `--output` must not already exist; instantiation fails rather than merging into or overwriting an existing path. In `--dry-run` mode, the CLI skips the output-path existence check, materializes into a temporary scratch directory instead of `--output`, validates that scratch output, and reports what would have been written. Preserve directory structure and file permissions. Hidden files and directories (names starting with `.`) and `template.yaml` itself are excluded from the output. A root-level `settings.json` in the template is moved to `.agent-grounds/rhei/settings.json` under the output root; all other files preserve their template-relative paths.
+7. **Validate.** Run `rhei validate` on the instantiated plan. If the output root contains `states.yaml`, treat that file as the state machine for validation; otherwise fall back to the built-in default. Validation composes the merged settings (global, then the output root's project settings file, §FS-rhei-agents.1.1) and resolves every `agent`, `model`, `mcp_servers`, and `skills` reference declared in the state machine. Warnings are printed; errors abort (output directory is removed on error unless `--keep-on-error` is passed).
 8. **Print summary.** After successful validation, print a human-readable instantiation summary with the output path, task/state counts, instantiated output tree, rendered task tree, the last few rendered task definitions in source order, and a stop-point explanation. For normal instantiation without `--execute`, the stop point is the next ready task and the reason is that execution has not started.
 9. **Print invocation.** Print a shell-safe `rhei instantiate ... --output <path>` command that shows how to instantiate the same template and input values again. The printed command uses the resolved output path, so shell expressions such as `$(date ...)` appear as the concrete path value seen by the CLI.
 10. **Execute (optional).** When `--execute` is passed, invoke `rhei run <output>` after successful validation. `rhei run` uses the instantiated output's root `states.yaml` by default when present; otherwise it falls back to the built-in default.
@@ -422,7 +486,7 @@ absolute form merely restates where they already are. Paths outside the working
 directory stay absolute.
 
 `Files` prints the full instantiated output tree, including hidden files that
-were generated by instantiation such as `.agents/rhei/settings.json`. The root line
+were generated by instantiation such as `.agent-grounds/rhei/settings.json`. The root line
 uses the user-requested `--output` path. In `--dry-run`, this is still the
 requested path even though the rendered files live in a temporary scratch
 directory and are discarded after validation.
@@ -516,7 +580,7 @@ re-governed every later plain rhei: a hand-written `launch.rhei.md` on
 failed. Both existed only to police a uniformity the model no longer requires.
 
 **Settings hoist.** A template's bundled `settings.json` (§4) is written to the
-*project's* `.agents/rhei/settings.json` rather than the workspace's, merged
+*project's* `.agent-grounds/rhei/settings.json` rather than the workspace's, merged
 key-by-key into whatever is already there. Values the project already defines
 always win — a template must not quietly redefine an agent the operator
 configured — and both the added keys and the kept ones are reported. No copy is
@@ -601,7 +665,7 @@ text, `items.format` says the same of every element of an array, and
 ### Template: `code-review`
 
 ```
-~/.agents/rhei/templates/code-review/
+~/.agent-grounds/rhei/templates/code-review/
 ├── template.yaml
 ├── states.yaml
 ├── prompt_templates/
