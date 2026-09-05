@@ -40,8 +40,9 @@ The report layout is optimized for scan-first reading:
 2. **Outcome Strip** - small summary table for final task states, transitions,
    spawned agents, spawned programs, callback-only advances, reused-output
    advances, dry-run transitions, terminal-at-start tasks, and blocked tasks.
-   When accounting exists, the strip also shows run cost, input tokens, cached
-   input tokens, output tokens, cached output tokens, and coverage.
+   When accounting exists, a second strip shows what **this run** spent: cost,
+   input tokens, cached input tokens, output tokens, cached output tokens, and
+   coverage (§2.1).
 3. **Attention** - the shortest path to action: blocked tasks, gating tasks, and
    halted tasks with the exact reason.
 4. **Transition Ledger** - one row per transition attempt or no-op observation,
@@ -60,6 +61,49 @@ The report layout is optimized for scan-first reading:
 The top of the report must expose reuse counts and blocked counts without
 scrolling. A run that performs no spawned work because every required output
 already existed must be visibly different from a run that spawned work quickly.
+
+### 2.1. Accounting Strip
+
+The accounting strip answers one question — *what did this run spend* — and it
+must not be readable as any other. It reports the invocation records that name
+this run. [§FS-rhei-cost-accounting.3.5](rhei-cost-accounting.spec.md#35-run-attribution)
+
+```text
+| Accounting (this run) | Value |
+| --- | ---: |
+| source | rollup |
+| cost | unpriced |
+| total tokens | 1.2k |
+| input tokens | 1.0k |
+| input cached | 800 |
+| output tokens | 234 |
+| output cached | - |
+| coverage | Partial |
+| workspace total tokens | 1.7M |
+```
+
+Three rules make it honest.
+
+1. **The heading names the scope.** `Accounting (this run)`, not `Accounting` —
+   which a reader completes as whatever they came to the report looking for.
+2. **`source` says which quantity this is.** The report produces the strip two
+   ways, and they are different numbers. `rollup` is the end-of-run rollup over
+   the run's invocation records. `run events` is the fallback taken when no
+   rollup could be produced, summarizing only the `UsageReported` events this run
+   observed. [§FS-rhei-cost-accounting.7](rhei-cost-accounting.spec.md#7-run-events) Two tables that look identical and mean
+   different things are the defect, not the number.
+3. **The workspace lifetime total has a row of its own.** `workspace total
+   tokens` carries `workspace_total` [§FS-rhei-cost-accounting.6](rhei-cost-accounting.spec.md#6-rollups) and appears
+   under `source | rollup`. The events fallback has no rollup to read it from, so
+   the row is absent there rather than guessed.
+
+A run that spawned no agent still gets the strip, and its token rows read `0`.
+Putting the workspace's lifetime total there instead says this run spent what
+every run before it spent together — directly above the report's own note that
+no agent ran.
+
+The end-of-run console summary carries the same quantity under the same scope
+label (§3.1).
 
 ## 3. End-of-Run Console Summary
 
@@ -602,7 +646,9 @@ The execution engine must retain enough per-run facts to render the report:
 - every spawned agent/program, including resolved agent/target/model label,
   command label, exit status, duration, log path, accounting path, and output
   paths;
-- every halted task with the most concrete blocker known to the scheduler.
+- every halted task with the most concrete blocker known to the scheduler;
+- the run's own accounting rollup and the workspace lifetime total, told apart,
+  along with which of the two sources produced the strip (§2.1).
 
 These facts already overlap heavily with the run event surface and transition
 journal, but the report should not be reconstructed only from

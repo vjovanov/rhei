@@ -389,7 +389,7 @@ stream is announced as possibly incomplete, because a stream ending without
 ## 6. `rhei runs`
 
 ```bash
-rhei runs [--json]
+rhei runs [--json] [--all] [--since <TIME>] [--until <TIME>]
 ```
 
 Lists the live runs on this machine — id, plan, pid, start time, parallelism,
@@ -406,6 +406,48 @@ exactly the "no runs are live" lie the tri-state exists to prevent.
 `--json` emits an array of the live descriptor objects (§2) and follows the
 error envelope of [§FS-rhei-errors.5](rhei-errors.spec.md#5-machine-readable-errors); undecidable entries are reported on stderr,
 so stdout stays the array and nothing else.
+
+### 6.1. Run History
+
+`--all` also lists the ended runs the registry still holds, newest first, under
+a heading of their own, so a finished run is never read as a live one.
+`--since <TIME>` and `--until <TIME>` select on `started_at` over the same
+half-open interval and in the same time vocabulary `rhei cost` uses
+[§FS-rhei-cost-accounting.8.2](rhei-cost-accounting.spec.md#82-selecting-records), and both imply `--all`: a window is a
+question about history.
+
+With none of the three, `rhei runs` is exactly what §6 describes — live runs
+only, the same pruning, the same empty-list line, and `--json` emitting the bare
+array. Under `--all` or a window, `--json` emits an object instead, so the answer
+can carry what §6.2 requires:
+
+```json
+{
+  "schema": "rhei.run-history.v1",
+  "runs": [],
+  "truncated": null
+}
+```
+
+### 6.2. What Retention Hid
+
+The registry keeps a bounded number of ended entries (§2). That is enough to
+resolve an id after the fact and not enough to answer a question about a window:
+the entries past the cap were unlinked and no longer exist to be counted.
+
+So a window that reaches back past the oldest ended entry still held, on a
+registry standing at its cap, is a window this machine cannot answer. `rhei runs`
+says so rather than presenting what remains as the whole window. The text
+listing prints a line beginning:
+
+```text
+Retention truncated this window:
+```
+
+naming the cap and the earliest start still held; `--json` fills `truncated`
+with the same two facts in place of `null`. A total summed over a silently
+shortened window is the misleadingly cheap number this surface exists to
+prevent. [§FS-rhei-cost-accounting.6.2](rhei-cost-accounting.spec.md#62-coverage-of-a-selection)
 
 ## 7. `rhei stop`
 

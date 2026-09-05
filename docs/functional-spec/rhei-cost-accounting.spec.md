@@ -77,6 +77,7 @@ Each supported agent spawn writes one JSON object:
 {
   "schema": "rhei.accounting.invocation.v1",
   "invocation_id": "plan.1::pending::claude-code-anthropic-sonnet::visit-1",
+  "run_id": "b3ed70",
   "task_id": "plan.1",
   "state": "pending",
   "visit": 1,
@@ -194,6 +195,27 @@ Rhei can derive the native transcript path confidently. The whole
 `store_path` is serialized as `null`. Session capture is independent of the
 usage-event capture lifecycle, including replacement of cumulative Claude Code
 usage events.
+
+### 3.5. Run Attribution
+
+`run_id` names the one invocation of `rhei run` that spawned the process — the
+same id the run report, the workspace descriptor, and the run registry already
+use for it. [§FS-rhei-run-headless.2](rhei-run-headless.spec.md#2-the-run-descriptor)
+
+The field is **optional**, and the schema string stays
+`rhei.accounting.invocation.v1`. A record written before the field existed, or by
+a build that does not set it, still parses and is still read by every consumer.
+Such a record is **unattributed**.
+
+| Where | Required behavior |
+| --- | --- |
+| Writing | Every record written for an agent spawned inside `rhei run` carries `run_id`. |
+| Reading | A record with no `run_id` parses and counts toward every whole-workspace total. |
+| Aggregating | An unattributed record is never dropped and never folded into a named run. Selection and grouping by run give it an explicit place of its own (§6.1). |
+
+Unattributed records are not an error condition: they are the history a
+workspace held before the field existed, and an aggregate that quietly omits
+them under-reports that history.
 
 ## 4. Extraction Flow
 
@@ -325,10 +347,19 @@ but never writes `amount_micro`. `amount_micro` is written only when status is
 Rollups are derived from invocation records:
 
 ```text
-direct(node)  = sum(invocations where invocation.task_id == node.id)
-subtree(node) = direct(node) + sum(subtree(child) for every child node)
-run_total     = sum(subtree(root) for every root node)
+direct(node)         = sum(invocations where invocation.task_id == node.id)
+subtree(node)        = direct(node) + sum(subtree(child) for every child node)
+workspace_total      = sum(subtree(root) for every root node)
+run(id)              = sum(invocations where invocation.run_id == id)
+unattributed         = sum(invocations with no run_id)
+window(since, until) = sum(invocations where since <= started_at < until)
 ```
+
+`workspace_total` is one workspace's whole accounting history, for as long as
+its artifacts have existed. Through 0.3.3 this quantity was called `run_total`,
+which reads as *what one `rhei run` cost* and is not what it measures. The two
+are different numbers and are named apart wherever either is shown: `run(id)` is
+one invocation of `rhei run`, `workspace_total` is the workspace's lifetime.
 
 Coverage says how complete the rollup is:
 
@@ -366,6 +397,39 @@ For one invocation, `Measured` means `value` is present. For a rollup,
 `Measured` means every contributing invocation reported the dimension.
 `Partial` means `value` is a subtotal from measured contributions and at least
 one contributing invocation was missing, unsupported, omitted, or unknown.
+
+### 6.1. Selections
+
+A rollup is computed over a **selection** of invocation records, and selection
+happens before aggregation. Three axes select, and they compose:
+
+| Axis | Selects |
+| --- | --- |
+| Run | Records whose `run_id` equals the given id. The reserved id `unattributed` selects the records that name no run (§3.5). |
+| Window | Records whose `started_at` lies in the half-open interval `[since, until)`. A record with no `run_id` is selected by a window like any other. |
+| Plan tree | Records whose `task_id` is a node or a descendant of it — `direct` and `subtree` above. |
+
+A grouping partitions the selection. Grouping by run keys on `run_id` and gives
+the records that name no run one explicit group of their own, keyed
+`(unattributed)`. Grouping by day keys on the UTC calendar date of `started_at`.
+
+### 6.2. Coverage of a Selection
+
+Every aggregate carries coverage in the vocabulary above, and a selection can be
+incomplete in a way no single record's status shows.
+
+- A selection **by run** never reports `complete` while the workspace holds any
+  unattributed record, because one of those records may belong to the run that
+  was asked for: a `complete` reading becomes `partial`. How many records could
+  not be attributed is reported beside the total whatever the coverage is.
+- The `(unattributed)` group carries its own coverage, computed from its own
+  records like any other group.
+- A **window** is not made incomplete by unattributed records: `started_at` is
+  present on every record, so the window's membership is exact. The ordinary
+  measurement and pricing rules decide its coverage.
+- No aggregate reports `complete` over a set it could not fully see. Where a
+  retention boundary bounds what was readable, the aggregate says what it could
+  not see rather than summing what is left. [§FS-rhei-run-headless.6](rhei-run-headless.spec.md#6-rhei-runs)
 
 ## 7. Run Events
 
@@ -417,10 +481,12 @@ accounting records were produced.
 `rhei cost` reads accounting artifacts without changing the plan:
 
 ```bash
-rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json] [--by agent|model|state|node]
+rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json]
+          [--run <ID>] [--since <TIME>] [--until <TIME>]
+          [--by agent|model|state|node|run|day]
 ```
 
-Default text output shows run totals, coverage, and highest-cost nodes by
+Default text output shows workspace totals, coverage, and highest-cost nodes by
 subtree cost. `--task <ID>` shows that node's direct and subtree totals plus
 the contributing invocation records. `--json` emits the same data with stable
 field names matching the runtime artifact schema.
@@ -459,6 +525,73 @@ a new schema id. Fields documented as optional, including `duration_ms` and
 `cli_session`, remain optional so artifacts from older Rhei versions still
 validate.
 
+### 8.2. Selecting Records
+
+`--run`, `--since`, and `--until` narrow the set of records everything else is
+computed from (§6.1). They compose.
+
+| Flag | Selects |
+| --- | --- |
+| `--run <ID>` | Records whose `run_id` is `<ID>`. `--run unattributed` selects the records that name no run (§3.5). |
+| `--since <TIME>` | Records with `started_at >= TIME`. |
+| `--until <TIME>` | Records with `started_at < TIME`. |
+
+`<TIME>` is an RFC 3339 instant (`2026-09-01T00:00:00Z`), a bare UTC date
+(`2026-09-01`, meaning that date's midnight UTC), or a duration before now
+(`7d`, `24h`, `90m`). An unparsable `<TIME>` is a usage error, not an empty
+window: silently selecting nothing is how a caller reads zero as an answer.
+
+A selection that matches nothing is a different answer from a workspace holding
+no records at all. It exits 0 and prints:
+
+```text
+(no accounting records match the selection)
+```
+
+### 8.3. Grouping
+
+`--by` takes `agent`, `model`, `state`, `node`, `run`, or `day`, and `node`
+stays the default.
+
+`--by run` keys each group on `run_id`, and emits the group keyed
+`(unattributed)` whenever the selection holds a record that names no run — that
+group is never omitted and its records are never folded into a named run
+(§3.5). `--by day` keys each group on the UTC calendar date of `started_at`,
+formatted `YYYY-MM-DD`. Every group carries its own coverage (§6.2).
+
+### 8.4. Compatibility
+
+`rhei cost <RHEI_PLAN_OR_WORKSPACE>` with none of the flags in §8.2 and no
+`--by` prints exactly what it printed before those flags existed, with the same
+exit behavior and the same `(no accounting records found)` line. The selection
+surface is additive; the unselected reading does not move.
+
+`--json` gains fields rather than changing existing ones. Whatever flags were
+given, the `rhei.accounting.cost.v1` payload carries `selection` and
+`run_attribution`:
+
+```json
+{
+  "schema": "rhei.accounting.cost.v1",
+  "selection": { "run": null, "since": null, "until": null, "invocation_count": 7 },
+  "run_attribution": {
+    "attributed_invocation_count": 1,
+    "unattributed_invocation_count": 6,
+    "unattributed": { "...": "an AccountingRunSummary over those records" }
+  },
+  "summary": { "...": "..." },
+  "task": null,
+  "groups": [
+    { "key": "b3ed70", "unattributed": false, "summary": { "...": "..." } }
+  ],
+  "errors": []
+}
+```
+
+`run_attribution` counts over the selection, and `run_attribution.unattributed`
+rolls up the records in it that name no run. A caller reading `summary` alone
+therefore cannot mistake an unattributed history for an attributed one.
+
 ## 9. Visualization
 
 The TUI header shows a compact run-level strip when accounting is available:
@@ -482,8 +615,13 @@ header, slot-pane total, and journal summary. Active task lines update while the
 same task remains in a slot; completed-slot history is not kept in the terminal
 UI.
 
-The end-of-run console summary and durable run report include the same run-level
-accounting strip. Task rows may show a compact direct task cost only; the direct
+The end-of-run console summary and the durable run report include a run-level
+accounting strip. It reports **the run that just ended** — the records that name
+it (§6.1) — and never the workspace's lifetime total in its place. A run that
+spawned no agent reports zero, because zero is what it spent. `workspace_total`
+(§6) is still shown, on a labelled row of its own, so naming the two apart loses
+nothing. What the strip contains, and how its two possible sources are told
+apart, is in [§FS-rhei-run-report.2.1](rhei-run-report.spec.md#21-accounting-strip). Task rows may show a compact direct task cost only; the direct
 task cost is the sum of usage reported for all agent states spawned for that
 task in the run. Both are frontends under [Run Events](#7-run-events), and the
 rule reaches both of their levels: the run-level strip and each task row are

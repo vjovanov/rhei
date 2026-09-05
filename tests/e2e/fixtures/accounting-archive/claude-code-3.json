@@ -1,0 +1,52 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "github-issues-vjovanov-rhei-138-fix-issue.ticket.implement::implement::claude-code-yolo-anthropic-claude-opus-5::visit-1",
+  "task_id": "github-issues-vjovanov-rhei-138-fix-issue.ticket.implement",
+  "state": "implement",
+  "visit": 1,
+  "target_slug": "claude-code-yolo-anthropic-claude-opus-5",
+  "agent": "claude-code",
+  "provider": "anthropic",
+  "model": "claude-opus-5",
+  "started_at": "2026-09-02T07:16:42Z",
+  "ended_at": "2026-09-02T07:45:18Z",
+  "extraction_status": "measured",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "total": {
+      "value": 101786,
+      "source": "agent-usage-capture"
+    },
+    "input": {
+      "total": {
+        "value": 360,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "value": 30890672,
+        "source": "agent-usage-capture"
+      },
+      "cache_write": {
+        "value": 250030,
+        "source": "agent-usage-capture"
+      }
+    },
+    "output": {
+      "total": {
+        "value": 101426,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "unpriced",
+    "currency": "USD",
+    "price_book_id": "builtin-2026-05-20"
+  }
+}

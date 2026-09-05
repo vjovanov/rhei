@@ -1,0 +1,52 @@
+{
+  "schema": "rhei.accounting.invocation.v1",
+  "invocation_id": "github-issues-vjovanov-ephor-14-fix-issue.ticket::supervising::codex-xhigh-openai-gpt-5.6-sol::visit-2",
+  "task_id": "github-issues-vjovanov-ephor-14-fix-issue.ticket",
+  "state": "supervising",
+  "visit": 2,
+  "target_slug": "codex-xhigh-openai-gpt-5.6-sol",
+  "agent": "codex",
+  "provider": "openai",
+  "model": "gpt-5.6-sol",
+  "started_at": "2026-09-01T05:06:58Z",
+  "ended_at": "2026-09-01T05:07:40Z",
+  "extraction_status": "measured",
+  "scope": "aggregate-agent-process",
+  "tokens": {
+    "total": {
+      "value": 129035,
+      "source": "agent-usage-capture"
+    },
+    "input": {
+      "total": {
+        "value": 127398,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "value": 108288,
+        "source": "agent-usage-capture"
+      },
+      "cache_write": {
+        "value": 0,
+        "source": "agent-usage-capture"
+      }
+    },
+    "output": {
+      "total": {
+        "value": 1637,
+        "source": "agent-usage-capture"
+      },
+      "cached_read": {
+        "status": "unsupported"
+      },
+      "cache_write": {
+        "status": "unsupported"
+      }
+    }
+  },
+  "pricing": {
+    "status": "unpriced",
+    "currency": "USD",
+    "price_book_id": "builtin-2026-05-20"
+  }
+}
