@@ -109,6 +109,8 @@ pub fn accounting_workspace(prefix: &str, plan: &str) -> (TestDir, PathBuf, Path
     "claude-code": {{
       "command": {command},
       "timeout": "60s",
+      "stdin_prompt": true,
+      "intervene_stdin": false,
       "modes": {{ "yolo": [] }}
     }}
   }},
