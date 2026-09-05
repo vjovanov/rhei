@@ -62,7 +62,7 @@
   `(does not exist)`, rather than advertising the deprecated home alone to
   someone about to write their first template. This repository's own
   `ui-test-canonical` template and the checked-in example workspaces moved with
-  the change. (PR #N)
+  the change. (PR #193)
 - **`input.total` counts every input token, whichever agent reported it, and a
   cached read is charged once.** The field had no stated cache-inclusion
   meaning, so each extractor inherited its provider's: OpenAI counts cached
