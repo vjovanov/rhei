@@ -37,6 +37,15 @@ struct AccountingInvocationRecord {
     cli_session: Option<AccountingCliSession>,
     extraction_status: String,
     scope: String,
+    /// Which convention this record's token dimensions follow.
+    ///
+    /// Optional, and the schema string does not move with it, exactly as
+    /// `run_id` is. A record written before the field existed still parses,
+    /// and is read under the convention its own `agent` implies rather than at
+    /// face value.
+    // §FS-rhei-cost-accounting.3.6
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token_convention: Option<String>,
     tokens: AccountingTokens,
     pricing: AccountingPricing,
 }

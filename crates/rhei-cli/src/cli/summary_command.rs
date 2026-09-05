@@ -142,7 +142,7 @@ fn summary_steps(inspection: &CostInspection) -> String {
         if let Some(duration) = summary_step_duration(record) {
             out.push_str(&format!(" — {duration}"));
         }
-        if let Some(tokens) = summary_step_tokens(record) {
+        if let Some(tokens) = summary_step_tokens(record, &inspection.books) {
             out.push_str(&format!(" — {tokens}"));
         }
         out.push('\n');
@@ -171,8 +171,13 @@ fn summary_step_duration(record: &AccountingInvocationRecord) -> Option<String> 
 
 /// Humanized `in`/`out` counts, and only the sides the record measured.
 /// §FS-rhei-summary.2.2
-fn summary_step_tokens(record: &AccountingInvocationRecord) -> Option<String> {
-    let usage = usage_summary_from_record(record);
+fn summary_step_tokens(
+    record: &AccountingInvocationRecord,
+    books: &ReachablePriceBooks,
+) -> Option<String> {
+    // A record written before the convention existed is read under the one its
+    // own `agent` implies here too. §FS-rhei-cost-accounting.5.2
+    let usage = usage_summary_from_record(record, books);
     let mut parts = Vec::new();
     if usage.input_total.value.is_some() {
         parts.push(format!("{} in", format_dimension_value(&usage.input_total)));

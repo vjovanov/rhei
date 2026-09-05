@@ -115,6 +115,11 @@ struct AgentUsageCapture {
 struct CostInspection {
     summary: Option<rhei_tui::AccountingRunSummary>,
     invocations: Vec<(PathBuf, AccountingInvocationRecord)>,
+    /// The books reachable from the root these records were read from. A
+    /// record whose money has to be recomputed needs one, and in a live
+    /// workspace it is the `prices.json` sitting beside them.
+    // §FS-rhei-cost-accounting.5.2
+    books: ReachablePriceBooks,
     errors: Vec<String>,
 }
 
@@ -209,12 +214,17 @@ fn record_agent_accounting_invocation(
         cli_session: invocation.cli_session.cloned(),
         extraction_status: extraction_status.to_string(),
         scope: "aggregate-agent-process".to_string(),
+        // §FS-rhei-cost-accounting.3.6: every record Rhei writes says which
+        // convention its dimensions follow, so a reader of a mixed archive
+        // never has to infer it.
+        token_convention: Some(TOKEN_CONVENTION_INCLUDES_CACHE.to_string()),
         tokens,
         pricing,
     };
 
     write_invocation_record(&accounting_root, &record)?;
-    let usage = usage_summary_from_record(&record);
+    let usage =
+        usage_summary_from_record(&record, &ReachablePriceBooks::with_selected(invocation.price_book));
     // §FS-rhei-cost-accounting.7: Emit UsageReported after durable write.
     invocation.sink.emit(rhei_tui::RunEvent::UsageReported {
         slot: invocation.slot,
@@ -282,7 +292,8 @@ fn this_runs_rollup(inspection: &CostInspection) -> rhei_tui::AccountingRunSumma
         return demote_if(zero_run_accounting(), true);
     };
     let selection = CostSelection::resolve(Some(&run_id), None, None).unwrap_or_default();
-    let selected = selection.apply(inspection.invocations.iter().map(|(_, record)| record));
+    let selected =
+        selection.apply(inspection.invocations.iter().map(|(_, record)| record), &inspection.books);
     selected
         .summary()
         .unwrap_or_else(|| demote_if(zero_run_accounting(), !selected.unattributed.is_empty()))
@@ -312,6 +323,7 @@ fn regenerate_accounting_indexes(
                 .iter()
                 .filter(|(_, record)| record.task_id == task_id)
                 .map(|(_, record)| record),
+            &inspection.books,
         );
         let subtree = summarize_records(
             inspection
@@ -319,6 +331,7 @@ fn regenerate_accounting_indexes(
                 .iter()
                 .filter(|(_, record)| record.task_id == task_id || is_descendant_id(&record.task_id, &task_id))
                 .map(|(_, record)| record),
+            &inspection.books,
         );
         if direct.is_some() || subtree.is_some() {
             let payload = serde_json::json!({
@@ -358,7 +371,8 @@ fn cost_command(options: CostCommandOptions<'_>) -> MietteResult<()> {
     let workspace_root = execution_workspace_root(&input_buf);
     let accounting_root = workspace_root.join("runtime/accounting");
     let inspection = read_cost_inspection(&accounting_root);
-    let selected = selection.apply(inspection.invocations.iter().map(|(_, record)| record));
+    let selected =
+        selection.apply(inspection.invocations.iter().map(|(_, record)| record), &inspection.books);
 
     if options.json {
         let payload =
@@ -386,7 +400,7 @@ fn cost_command(options: CostCommandOptions<'_>) -> MietteResult<()> {
         if selection.is_active() {
             print_selection_lines(&selection, &selected);
         }
-        print_task_cost(&loaded.rhei, &selected.records, task_id);
+        print_task_cost(&loaded.rhei, &selected.records, task_id, &inspection.books);
     } else {
         print_run_cost(&loaded.rhei, &selection, &selected, options.by);
     }
@@ -408,16 +422,19 @@ struct CostCommandOptions<'a> {
 fn read_cost_inspection(accounting_root: &Path) -> CostInspection {
     let mut invocations = Vec::new();
     let mut errors = Vec::new();
+    // §FS-rhei-cost-accounting.5.2: the book beside the records is what a
+    // reading can reach, so it is read from the same root they are.
+    let books = ReachablePriceBooks::beside(accounting_root);
     let dir = accounting_root.join("invocations");
     // §FS-rhei-cost-accounting.2: Invocation records are authoritative.
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return CostInspection { summary: None, invocations, errors };
+            return CostInspection { summary: None, invocations, books, errors };
         }
         Err(err) => {
             errors.push(format!("{}: {err}", dir.display()));
-            return CostInspection { summary: None, invocations, errors };
+            return CostInspection { summary: None, invocations, books, errors };
         }
     };
 
@@ -435,8 +452,8 @@ fn read_cost_inspection(accounting_root: &Path) -> CostInspection {
         }
     }
     invocations.sort_by(|(_, a), (_, b)| a.started_at.cmp(&b.started_at).then_with(|| a.invocation_id.cmp(&b.invocation_id)));
-    let summary = summarize_records(invocations.iter().map(|(_, record)| record));
-    CostInspection { summary, invocations, errors }
+    let summary = summarize_records(invocations.iter().map(|(_, record)| record), &books);
+    CostInspection { summary, invocations, books, errors }
 }
 
 /// The `rhei.accounting.cost.v1` payload.
@@ -467,7 +484,9 @@ fn cost_json_payload(
             "unattributed": selected.unattributed_summary(),
         },
         "summary": selected.summary(),
-        "task": options.task.map(|task_id| task_cost_json(rhei, &selected.records, task_id)),
+        "task": options
+            .task
+            .map(|task_id| task_cost_json(rhei, &selected.records, task_id, &inspection.books)),
         "groups": grouped_cost_json(selected, options.by),
         "errors": inspection.errors,
     })
@@ -483,6 +502,7 @@ fn task_cost_json(
     rhei: &rhei_core::ast::Rhei,
     records: &[&AccountingInvocationRecord],
     task_id: &str,
+    books: &ReachablePriceBooks,
 ) -> serde_json::Value {
     let title = flatten_tasks(rhei)
         .into_iter()
@@ -492,8 +512,10 @@ fn task_cost_json(
         // §FS-rhei-cost-accounting.8: JSON uses stable runtime schema names.
         "task_id": task_id,
         "title": title,
-        "direct": summarize_records(direct_records(records, task_id)),
-        "subtree": summarize_records(subtree_records(records, task_id)),
+        "direct": summarize_records(direct_records(records, task_id), books),
+        "subtree": summarize_records(subtree_records(records, task_id), books),
+        // The records themselves, as stored: a reading recomputes what it
+        // reports, and never rewrites what it read. §FS-rhei-cost-accounting.5.1
         "invocations": subtree_records(records, task_id).collect::<Vec<_>>(),
     })
 }
@@ -572,7 +594,7 @@ fn print_run_cost(
     }
     println!("\nHighest subtree nodes:");
     for (task_id, title, summary) in
-        highest_subtree_nodes(rhei, &selected.records).into_iter().take(8)
+        highest_subtree_nodes(rhei, &selected.records, selected.books).into_iter().take(8)
     {
         println!("  {task_id} {title}: {}", format_summary_cost(&summary));
     }
@@ -610,6 +632,7 @@ fn print_task_cost(
     rhei: &rhei_core::ast::Rhei,
     records: &[&AccountingInvocationRecord],
     task_id: &str,
+    books: &ReachablePriceBooks,
 ) {
     let title = flatten_tasks(rhei)
         .into_iter()
@@ -617,13 +640,13 @@ fn print_task_cost(
         .map(|task| task.title.clone())
         .unwrap_or_else(|| "(unknown task)".to_string());
     println!("Task {task_id}: {title}");
-    let direct = summarize_records(direct_records(records, task_id));
-    let subtree = summarize_records(subtree_records(records, task_id));
+    let direct = summarize_records(direct_records(records, task_id), books);
+    let subtree = summarize_records(subtree_records(records, task_id), books);
     println!("  Direct: {}", direct.as_ref().map(format_summary_cost).unwrap_or_else(|| "none".to_string()));
     println!("  Subtree: {}", subtree.as_ref().map(format_summary_cost).unwrap_or_else(|| "none".to_string()));
     println!("  Invocations:");
     for record in subtree_records(records, task_id) {
-        let usage = usage_summary_from_record(record);
+        let usage = usage_summary_from_record(record, books);
         println!(
             "    {} {} {} {}",
             record.invocation_id,
@@ -656,12 +679,13 @@ fn grouped_records<'a>(
 fn highest_subtree_nodes(
     rhei: &rhei_core::ast::Rhei,
     records: &[&AccountingInvocationRecord],
+    books: &ReachablePriceBooks,
 ) -> Vec<(String, String, rhei_tui::AccountingRunSummary)> {
     let mut rows = Vec::new();
     for task in flatten_tasks(rhei) {
         let task_id = task.id.to_string();
         // §FS-rhei-cost-accounting.6: subtree(node)=direct+descendants.
-        if let Some(summary) = summarize_records(subtree_records(records, &task_id)) {
+        if let Some(summary) = summarize_records(subtree_records(records, &task_id), books) {
             rows.push((task_id, task.title.clone(), summary));
         }
     }
@@ -671,13 +695,35 @@ fn highest_subtree_nodes(
 
 fn summarize_records<'a>(
     records: impl IntoIterator<Item = &'a AccountingInvocationRecord>,
+    books: &ReachablePriceBooks,
 ) -> Option<rhei_tui::AccountingRunSummary> {
     // §FS-rhei-cost-accounting.6: Rollups summarize invocation records.
-    let usages: Vec<rhei_tui::UsageSummary> = records.into_iter().map(usage_summary_from_record).collect();
-    rhei_tui::summarize_usage_summaries(usages.iter())
+    let readings: Vec<RecordReading> =
+        records.into_iter().map(|record| read_stored_record(record, books)).collect();
+    let usages: Vec<rhei_tui::UsageSummary> =
+        readings.iter().map(usage_summary_from_reading).collect();
+    let summary = rhei_tui::summarize_usage_summaries(usages.iter())?;
+    // A record whose convention could not be established is a doubt the
+    // aggregate carries, the way an unattributed record is.
+    // §FS-rhei-cost-accounting.6.2
+    Some(demote_if(summary, readings.iter().any(|reading| reading.convention_unknown)))
 }
 
-fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::UsageSummary {
+/// One stored record as a reading: every surface that reports a stored record —
+/// `rhei cost`, `rhei summary`, the run report, the rollups, the dashboard —
+/// comes through here, so this is where a record written before the convention
+/// existed is read into it. §FS-rhei-cost-accounting.5.2
+fn usage_summary_from_record(
+    record: &AccountingInvocationRecord,
+    books: &ReachablePriceBooks,
+) -> rhei_tui::UsageSummary {
+    usage_summary_from_reading(&read_stored_record(record, books))
+}
+
+fn usage_summary_from_reading(reading: &RecordReading<'_>) -> rhei_tui::UsageSummary {
+    let record = reading.record;
+    let tokens = &reading.tokens;
+    let pricing = &reading.pricing;
     // §FS-rhei-cost-accounting.7: UsageSummary mirrors invocation data.
     let status = match record.extraction_status.as_str() {
         "measured" => rhei_tui::UsageStatus::Measured,
@@ -686,7 +732,7 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
         "extractor-failed" => rhei_tui::UsageStatus::ExtractorFailed,
         _ => rhei_tui::UsageStatus::NoUsageEmitted,
     };
-    let pricing_status = match record.pricing.status.as_str() {
+    let pricing_status = match pricing.status.as_str() {
         "priced" => rhei_tui::PricingStatus::Priced,
         "partial-price" => rhei_tui::PricingStatus::PartialPrice,
         "unpriced" => rhei_tui::PricingStatus::Unpriced,
@@ -699,16 +745,16 @@ fn usage_summary_from_record(record: &AccountingInvocationRecord) -> rhei_tui::U
         agent: record.agent.clone(),
         provider: record.provider.clone(),
         model: record.model.clone(),
-        total: dimension_summary(&record.tokens.total),
-        input_total: dimension_summary(&record.tokens.input.total),
-        input_cached_read: dimension_summary(&record.tokens.input.cached_read),
-        input_cache_write: dimension_summary(&record.tokens.input.cache_write),
-        output_total: dimension_summary(&record.tokens.output.total),
-        output_cached_read: dimension_summary(&record.tokens.output.cached_read),
-        output_cache_write: dimension_summary(&record.tokens.output.cache_write),
-        cost_micro: record.pricing.amount_micro,
-        priced_cost_micro: record.pricing.priced_amount_micro.or(record.pricing.amount_micro),
-        currency: record.pricing.currency.clone(),
+        total: dimension_summary(&tokens.total),
+        input_total: dimension_summary(&tokens.input.total),
+        input_cached_read: dimension_summary(&tokens.input.cached_read),
+        input_cache_write: dimension_summary(&tokens.input.cache_write),
+        output_total: dimension_summary(&tokens.output.total),
+        output_cached_read: dimension_summary(&tokens.output.cached_read),
+        output_cache_write: dimension_summary(&tokens.output.cache_write),
+        cost_micro: pricing.amount_micro,
+        priced_cost_micro: pricing.priced_amount_micro.or(pricing.amount_micro),
+        currency: pricing.currency.clone(),
         coverage,
         status,
         pricing_status,
@@ -1037,14 +1083,35 @@ fn parse_claude_result_line(line: &str) -> ClaudeResultLine {
     })
 }
 
+/// Fold a provider's cache dimensions into `input.total`, for the providers
+/// that report an input count beside them rather than around them.
+///
+/// Anthropic's `input_tokens` and Pi's `input` exclude their cache dimensions;
+/// OpenAI's `input_tokens` already contains them. The record states one
+/// convention whatever the provider, and the conversion belongs here, at
+/// extraction, so nothing downstream has to know which agent wrote it.
+// §FS-rhei-cost-accounting.3.1 §FS-rhei-cost-accounting.4
+fn include_cache_in_input_total(usage: &mut ExtractedUsage) {
+    let Some(input_total) = usage.input_total else {
+        return;
+    };
+    usage.input_total = Some(
+        input_total
+            .saturating_add(usage.input_cached_read.unwrap_or(0))
+            .saturating_add(usage.input_cache_write.unwrap_or(0)),
+    );
+}
+
 fn claude_usage_from_usage(usage: &ClaudeUsage) -> ExtractedUsage {
-    ExtractedUsage {
+    let mut extracted = ExtractedUsage {
         input_total: Some(usage.input_tokens),
         input_cached_read: Some(usage.cache_read_input_tokens),
         input_cache_write: Some(usage.cache_creation_input_tokens),
         output_total: Some(usage.output_tokens),
         ..ExtractedUsage::default()
-    }
+    };
+    include_cache_in_input_total(&mut extracted);
+    extracted
 }
 
 fn claude_usage_from_models(
@@ -1060,6 +1127,9 @@ fn claude_usage_from_models(
             ..ExtractedUsage::default()
         });
     }
+    // Summing per model and converting once is the same arithmetic as
+    // converting each model's usage and summing. §FS-rhei-cost-accounting.3.1
+    include_cache_in_input_total(&mut extracted);
     extracted.has_total().then_some(extracted)
 }
 
@@ -1087,7 +1157,10 @@ fn extract_pi_usage_from_value(value: &serde_json::Value) -> Option<ExtractedUsa
         return None;
     }
     let usage = message.get("usage")?.as_object()?;
-    let extracted = ExtractedUsage {
+    let mut extracted = ExtractedUsage {
+        // Pi's own aggregate is `input + cacheRead + cacheWrite + output`, so
+        // it already counts every token and is taken as reported; its `input`
+        // is what has to grow. §FS-rhei-cost-accounting.3.6
         total: dimension_u64(usage.get("totalTokens")),
         input_total: dimension_u64(usage.get("input")),
         input_cached_read: dimension_u64(usage.get("cacheRead")),
@@ -1095,6 +1168,7 @@ fn extract_pi_usage_from_value(value: &serde_json::Value) -> Option<ExtractedUsa
         output_total: dimension_u64(usage.get("output")),
         ..ExtractedUsage::default()
     };
+    include_cache_in_input_total(&mut extracted);
     extracted.has_total().then_some(extracted)
 }
 
@@ -1391,6 +1465,12 @@ fn usage_from_structured_event_value(value: &serde_json::Value) -> Option<Extrac
         .or_else(|| usage_from_json_payload(value))
 }
 
+/// The shapes whose `input_tokens` already counts the cache dimensions inside
+/// it: OpenAI's `turn.completed.usage`, and Rhei's own
+/// `rhei.accounting.usage.v1` capture event, which states its dimensions in
+/// §FS-rhei-cost-accounting.3.1's convention. Both paths meet here, and neither
+/// is converted — converting a capture event would count its cached reads
+/// twice. §FS-rhei-cost-accounting.4
 fn usage_from_json_payload(value: &serde_json::Value) -> Option<ExtractedUsage> {
     let object = value.as_object()?;
     for key in ["usage", "token_usage", "tokens", "metrics"] {
@@ -1571,7 +1651,10 @@ fn price_tokens(
         };
     };
     let mut amount = 0u64;
-    amount = amount.saturating_add(price_dimension(tokens.input.total.value, entry.input_total_micro));
+    amount = amount.saturating_add(price_dimension(
+        uncached_input_tokens(tokens),
+        entry.input_total_micro,
+    ));
     amount = amount.saturating_add(price_dimension(
         tokens.input.cached_read.value,
         entry.input_cached_read_micro,
@@ -1588,6 +1671,21 @@ fn price_tokens(
         priced_amount_micro: Some(amount),
         price_book_id: Some(price_book.price_book_id.clone()),
     }
+}
+
+/// What the full input rate applies to: `input.total` less the two cache
+/// dimensions, which are parts of it and each carry a rate of their own.
+/// Charging the whole at the full rate and the parts at theirs charges every
+/// cached token twice. An unavailable dimension subtracts nothing, and the
+/// subtraction saturates rather than underflowing when a provider reports
+/// parts larger than the whole. §FS-rhei-cost-accounting.5
+fn uncached_input_tokens(tokens: &AccountingTokens) -> Option<u64> {
+    let input_total = tokens.input.total.value?;
+    Some(
+        input_total
+            .saturating_sub(tokens.input.cached_read.value.unwrap_or(0))
+            .saturating_sub(tokens.input.cache_write.value.unwrap_or(0)),
+    )
 }
 
 fn price_dimension(tokens: Option<u64>, price_micro: u64) -> u64 {

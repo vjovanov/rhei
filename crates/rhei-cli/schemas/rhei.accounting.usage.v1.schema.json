@@ -16,9 +16,21 @@
           "minProperties": 1,
           "properties": {
             "total_tokens": { "type": "integer", "minimum": 0 },
-            "input_tokens": { "type": "integer", "minimum": 0 },
-            "cached_input_tokens": { "type": "integer", "minimum": 0 },
-            "cache_write_input_tokens": { "type": "integer", "minimum": 0 },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Every input token counted for this turn, cached reads and cache writes included. A capture event states its dimensions in this convention and is never converted again."
+            },
+            "cached_input_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The part of input_tokens served from cache, not a figure beside it."
+            },
+            "cache_write_input_tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The part of input_tokens written into cache, not a figure beside it."
+            },
             "output_tokens": { "type": "integer", "minimum": 0 },
             "cached_output_tokens": { "type": "integer", "minimum": 0 },
             "output_cache_write": { "type": "integer", "minimum": 0 }
