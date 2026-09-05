@@ -43,17 +43,18 @@
                 }
                 continue;
             }
-            if !root.is_dir() {
+            if !root.path().is_dir() {
                 continue;
             }
 
-            let mut entries = fs::read_dir(&root)
-                .map_err(|err| file_io_report(&root, "failed to read template directory", err))?
+            let dir = root.path();
+            let mut entries = fs::read_dir(dir)
+                .map_err(|err| file_io_report(dir, "failed to read template directory", err))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| {
                     miette!(
                         help = "check that the templates directory is readable, then re-run: rhei templates",
-                        "failed to read dir entry in '{}': {err}", root.display()
+                        "failed to read dir entry in '{}': {err}", dir.display()
                     )
                 })?;
             entries.sort_by_key(|entry| entry.file_name());
@@ -69,6 +70,10 @@
                     continue;
                 };
 
+                // The listing is what was actually read, so a shadowed
+                // deprecated root contributes nothing and says nothing.
+                // §FS-rhei-templates.1.3
+                root.warn_if_deprecated();
                 seen.insert(name);
                 templates.push(DiscoveredTemplate { manifest, path, source });
             }
@@ -77,57 +82,54 @@
         Ok(templates)
     }
 
+    /// Every tier's search roots in priority order. A project or user tier
+    /// contributes both home names, the current one first; the deprecated one
+    /// is only ever *read*, and reading it warns. §FS-rhei-templates.1
     fn template_search_roots(
         filter: TemplateSourceFilter,
-    ) -> MietteResult<Vec<(TemplateSource, PathBuf)>> {
+    ) -> MietteResult<Vec<(TemplateSource, RheiHomePath)>> {
         let mut roots = Vec::new();
 
         if filter.includes(TemplateSource::Project) {
-            roots.push((
-                TemplateSource::Project,
-                project_template_root()?,
-            ));
+            roots.extend(
+                project_template_roots()?.into_iter().map(|root| (TemplateSource::Project, root)),
+            );
         }
         if filter.includes(TemplateSource::User) {
-            roots.push((
-                TemplateSource::User,
-                home_dir()?.join(".agents").join("rhei").join("templates"),
-            ));
+            roots.extend(
+                rhei_home_paths(&home_dir()?, "templates")
+                    .into_iter()
+                    .map(|root| (TemplateSource::User, root)),
+            );
         }
         if filter.includes(TemplateSource::Builtin) {
             // Placeholder path: built-ins are embedded, so this root is never
             // read. It exists so the tier keeps its place in the search order
             // and can be named in the "searched" listing.
-            roots.push((TemplateSource::Builtin, PathBuf::from("<compiled into the rhei binary>")));
+            roots.push((
+                TemplateSource::Builtin,
+                RheiHomePath::plain("<compiled into the rhei binary>"),
+            ));
         }
 
         Ok(roots)
     }
 
-    fn project_template_root() -> MietteResult<PathBuf> {
-        // §FS-rhei-templates.1: project-local templates live under the nearest
-        // `.agents/rhei/templates`, even when an unrelated parent has VCS markers.
-        if let Some(root) = nearest_project_template_root()? {
-            return Ok(root);
-        }
-        Ok(find_project_root()?.join(".agents").join("rhei").join("templates"))
-    }
-
-    fn nearest_project_template_root() -> MietteResult<Option<PathBuf>> {
+    /// The project tier's roots: the nearest level at or above the working
+    /// directory holding either home name, even when an unrelated parent has
+    /// VCS markers. §FS-rhei-templates.1.2
+    fn project_template_roots() -> MietteResult<Vec<RheiHomePath>> {
         let cwd = std::env::current_dir()
             .map_err(|e| miette!(
                 help = cwd_help(),
                 "failed to determine working directory: {e}"
             ))?;
-        let mut dir = Some(cwd.as_path());
-        while let Some(current) = dir {
-            let candidate = current.join(".agents").join("rhei").join("templates");
-            if candidate.is_dir() {
-                return Ok(Some(candidate));
-            }
-            dir = current.parent();
+        if let Some(roots) = nearest_rhei_home_dirs(&cwd, "templates") {
+            return Ok(roots);
         }
-        Ok(None)
+        // No ancestor holds either name: the project root supplies the base,
+        // and the current home is preferred there too. §FS-rhei-templates.1.2
+        Ok(rhei_home_paths(&find_project_root()?, "templates").into_iter().collect())
     }
 
     /// A template resolved to a directory the instantiation pipeline can read.
@@ -174,8 +176,10 @@
                 }
                 continue;
             }
-            let candidate = root.join(reference);
+            let candidate = root.path().join(reference);
             if candidate.is_dir() {
+                // Resolved from the deprecated home, so say so. §FS-rhei-templates.1.3
+                root.warn_if_deprecated();
                 return Ok(ResolvedTemplate { path: candidate, _extracted: None });
             }
         }

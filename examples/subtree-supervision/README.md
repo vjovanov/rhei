@@ -113,7 +113,7 @@ uses the mock agent and therefore declares no snapshot block.
   delivered prompt rather than its environment, because an agent's cwd is the
   repository checkout, not the plan directory; the settings bootstrap reads
   that same prompt map before it execs the script.
-- `.agents/rhei/settings.json` — registers that mock as the default agent
+- `.agent-grounds/rhei/settings.json` — registers that mock as the default agent
 
 ## See also
 

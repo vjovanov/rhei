@@ -238,6 +238,7 @@
             if !roots.is_empty() {
                 println!("Searched:");
                 for (source, root) in roots {
+                    let root = root.path();
                     let exists_marker = if root.is_dir() { "" } else { " (does not exist)" };
                     println!("  [{}] {}{}", source.as_str(), root.display(), exists_marker);
                 }

@@ -73,8 +73,8 @@ if session_dir:
 /// The snapshot agent's settings, written under `root`. Which root that is
 /// carries meaning in a Panta project, so callers say it rather than inherit it.
 fn write_fake_snapshot_settings(root: &Path, fake_agent: &Path) {
-    let settings_dir = root.join(".agents/rhei");
-    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
+    let settings_dir = root.join(".agent-grounds/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agent-grounds/rhei");
     fs::write(
         settings_dir.join("settings.json"),
         format!(

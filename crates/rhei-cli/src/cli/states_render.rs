@@ -286,9 +286,10 @@ enum LoadedPlanKind {
     PantaProject,
 }
 
-/// Name any member rhei carrying its own `.agents/rhei/settings.json`: settings
-/// resolve once, at the project root, so a copy inside a member is read by
-/// nothing and its agent registry silently vanished. §FS-rhei-agents.1.1
+/// Name any member rhei carrying its own settings file, under either of rhei's
+/// homes: settings resolve once, at the project root, so a copy inside a member
+/// is read by nothing and its agent registry silently vanished.
+/// §FS-rhei-agents.1.1
 fn ignored_member_settings_warnings(input: &Path, loaded: &LoadedPlan) -> Vec<String> {
     if !loaded.is_panta_project() {
         return Vec::new();
@@ -301,14 +302,15 @@ fn ignored_member_settings_warnings(input: &Path, loaded: &LoadedPlan) -> Vec<St
     };
     entries
         .into_iter()
-        .map(|entry| entry.join(".agents/rhei/settings.json"))
-        .filter(|settings| settings.is_file())
+        // A member's own file counts under either home, but the move it names
+        // is always the current one. §FS-rhei-templates.1.1
+        .filter_map(|entry| resolve_rhei_home_file(&entry, PROJECT_SETTINGS_FILE))
         .map(|settings| {
             format!(
                 "{} is ignored: settings resolve at the project root, so move its contents into \
                  {} — nothing reads a member rhei's own settings file",
-                settings.display(),
-                project.join(".agents/rhei/settings.json").display()
+                settings.path().display(),
+                rhei_home_write_path(&project, PROJECT_SETTINGS_FILE).display()
             )
         })
         .collect()

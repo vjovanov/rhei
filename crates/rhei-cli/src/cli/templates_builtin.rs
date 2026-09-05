@@ -6,7 +6,7 @@ use include_dir::{include_dir, Dir};
 
 /// The shipped template library, embedded at compile time.
 ///
-/// Living under the CLI package (rather than the repo's `.agents/`) is what
+/// Living under the CLI package (rather than the repo's `.agent-grounds/`) is what
 /// makes these files part of the published crate: `cargo install` extracts the
 /// package, and a directory outside it would simply not be there.
 static BUILTIN_TEMPLATES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates");

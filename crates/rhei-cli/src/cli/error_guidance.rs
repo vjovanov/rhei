@@ -225,7 +225,7 @@ fn require_project_root(project_root: Option<&Path>) -> MietteResult<&Path> {
 fn unknown_agent_help(id: &str, known: &[String]) -> String {
     let hint = did_you_mean(id, known).map(|hint| format!("{hint} ")).unwrap_or_default();
     format!(
-        "{hint}Define it under `agents.<id>` in .agents/rhei/settings.json or \
+        "{hint}Define it under `agents.<id>` in .agent-grounds/rhei/settings.json or \
          ~/.config/rhei/settings.json."
     )
 }

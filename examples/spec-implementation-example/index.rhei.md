@@ -83,5 +83,5 @@ checkout. Runtime artifacts (`runtime/...`) and dynamic per-spec task files
   the run. `rhei reset` clears state but does not delete dynamically
   appended task files.
 - Instantiate inside the repository being worked on, ideally under
-  `.agents/scratchpad/`, so `git rev-parse --show-toplevel` from the
+  `.agent-grounds/scratchpad/`, so `git rev-parse --show-toplevel` from the
   workspace resolves the project root deterministically.

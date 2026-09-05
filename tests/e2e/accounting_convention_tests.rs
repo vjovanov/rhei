@@ -107,7 +107,7 @@ fn mixed_workspace(prefix: &str) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
     let codex = write_python_agent(&dir, "mock-codex.py", CODEX_AGENT);
     let claude = write_python_agent(&dir, "mock-claude.py", CLAUDE_AGENT);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     fs::write(
         settings_dir.join("settings.json"),

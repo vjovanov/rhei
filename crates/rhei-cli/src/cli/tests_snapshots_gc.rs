@@ -32,7 +32,7 @@ spawns.mkdir(parents=True, exist_ok=True)
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
-        let settings_dir = dir.path().join(".agents/rhei");
+        let settings_dir = dir.path().join(".agent-grounds/rhei");
         fs::create_dir_all(&settings_dir).expect("mkdir");
         let spawns_dir = dir.path().join("spawns");
         let command = write_counting_success_agent(dir.path(), &spawns_dir);

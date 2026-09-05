@@ -24,7 +24,7 @@ templates that are easy to instantiate repeatedly.
 The implementation agent may change only the following scope unless the smart
 agent explicitly records a narrow exception in the implementation slice:
 
-`docs/functional-spec, .agents/rhei/templates, examples`
+`docs/functional-spec, .agent-grounds/rhei/templates, examples`
 
 ## Focus Areas
 - template usability

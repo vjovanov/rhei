@@ -98,7 +98,7 @@ result('## Result\n\nMeasured invocation completed.\n')
 "#
         ),
     );
-    let settings_dir = root.join(".agents/rhei");
+    let settings_dir = root.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings directory");
     fs::write(
         settings_dir.join("settings.json"),

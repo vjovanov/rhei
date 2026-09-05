@@ -253,3 +253,23 @@ prompt unless `intervene_stdin` opts into a held-open streaming transport.
   validator/CLI changes; there are no other in-tree users of inline agents.
 - No public release has shipped with an `agents` registry yet, so the
   wholesale-merge rule does not break any deployed configuration.
+
+## Later note — the project settings file moved home
+
+The paths written above say `.agents/rhei/settings.json`, and they record what
+was decided here. They are left as they were.
+
+The project settings file has since moved to
+`<plan-root>/.agent-grounds/rhei/settings.json`. `.agents/` is where agent
+*instructions* live, and an agent runtime may mount it read-only inside a
+checkout — Codex's managed permission profile does — so rhei's own product
+files, which an agent working in the repository has to be able to edit, could
+not stay there. Nothing about the registry, the modes, or the merge semantics
+this ADR decided changed with the move.
+
+`.agents/rhei/settings.json` is still read when the new path is absent, first
+match wins, the two files are never merged, and reading the old one prints a
+deprecation warning. Rhei writes only the new path. The rule is
+[§FS-rhei-agents.1.1](../functional-spec/rhei-agents.spec.md#11-global-and-project-settings),
+and the reason the directory moved is
+[§FS-rhei-templates.1.1](../functional-spec/rhei-templates.spec.md#11-rheis-project-local-home-and-its-deprecated-predecessor).

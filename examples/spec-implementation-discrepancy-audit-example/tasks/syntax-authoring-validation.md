@@ -11,7 +11,7 @@ Spec scope:
 Implementation roots:
 - `crates`
 - `skills`
-- `.agents/rhei/templates`
+- `.agent-grounds/rhei/templates`
 - `examples`
 
 Focus on markdown grammar, directory workspace semantics, task hierarchy rules,

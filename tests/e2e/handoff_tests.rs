@@ -55,7 +55,7 @@ fn agent_log(dir: &Path, task_id: &str, state: &str) -> String {
 /// Install a fake agent that reads its prompt from stdin and runs `body`.
 fn write_fake_agent(dir: &Path, name: &str, body: &str) {
     let script_path = write_python_agent(dir, name, body);
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let settings = format!(
         r#"{{

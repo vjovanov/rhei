@@ -162,8 +162,8 @@ elif state in ('review', 'fix'):
 "#;
 
 fn write_mock_agent_settings(workspace: &Path, agent_script: &Path) {
-    let settings_dir = workspace.join(".agents/rhei");
-    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agent-grounds/rhei");
     let profile = format!(
         r#"{{
       "command": {},
@@ -385,8 +385,11 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         eprintln!("skipping: git unavailable");
         return;
     }
-    let template = dir.join(".agents/rhei/templates/ui-test-canonical");
-    copy_dir_recursive(&repo_root().join(".agents/rhei/templates/ui-test-canonical"), &template);
+    let template = dir.join(".agent-grounds/rhei/templates/ui-test-canonical");
+    copy_dir_recursive(
+        &repo_root().join(".agent-grounds/rhei/templates/ui-test-canonical"),
+        &template,
+    );
     let home = dir.join(".home");
     fs::create_dir_all(&home).expect("isolated home");
     let launch = dir.join("nested");

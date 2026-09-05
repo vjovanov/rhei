@@ -141,7 +141,7 @@ sys.exit(completed.returncode)
         rhei_binary().display().to_string(),
     ])
     .expect("serialize mock agent command");
-    let settings_dir = dir.join(".agents/rhei");
+    let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings directory");
     fs::write(
         settings_dir.join("settings.json"),

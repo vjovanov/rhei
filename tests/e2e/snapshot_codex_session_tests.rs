@@ -123,8 +123,8 @@ fn run_snapshot_cli(plan_path: &Path, machine_path: &Path, args: &[&str]) -> Cli
 }
 
 fn write_settings(root: &Path, body: &str) {
-    let settings_dir = root.join(".agents/rhei");
-    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
+    let settings_dir = root.join(".agent-grounds/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agent-grounds/rhei");
     fs::write(settings_dir.join("settings.json"), body).expect("write settings");
 }
 

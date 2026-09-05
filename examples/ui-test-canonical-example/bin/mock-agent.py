@@ -5,7 +5,7 @@ CLI runs, and a Windows runner has no `bash`. Every path below is built a
 segment at a time with `pathlib`, never by pasting a separator into a string,
 so the fixture spells no platform's dialect.
 
-`.agents/rhei/settings.json` spawns this file as
+`.agent-grounds/rhei/settings.json` spawns this file as
 
     python3 -c "...runpy.run_path(prompt_root/bin/mock-agent.py)..."
 

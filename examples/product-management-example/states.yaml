@@ -201,7 +201,7 @@ states:
 
       Implementation scope:
 
-      docs/functional-spec, .agents/rhei/templates, examples
+      docs/functional-spec, .agent-grounds/rhei/templates, examples
 
       Apply only entries listed under "Accepted for implementation". Do not
       implement rejected, deferred, or needs-human-input entries. Keep each

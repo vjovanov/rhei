@@ -128,8 +128,8 @@ if state != 'supervising':
 
 /// Point every agent the template's default targets name at the mock.
 fn write_mock_settings(workspace: &Path, script: &Path) {
-    let settings_dir = workspace.join(".agents/rhei");
-    fs::create_dir_all(&settings_dir).expect("create .agents/rhei");
+    let settings_dir = workspace.join(".agent-grounds/rhei");
+    fs::create_dir_all(&settings_dir).expect("create .agent-grounds/rhei");
     let profile = format!(
         r#"{{
       "command": {},

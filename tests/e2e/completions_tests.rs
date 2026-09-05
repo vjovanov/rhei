@@ -110,7 +110,7 @@ inputs: []
 }
 
 fn write_project_template_with_manifest(project: &Path, name: &str, manifest: &str) {
-    let template_dir = project.join(".agents/rhei/templates").join(name);
+    let template_dir = project.join(".agent-grounds/rhei/templates").join(name);
     fs::create_dir_all(&template_dir).expect("create template directory");
     write_fixture_file(&template_dir, "template.yaml", manifest);
     write_fixture_file(

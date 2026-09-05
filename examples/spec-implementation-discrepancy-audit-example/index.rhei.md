@@ -11,7 +11,7 @@ different spec areas before a human chooses the final reconciliation outcome.
 Implementation roots to inspect:
 - `crates`
 - `skills`
-- `.agents/rhei/templates`
+- `.agent-grounds/rhei/templates`
 - `examples`
 
 

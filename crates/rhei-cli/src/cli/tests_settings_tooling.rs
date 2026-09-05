@@ -183,7 +183,7 @@
     fn merge_deep_merges_models_agents_by_binding_id() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".agents/rhei");
+        let project_dir = plan_root.join(".agent-grounds/rhei");
         fs::create_dir_all(&project_dir).expect("mkdir");
         // Global settings define args; project settings define autonomous_args
         // for the same model-agent binding. Deep-merge must keep both.
@@ -254,7 +254,7 @@
     fn settings_merge_project_null_clears_inherited_optional_defaults() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan_root = dir.path().join("plan");
-        let project_dir = plan_root.join(".agents/rhei");
+        let project_dir = plan_root.join(".agent-grounds/rhei");
         fs::create_dir_all(&project_dir).expect("mkdir");
         let _home = TempHome::new();
         let global_dir = home_dir().expect("home").join(".config/rhei");
@@ -1131,7 +1131,7 @@ states:
         let dir = tempfile::tempdir().expect("tmpdir");
         let plan = dir.path().join("plan.rhei.md");
         let states = dir.path().join("states.yaml");
-        let settings_dir = dir.path().join(".agents/rhei");
+        let settings_dir = dir.path().join(".agent-grounds/rhei");
         fs::create_dir_all(&settings_dir).expect("mkdir");
         let spawned = dir.path().join("spawned");
         // The path is JSON-encoded, which is also a Python string literal, so a

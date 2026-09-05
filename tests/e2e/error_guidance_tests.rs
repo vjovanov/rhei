@@ -22,7 +22,7 @@ fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
 /// something other than `agent` so a hardcoded `agent=` repair example is
 /// caught rather than accidentally passing. §FS-rhei-errors.1.2
 fn write_agent_template(dir: &std::path::Path) {
-    let template_dir = dir.join(".agents/rhei/templates/guided");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/guided");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
@@ -408,7 +408,7 @@ fn suggested_commands_are_never_wrapped_mid_command() {
 /// A template whose execution-target input is nested inside an array, so the
 /// repair example cannot be a plain `name=value` assignment. §FS-rhei-errors.1.2
 fn write_nested_target_template(dir: &std::path::Path) {
-    let template_dir = dir.join(".agents/rhei/templates/nested");
+    let template_dir = dir.join(".agent-grounds/rhei/templates/nested");
     fs::create_dir_all(&template_dir).expect("create template dir");
     write_fixture_file(
         &template_dir,
