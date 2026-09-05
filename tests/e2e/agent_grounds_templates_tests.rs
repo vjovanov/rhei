@@ -13,8 +13,8 @@
 use std::path::Path;
 
 use super::agent_grounds_support::{
-    assert_deprecation_warning, assert_silent_about_the_deprecated_home, run_in, DEPRECATED,
-    GROUNDS,
+    assert_deprecation_warning, assert_names_path, assert_silent_about_the_deprecated_home, run_in,
+    DEPRECATED, GROUNDS,
 };
 use super::*;
 
@@ -270,12 +270,7 @@ fn the_searched_listing_names_both_homes_of_the_level_it_resolved() {
         result.stdout
     );
     for home in [GROUNDS_TEMPLATES, DEPRECATED_TEMPLATES] {
-        let named = dir.join(home);
-        assert!(
-            result.stdout.contains(&named.display().to_string()),
-            "the listing must name '{home}'; stdout was:\n{}",
-            result.stdout
-        );
+        assert_names_path(&result.stdout, &dir, home);
     }
     assert!(
         result.stdout.contains("(does not exist)"),

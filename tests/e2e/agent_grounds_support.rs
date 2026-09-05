@@ -24,11 +24,11 @@ pub fn run_in(args: &[&str], cwd: &Path, home: &Path) -> CliRun {
 /// Separators differ per platform and macOS resolves `/tmp` through a symlink,
 /// so match the tail the child process cannot rewrite: the unique directory
 /// name plus the relative path under it.
-pub fn assert_names_path(stderr: &str, dir: &Path, relative: &str) {
+pub fn assert_names_path(output: &str, dir: &Path, relative: &str) {
     let leaf = dir.file_name().expect("test directory has a name").to_string_lossy().into_owned();
     let tail = format!("{leaf}/{relative}");
-    let seen = stderr.replace('\\', "/");
-    assert!(seen.contains(&tail), "warning should name '{tail}'; stderr was:\n{seen}");
+    let seen = output.replace('\\', "/");
+    assert!(seen.contains(&tail), "the output should name '{tail}'; it was:\n{seen}");
 }
 
 /// The warning names the path it read and the path to move the material to, on
