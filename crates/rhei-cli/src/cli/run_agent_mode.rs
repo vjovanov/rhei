@@ -972,7 +972,10 @@ fn run_agent_mode(
             programs_spawned,
             terminal_tasks: terminal_count,
             total_tasks,
-            accounting,
+            // §FS-rhei-run-report.2.1: this run's own rollup is the strip's
+            // headline; the workspace lifetime total rides beside it.
+            accounting: accounting.as_ref().map(|rollup| rollup.run.clone()),
+            workspace_accounting: accounting.and_then(|rollup| rollup.workspace).map(Box::new),
         },
     });
     // The loop reached the point where it writes a report, so the finished

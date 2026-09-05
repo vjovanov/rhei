@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **An invocation record names the run that produced it, and cost can be
+  selected by run and by clock.** The word *run* in the accounting spec meant
+  "this workspace, all of it", so there was no vocabulary for one invocation of
+  `rhei run` — and the run report's accounting strip printed the workspace's
+  lifetime total as what the run had just spent, directly above its own note
+  that no agent ran. `rhei.accounting.invocation.v1` now carries an optional
+  `run_id`; the schema string does not move, and a record written before the
+  field existed still parses and is reported as *unattributed*, never dropped
+  and never folded into a named run. `rhei cost` gains `--run <ID>` (with
+  `--run unattributed` for the records that name none), `--since`, `--until`,
+  and `run` and `day` as `--by` values; every aggregate carries coverage, and a
+  run selection standing beside an unattributed record reports `partial` rather
+  than `complete`. The report's strip is now headed `Accounting (this run)`,
+  names its `source` as the end-of-run `rollup` or the `run events` fallback so
+  the two quantities are told apart, and keeps `workspace total tokens` on a
+  labelled row of its own. `rhei runs` answers about history behind `--all`,
+  `--since`, and `--until`, and says `Retention truncated this window:` rather
+  than summing what is left of a window the registry's 100-entry cap cut short.
+  Nothing already working moves: `rhei cost <workspace>` and `rhei runs` with
+  no new flag print exactly what they printed before, and `--json` only gains
+  keys (`selection`, `run_attribution`). One caveat worth saying out loud: the
+  new surfaces read `pricing.priced_amount_micro`, so on a `codex` or mixed run
+  they report the inflated figure of `vjovanov/rhei#166` — cached reads charged
+  twice — in more places than before. That bug is not fixed here; it is about
+  what a record means, and this change is about aggregating over records.
+  (PR #N)
 - **Autonomous workers no longer leak the enclosing Rhei identity into their
   child processes.** Rhei now removes `RHEI_ROOT`, `RHEI_PLAN_PATH`,
   `RHEI_RESULT_PATH`, `RHEI_TASK_ID`, and `RHEI_TASK_ID_LOCAL` at every agent

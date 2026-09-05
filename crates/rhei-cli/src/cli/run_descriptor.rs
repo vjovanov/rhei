@@ -407,6 +407,22 @@ pub(crate) fn publish_run_descriptor(descriptor: &RunDescriptor) {
     }
 }
 
+/// The id of the run this process published, if it has published one.
+///
+/// The published slot, not a re-read of `runtime/run.json`: by the time an
+/// artifact is written mid-run a later run may already have overwritten that
+/// file, and stamping its id onto this run's record would attribute the spend
+/// to the wrong run. A process that published nothing — a dry run — has no id
+/// to give, and what it writes is unattributed.
+// §FS-rhei-run-headless.2 §FS-rhei-cost-accounting.3.5
+pub(crate) fn current_run_id() -> Option<String> {
+    published_slot()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .as_ref()
+        .map(|published| published.id.clone())
+}
+
 /// Stamp the run's terminal status and exit code into both copies.
 ///
 /// The registry entry is **rewritten, not removed**. A pointer that vanishes

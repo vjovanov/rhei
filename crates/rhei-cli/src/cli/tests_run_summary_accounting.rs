@@ -119,7 +119,7 @@
         // The same invocation reports again after its slot is gone.
         report_usage(&sink, "t1", None, usage(INVOCATION, 1_280_000, 96_000, 21_000));
 
-        let run = sink.accounting().expect("the run carries fallback accounting");
+        let run = sink.accounting().run.expect("the run carries fallback accounting");
         assert_eq!(run.invocation_count, 1, "run rollup: {run:?}");
         assert_eq!(run.total.value, Some(1_280_000), "run rollup: {run:?}");
         assert_eq!(run.output_total.value, Some(96_000), "run rollup: {run:?}");
@@ -146,7 +146,7 @@
         report_usage(&sink, "t1", None, usage(INVOCATION, 1_280_000, 96_000, 21_000));
 
         for (level, rollup) in [
-            ("run", sink.accounting().expect("the run carries fallback accounting")),
+            ("run", sink.accounting().run.expect("the run carries fallback accounting")),
             ("task", task_accounting(&sink, "t1")),
         ] {
             assert_eq!(rollup.invocation_count, 1, "{level} rollup: {rollup:?}");
@@ -176,7 +176,7 @@
         );
 
         for (level, rollup) in [
-            ("run", sink.accounting().expect("the run carries fallback accounting")),
+            ("run", sink.accounting().run.expect("the run carries fallback accounting")),
             ("task", task_accounting(&sink, "t1")),
         ] {
             assert_eq!(rollup.invocation_count, 2, "{level} rollup: {rollup:?}");

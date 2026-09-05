@@ -414,6 +414,7 @@ fn run_callback_mode(
             terminal_tasks: terminal_count,
             total_tasks,
             accounting: None,
+            workspace_accounting: None,
         },
     });
     frontend.write_frozen_dashboard();

@@ -440,7 +440,7 @@ fn command_wants_json(command: &Commands) -> bool {
         }
         Commands::Templates { json, .. } => *json,
         Commands::Cost { json, .. } => *json,
-        Commands::Runs { json } => *json,
+        Commands::Runs { json, .. } => *json,
         // `attach --json` streams records on stdout, so a failure must not
         // print miette prose beside them. §FS-rhei-run-json.1
         Commands::Attach { json, .. } => *json,
@@ -571,8 +571,16 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         // `rhei cost` reads accounting artifacts under the target's own runtime
         // root and resolves no dependency graph, so it stays on the path it was
         // given rather than widening to the enclosing project.
-        Commands::Cost { input, task, json, by } => {
-            cost_command(resolve_plan_target(input)?.path(), task.as_deref(), json, by)
+        Commands::Cost { input, task, json, by, run, since, until } => {
+            cost_command(CostCommandOptions {
+                input: resolve_plan_target(input)?.path(),
+                task: task.as_deref(),
+                json,
+                by,
+                run: run.as_deref(),
+                since: since.as_deref(),
+                until: until.as_deref(),
+            })
         }
         Commands::Schema { name, list: _ } => accounting_schema_command(name.as_deref()),
         // `rhei summary` reads the same target-local accounting root, so it
@@ -585,7 +593,9 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
         Commands::Attach { run, json, since, wait } => {
             attach_command(run.as_deref(), json, since, wait)
         }
-        Commands::Runs { json } => runs_command(json),
+        Commands::Runs { json, all, since, until } => {
+            runs_command(json, all, since.as_deref(), until.as_deref())
+        }
         Commands::Stop { run, kill, wait } => stop_command(run.as_deref(), kill, wait),
         Commands::Intervene { plan, task, slot, message } => {
             intervene_command(&plan, &task, slot, &message)

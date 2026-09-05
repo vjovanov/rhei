@@ -225,6 +225,13 @@ fn summary_value(summary: &RunSummary) -> Value {
             .as_ref()
             .and_then(|a| serde_json::to_value(a).ok())
             .unwrap_or(Value::Null),
+        // §FS-rhei-cost-accounting.6: the workspace lifetime total travels
+        // beside the run's own, never in place of it.
+        "workspace_accounting": summary
+            .workspace_accounting
+            .as_ref()
+            .and_then(|a| serde_json::to_value(a).ok())
+            .unwrap_or(Value::Null),
     })
 }
 
@@ -381,6 +388,11 @@ fn decode_summary(value: Option<&Value>) -> RunSummary {
             .get("accounting")
             .cloned()
             .and_then(|a| serde_json::from_value::<AccountingRunSummary>(a).ok()),
+        workspace_accounting: value
+            .get("workspace_accounting")
+            .cloned()
+            .and_then(|a| serde_json::from_value::<AccountingRunSummary>(a).ok())
+            .map(Box::new),
     }
 }
 

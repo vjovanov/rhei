@@ -18,7 +18,19 @@ const KILL_ESCALATION_GRACE: Duration = Duration::from_secs(2);
 const WAIT_POLL: Duration = Duration::from_millis(200);
 
 /// List the runs that are live on this machine. §FS-rhei-run-headless.6
-pub(crate) fn runs_command(json: bool) -> MietteResult<()> {
+///
+/// `--all` and the window flags turn the same command into a question about
+/// history, answered next door; with none of them nothing here moves.
+// §FS-rhei-run-headless.6.1
+pub(crate) fn runs_command(
+    json: bool,
+    all: bool,
+    since: Option<&str>,
+    until: Option<&str>,
+) -> MietteResult<()> {
+    if let Some(query) = RunHistoryQuery::resolve(all, since, until)? {
+        return runs_history_command(json, &query);
+    }
     let sweep = sweep_run_registry();
     if json {
         let rendered = serde_json::to_string_pretty(&sweep.live).map_err(|err| {
