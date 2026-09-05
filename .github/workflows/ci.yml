@@ -67,7 +67,7 @@ jobs:
     name: repository gates (grund, fissile, lychee, changelog, attribution)
     runs-on: ubuntu-latest
     env:
-      GRUND_VERSION: 0.12.3
+      GRUND_VERSION: 0.13.0
       LYCHEE_VERSION: 0.23.0
       FISSILE_VERSION: 0.8.3
       TOOLS_ROOT: ${{ github.workspace }}/.ci-tools
