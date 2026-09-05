@@ -273,10 +273,11 @@ pub(crate) fn cost_group_key(record: &AccountingInvocationRecord, by: CostGroup)
 /// The UTC calendar day a record started on, `YYYY-MM-DD`.
 // §FS-rhei-cost-accounting.8.3
 fn record_utc_day(record: &AccountingInvocationRecord) -> String {
-    match record_started_at_secs(record) {
-        Some(_) => record.started_at[..10].to_string(),
-        None => "(unknown)".to_string(),
-    }
+    // Read off the text the instant was parsed from, but with `get` rather than
+    // a byte slice: an unreadable `started_at` already has a group of its own.
+    record_started_at_secs(record)
+        .and_then(|_| record.started_at.get(..10))
+        .map_or_else(|| "(unknown)".to_string(), str::to_string)
 }
 
 /// A record's `started_at` as an epoch second, or nothing when it will not
@@ -324,18 +325,22 @@ fn parse_bare_utc_date(text: &str) -> Option<std::time::SystemTime> {
 }
 
 fn parse_duration_before_now(text: &str) -> Option<std::time::SystemTime> {
-    let (digits, unit) = text.split_at(text.len().checked_sub(1)?);
-    let count: u64 = digits.parse().ok()?;
+    // The unit is the last *character*, not the last byte: splitting on a byte
+    // index panics on any text ending in a multi-byte one — a pasted trailing
+    // non-breaking space, say — instead of refusing it. §FS-rhei-cost-accounting.8.2
+    let mut chars = text.chars();
+    let unit = chars.next_back()?;
+    let count: u64 = chars.as_str().parse().ok()?;
     let seconds = match unit {
-        "d" => 86_400,
-        "h" => 3_600,
-        "m" => 60,
-        "s" => 1,
+        'd' => 86_400,
+        'h' => 3_600,
+        'm' => 60,
+        's' => 1,
         _ => return None,
     };
     // A duration too large to hold is unreadable, not a window: wrapping the
     // multiply would answer over a span nobody asked for.
-    // §FS-rhei-cost-accounting.8.1
+    // §FS-rhei-cost-accounting.8.2
     let span = count.checked_mul(seconds)?;
     std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(span))
 }

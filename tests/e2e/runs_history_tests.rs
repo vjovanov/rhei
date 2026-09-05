@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{rhei_command, unique_temp_dir, CliRun, TestDir};
+use super::{
+    assert_refuses_time_text, rhei_command, unique_temp_dir, CliRun, TestDir, HOSTILE_TIME_TEXTS,
+};
 
 /// The registry's cap on retained ended entries. §FS-rhei-run-headless.2
 const RETAINED_ENDED_RUNS: usize = 100;
@@ -181,4 +183,20 @@ fn runs_with_no_flag_still_lists_only_what_is_live() {
     let json = runs(&home, &["--json"]);
     assert!(json.status.success(), "got:\n{}\n{}", json.stdout, json.stderr);
     assert_eq!(json.stdout.trim(), "[]", "`--json` alone still emits the bare array");
+}
+
+/// `rhei runs` takes the same `<TIME>` vocabulary `rhei cost` does, so it
+/// inherits the same obligation: text that is not a time is a usage error on
+/// both ends of the window, never a panic out of the parser.
+// §FS-rhei-run-headless.6.1 §FS-rhei-cost-accounting.8.2
+#[test]
+fn runs_refuses_time_text_it_cannot_read_rather_than_crashing_on_it() {
+    let (_dir, home) = home_with_ended_runs("runs-hostile-time", 1);
+
+    for text in HOSTILE_TIME_TEXTS {
+        for flag in ["--since", "--until"] {
+            let refused = runs(&home, &[flag, text]);
+            assert_refuses_time_text(&refused, flag, text);
+        }
+    }
 }

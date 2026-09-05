@@ -10,7 +10,10 @@ use super::accounting_support::{
     ARCHIVED_TOKENS_2026_08_31, ARCHIVED_TOKENS_2026_09_01, ARCHIVED_TOKENS_2026_09_02,
     ARCHIVED_TOTAL_TOKENS, MOCK_AGENT_TOTAL_TOKENS, TERMINAL_PLAN, WORKING_PLAN,
 };
-use super::{assert_stderr_contains, assert_success, run_cli, CliRun};
+use super::{
+    assert_refuses_time_text, assert_stderr_contains, assert_success, run_cli, CliRun,
+    HOSTILE_TIME_TEXTS,
+};
 
 /// The key the group of records that name no run is reported under.
 /// §FS-rhei-cost-accounting.8.3
@@ -259,7 +262,7 @@ fn cost_with_no_new_flag_prints_what_it_printed_before() {
 /// Multiplying it out unguarded panics a debug build and wraps a release one
 /// into a window the caller never asked for — the silently wrong answer this
 /// flag exists to refuse.
-// §FS-rhei-cost-accounting.8.1
+// §FS-rhei-cost-accounting.8.2
 #[test]
 fn cost_refuses_a_duration_too_large_to_hold_rather_than_wrapping_it() {
     let (dir, plan_path, machine_path) = accounting_workspace("cost-overflow", TERMINAL_PLAN);
@@ -279,4 +282,23 @@ fn cost_refuses_a_duration_too_large_to_hold_rather_than_wrapping_it() {
     let refused = cost(&plan_path, &machine_path, &["--until", "18446744073709551615d"]);
     assert!(!refused.status.success(), "got:\n{}", refused.stdout);
     assert_stderr_contains(&refused, "as a time for --until");
+}
+
+/// A `<TIME>` is arbitrary text, and the parser is the first thing it meets.
+/// Reading it by byte index crashes on any value whose last character is
+/// multi-byte — a pasted trailing non-breaking space is the ordinary way to get
+/// one — and a raw panic is neither the refusal §8.2 requires nor a message
+/// anyone can act on. Both ends of the window are held to it.
+// §FS-rhei-cost-accounting.8.2
+#[test]
+fn cost_refuses_time_text_it_cannot_read_rather_than_crashing_on_it() {
+    let (dir, plan_path, machine_path) = accounting_workspace("cost-hostile-time", TERMINAL_PLAN);
+    seed_archived_records(&dir);
+
+    for text in HOSTILE_TIME_TEXTS {
+        for flag in ["--since", "--until"] {
+            let refused = cost(&plan_path, &machine_path, &[flag, text]);
+            assert_refuses_time_text(&refused, flag, text);
+        }
+    }
 }

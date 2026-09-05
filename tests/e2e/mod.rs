@@ -444,6 +444,40 @@ pub fn assert_stderr_contains(result: &CliRun, expected: &str) {
     );
 }
 
+/// `<TIME>` text that is not a time. Each one reaches the parser as raw bytes:
+/// a trailing multi-byte character, a bare one, nothing at all, and two that
+/// are the right *length* for an instant or a date without being one.
+/// §FS-rhei-cost-accounting.8.2
+pub const HOSTILE_TIME_TEXTS: &[&str] = &[
+    // What pasting `--since 7d ` out of a rendered document actually gives you.
+    "7d\u{a0}",
+    "7\u{e9}",
+    "30\u{65e5}",
+    "\u{e9}",
+    "",
+    // Ten bytes, so the bare-date branch takes it; twenty, so the instant
+    // branch does — neither of them on a character boundary its fields expect.
+    "2026-09-\u{e9}",
+    "202\u{e9}-09-01T00:00:0Z",
+];
+
+/// Hold one `<TIME>`-taking flag to the refusal an unreadable value earns: a
+/// usage error naming what could not be read, and never a panic.
+/// §FS-rhei-cost-accounting.8.2
+pub fn assert_refuses_time_text(result: &CliRun, flag: &str, text: &str) {
+    assert!(
+        !result.status.success(),
+        "{flag} {text:?} must be refused, not answered; got:\n{}",
+        result.stdout
+    );
+    assert!(
+        !result.stderr.contains("panicked"),
+        "{flag} {text:?} panicked instead of refusing it:\n{}",
+        result.stderr
+    );
+    assert_stderr_contains(result, &format!("could not read '{text}' as a time for {flag}"));
+}
+
 pub fn assert_success(result: &CliRun) {
     assert!(
         result.status.success(),
