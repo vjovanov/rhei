@@ -249,7 +249,7 @@ fn cost_with_no_new_flag_prints_what_it_printed_before() {
     assert_success(&seeded);
     assert!(
         seeded.stdout.starts_with(
-            "Cost unpriced | Total 1.7M | In 1.6M | Out 157.7k | Coverage Partial | Invocations 6\n"
+            "Cost unpriced | Total 34.4M | In 34.3M | Out 157.7k | Coverage Partial | Invocations 6\n"
         ),
         "the unselected reading is unchanged; got:\n{}",
         seeded.stdout

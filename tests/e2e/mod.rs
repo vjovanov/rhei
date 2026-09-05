@@ -1,4 +1,5 @@
 mod accounting_contract_tests;
+mod accounting_convention_tests;
 mod accounting_prices_tests;
 mod accounting_support;
 mod agent_environment_tests;

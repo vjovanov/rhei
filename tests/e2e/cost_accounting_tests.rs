@@ -64,11 +64,11 @@ fn a_run_that_spawned_no_agent_does_not_report_the_workspace_lifetime_total() {
         "a run that spawned no agent spent nothing; got:\n{report}"
     );
     assert!(
-        !report.contains("| total tokens | 1.7M |"),
+        !report.contains("| total tokens | 34.4M |"),
         "the workspace's lifetime total is not this run's cost; got:\n{report}"
     );
     assert!(
-        report.contains("| workspace total tokens | 1.7M |"),
+        report.contains("| workspace total tokens | 34.4M |"),
         "the lifetime total keeps a labelled row of its own; got:\n{report}"
     );
 }
@@ -101,7 +101,7 @@ fn the_strip_reports_this_runs_tokens_beside_the_workspace_total() {
         "this run spent what its one agent reported; got:\n{report}"
     );
     assert!(
-        report.contains("| workspace total tokens | 1.7M |"),
+        report.contains("| workspace total tokens | 34.4M |"),
         "the workspace lifetime total keeps its own row; got:\n{report}"
     );
 }

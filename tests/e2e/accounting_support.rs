@@ -19,13 +19,24 @@ pub const ARCHIVED_RECORDS: u64 = 6;
 /// `tokens.total` summed over the fixture set. Five of the six are `measured`;
 /// the sixth is `no-usage-emitted` and contributes a missing count instead of a
 /// number, which is what makes the set's coverage `partial`.
-pub const ARCHIVED_TOTAL_TOKENS: u64 = 1_714_295;
+///
+/// None of these records carries `token_convention`, so each is read under the
+/// convention its own `agent` implies. The two `codex` records already counted
+/// their cached reads inside `input.total` and are read as stored. The three
+/// `claude-code` records did not, so their cached reads and cache writes join
+/// `input.total` and their `total` is restated: 18,769 becomes 637,605, 17,885
+/// becomes 987,479, and 101,786 becomes 31,242,488. The stored figure of
+/// 1,714,295 dropped 31.7M tokens this machine really processed.
+/// §FS-rhei-cost-accounting.5.2
+pub const ARCHIVED_TOTAL_TOKENS: u64 = 34_443_427;
 
 /// The fixture set's `tokens.total` per UTC calendar day. The three days are
-/// what `--by day` and a `--since`/`--until` window are asserted against.
+/// what `--by day` and a `--since`/`--until` window are asserted against. The
+/// two `codex` days do not move; the `claude-code` day is where the restated
+/// totals land.
 pub const ARCHIVED_TOKENS_2026_08_31: u64 = 1_446_820;
 pub const ARCHIVED_TOKENS_2026_09_01: u64 = 129_035;
-pub const ARCHIVED_TOKENS_2026_09_02: u64 = 138_440;
+pub const ARCHIVED_TOKENS_2026_09_02: u64 = 32_867_572;
 
 /// What the mock agent reports as its own usage, so a run's own total is a
 /// number no archived record could produce.

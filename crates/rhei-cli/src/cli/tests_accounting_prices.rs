@@ -47,8 +47,10 @@ fn custom_price_book_prices_luna_usage_and_complete_rollup() {
     assert_eq!(pricing.status, "priced");
     assert_eq!(pricing.currency.as_deref(), Some("CHF"));
     assert_eq!(pricing.price_book_id.as_deref(), Some("fixture-luna-2026-09-01"));
-    assert_eq!(pricing.amount_micro, Some(11_125_000));
-    assert_eq!(pricing.priced_amount_micro, Some(11_125_000));
+    // The full input rate applies to what is left after the cache dimensions
+    // are taken out of `input.total`. §FS-rhei-cost-accounting.5
+    assert_eq!(pricing.amount_micro, Some(9_625_000));
+    assert_eq!(pricing.priced_amount_micro, Some(9_625_000));
 
     let accounting_root = dir.path().join("runtime/accounting");
     write_price_book(&accounting_root, &price_book).expect("copy selected price book");
@@ -68,8 +70,8 @@ fn custom_price_book_prices_luna_usage_and_complete_rollup() {
         .expect("run summary")
         .workspace
         .expect("workspace rollup");
-    assert_eq!(summary.cost_micro, Some(11_125_000));
-    assert_eq!(summary.priced_cost_micro, Some(11_125_000));
+    assert_eq!(summary.cost_micro, Some(9_625_000));
+    assert_eq!(summary.priced_cost_micro, Some(9_625_000));
     assert_eq!(summary.currency.as_deref(), Some("CHF"));
     assert_eq!(summary.coverage, rhei_tui::UsageCoverage::Complete);
     assert_eq!(summary.pricing_status, rhei_tui::PricingStatus::Priced);

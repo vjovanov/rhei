@@ -94,6 +94,7 @@ Each supported agent spawn writes one JSON object:
   },
   "extraction_status": "measured",
   "scope": "aggregate-agent-process",
+  "token_convention": "input-total-includes-cache",
   "tokens": {
     "total": { "value": 14645, "source": "agent-usage-capture" },
     "input": {
@@ -110,7 +111,7 @@ Each supported agent spawn writes one JSON object:
   "pricing": {
     "status": "priced",
     "currency": "USD",
-    "amount_micro": 18342, "priced_amount_micro": 18342,
+    "amount_micro": 48135, "priced_amount_micro": 48135,
     "price_book_id": "builtin-2026-05-20"
   }
 }
@@ -120,13 +121,39 @@ Each supported agent spawn writes one JSON object:
 
 | Dimension | Meaning |
 | --- | --- |
-| `total` | Total tokens when the agent reports an aggregate count, or input plus output when those dimensions are available. |
-| `input.total` | Total input tokens reported by the agent/provider. |
-| `input.cached_read` | Input tokens served from cache. |
-| `input.cache_write` | Input tokens written into cache. |
-| `output.total` | Total output tokens reported by the agent/provider. |
-| `output.cached_read` | Output tokens served from cache, if reported. |
-| `output.cache_write` | Output tokens written to cache, if reported. |
+| `total` | Every token the invocation processed: the agent's own aggregate count, or `input.total` plus `output.total` when it reports no aggregate. |
+| `input.total` | Every input token the provider counted for the invocation, cached reads and cache writes included. |
+| `input.cached_read` | The part of `input.total` that was served from cache. |
+| `input.cache_write` | The part of `input.total` that was written into cache. |
+| `output.total` | Every output token the provider counted for the invocation. |
+| `output.cached_read` | The part of `output.total` served from cache, if reported. |
+| `output.cache_write` | The part of `output.total` written to cache, if reported. |
+
+**One convention, whatever the agent.** `input.total` is the whole and the two
+cache dimensions are parts of it, never additions to it. For every measured
+record a built-in extractor writes:
+
+```text
+input.cached_read <= input.total
+input.cache_write <= input.total
+input.cached_read + input.cache_write <= input.total
+```
+
+and the same holds for `output`. Nothing downstream branches on `agent` to know
+what the numbers mean: a consumer that adds `cached_read` to `input.total` is
+double-counting whichever agent wrote the record, and `cached_read /
+input.total` is the cache effect Goal 5 asks monitoring to show, which is a
+ratio only while the two are nested.
+
+Providers do not agree on this. OpenAI reports a whole-prompt `input_tokens`
+with `cached_input_tokens` inside it; Anthropic and Pi report an input count
+that excludes their cache dimensions. The extractor converts the provider's
+shape into this one at the point of extraction (§4). A
+`rhei.accounting.usage.v1` capture event is Rhei's own schema, already states
+its dimensions in this convention, and is taken as written.
+
+A reader that meets parts larger than the whole subtracts saturating rather
+than underflowing.
 
 Each dimension is either measured:
 
@@ -217,6 +244,34 @@ Unattributed records are not an error condition: they are the history a
 workspace held before the field existed, and an aggregate that quietly omits
 them under-reports that history.
 
+### 3.6. Token Convention of a Record
+
+`token_convention` names the convention a record's token dimensions follow.
+Rhei writes one value, `input-total-includes-cache`, which is §3.1.
+
+The field is **optional** and the schema string stays
+`rhei.accounting.invocation.v1`, exactly as `run_id` is (§3.5). A record written
+before the field existed still parses, is never dropped, and is never read at
+face value.
+
+| Where | Required behavior |
+| --- | --- |
+| Writing | Every record Rhei writes carries `token_convention`, and its dimensions satisfy §3.1. |
+| Reading | A record carrying the field is read under it. A record without it is read under the convention its own `agent` implies, below. |
+| Rewriting | Never. A stored record's tokens and amounts are what was computed when it was written and stay as written (§5.1). What the inference changes is what a recomputation over stored records produces (§5.2). |
+
+The convention an `agent` implies, and the evidence for it:
+
+| `agent` | Implied convention | Evidence |
+| --- | --- | --- |
+| `codex` | `input-total-includes-cache` | OpenAI's `input_tokens` is the whole prompt, with `cached_input_tokens` a subset of it. |
+| `claude-code` | `input-total-excludes-cache` | Anthropic reports `input_tokens` disjoint from `cache_read_input_tokens` and `cache_creation_input_tokens`. |
+| `pi` | `input-total-excludes-cache` | Pi's own aggregate says so: its `totalTokens` equals `input + cacheRead + cacheWrite + output`. |
+
+An agent this table does not name has no known convention. Its record is read
+as stored, because nothing about it is known to be wrong, and no aggregate
+holding it reports `complete` (§6.2).
+
 ## 4. Extraction Flow
 
 Accounting is separate from snapshots. Snapshot support may provide a useful
@@ -248,6 +303,15 @@ Built-in extractor requirements:
 | `claude-code` | For an ordinary one-shot launch, request Claude Code's typed `json` result output (`--output-format json`). Accept only a result envelope with `type: "result"`, a textual `result`, and a complete typed `usage` or `modelUsage` object containing input, cache-read, cache-write, and output token fields; normalize those dimensions. The envelope's `result` text is the human-readable agent output. When `intervene_stdin` selects the existing stream-json transport, retain that transport and apply the same result-envelope usage extraction to its final result event. |
 | `codex` | Run `codex exec --json`; extract `turn.completed.usage` from JSONL stdout and normalize it into `runtime/accounting/captures/*.jsonl`. Do not depend on Codex snapshot support. |
 | `pi` | Run `pi --mode json`; extract each assistant `message_end.message.usage` event and normalize it into `runtime/accounting/captures/*.jsonl`. Ignore the duplicate message usage carried by `turn_end` and `agent_end`. Do not depend on Pi snapshot session data. |
+
+Each built-in extractor converts its provider's shape into §3.1's convention as
+it normalizes, so the capture stream and the record are already in it. `codex`
+reports the inclusive figure and is copied through; `claude-code` and `pi`
+report an input count that excludes their cache dimensions, and those
+dimensions are added into `input.total`. The conversion belongs to the
+provider-native shapes only: a `rhei.accounting.usage.v1` capture event an agent
+writes through the capture contract is already in Rhei's convention and is not
+converted again.
 
 If an upstream CLI changes format, the extractor records `extractor-failed`
 with a concise diagnostic. It must not guess from nearby human-readable text.
@@ -310,8 +374,8 @@ amounts, or replaces their currency.
 Price entries match provider and model exactly. A selected book with no exact
 entry leaves the measured invocation explicitly unpriced; it never implies a
 zero price or falls back to the built-in book. The selection applies only to
-invocations recorded by that run: `rhei cost` reads their durable pricing
-results and does not retroactively reprice older records.
+invocations recorded by that run: no older record's stored amount, currency, or
+price-book id is rewritten by it.
 
 Rules:
 
@@ -324,8 +388,26 @@ Rules:
 Cost formula:
 
 ```text
-sum(measured_dimension_tokens * matching_dimension_price / unit_tokens)
+uncached_input = input.total - input.cached_read - input.cache_write
+
+cost = ( uncached_input     * input_total_micro
+       + input.cached_read  * input_cached_read_micro
+       + input.cache_write  * input_cache_write_micro
+       + output.total       * output_total_micro ) / unit_tokens
 ```
+
+The full input rate applies to the remainder, not to `input.total`, because the
+two cache dimensions are parts of `input.total` (§3.1) and each already carries
+its own rate. Charging `input.total` at the full rate *and* the cache
+dimensions at theirs charges every cached token twice. An unavailable dimension
+contributes nothing and subtracts nothing, and the subtraction saturates at
+zero rather than underflowing.
+
+A `codex` invocation of 1,000 input tokens, 700 of them cached reads, and 50
+output tokens, on a book charging $4/M input, $0.40/M cached read and $20/M
+output, costs **2,480** micro-USD: 300 fresh input at the full rate, 700 cached
+reads at the cache rate, 50 output. Charging all 1,000 at the full rate and the
+700 again at the cache rate gives 5,280.
 
 Pricing status:
 
@@ -341,6 +423,40 @@ writes equal `amount_micro` and `priced_amount_micro` values. A
 `partial-price` result may write `priced_amount_micro` as a lower-bound amount,
 but never writes `amount_micro`. `amount_micro` is written only when status is
 `priced`.
+
+### 5.2. Recomputing a Stored Record
+
+Every rollup, report, and inspection surface computes from stored records (§6),
+so a record written before §3.1 was stated has to be read into §3.1's
+convention on the way out. Nothing on disk changes: `tokens`, `amount_micro`,
+and `priced_amount_micro` are the record of what was computed and stay as
+written (§5.1). What changes is what a recomputation over them produces.
+
+Take the record's convention from §3.6, then:
+
+| The record's convention | Its tokens | Its money |
+| --- | --- | --- |
+| `input-total-includes-cache` | Already §3.1. Read as stored. | Must be recomputed. The stored amount charged `input.total` at the full input rate *and* the cache dimensions at theirs, so it over-charges every cached token by the full input rate. |
+| `input-total-excludes-cache` | `input.total` becomes `input.total + cached_read + cache_write`; `total` becomes the restated `input.total + output.total`. | Read as stored. It is already right: the dimensions were disjoint and were priced as disjoint, which is exactly what §5's formula computes on the restated tokens. |
+
+Restating tokens needs no price book. Recomputing money needs one, and only one
+number out of it: the full input rate for the record's provider and model. A
+record's price book is **reachable** when its `price_book_id` is the built-in
+book's, or the id of the `prices.json` beside it in the accounting root it was
+read from. Selection never fetches a book over the network (§5.1), so a book
+named by id alone and absent from disk is unreachable.
+
+When a record's money must be recomputed and its book is unreachable, the
+record is read as `unpriced`: its measured tokens still count, and it
+contributes no amount. The stored amount is not carried forward. It is known to
+be an over-charge, and it cannot be reported as `priced_amount_micro` either,
+which is a lower bound (§5) — an over-charge is an upper one. The aggregate
+then follows the ordinary rules for a selection holding an unpriced record
+(§6.2), which is how the doubt reaches a reader.
+
+A record whose cache dimensions are zero or unavailable needs no correction at
+all: the recomputation and the stored amount agree, and it stays priced whether
+or not its book is reachable.
 
 ## 6. Rollups
 
@@ -432,6 +548,11 @@ incomplete in a way no single record's status shows.
 - No aggregate reports `complete` over a set it could not fully see. Where a
   retention boundary bounds what was readable, the aggregate says what it could
   not see rather than summing what is left. [§FS-rhei-run-headless.6](rhei-run-headless.spec.md#6-rhei-runs)
+- A record read under an inferred convention (§3.6) is not itself a doubt: the
+  inference is exact for the three built-in agents. A record from an agent that
+  table does not name is, and no aggregate holding one reports `complete`. A
+  record whose money could not be recomputed (§5.2) is unpriced, and demotes the
+  aggregate the way any unpriced record does.
 
 ## 7. Run Events
 
@@ -523,9 +644,9 @@ command.
 Published v1 schemas permit additive evolution: fields may be added within v1,
 and consumers must tolerate unknown fields at every object extension point. A
 removal, rename, type change, or semantic change to an existing field requires
-a new schema id. Fields documented as optional, including `duration_ms` and
-`cli_session`, remain optional so artifacts from older Rhei versions still
-validate.
+a new schema id. Fields documented as optional, including `duration_ms`,
+`cli_session`, `run_id`, and `token_convention`, remain optional so artifacts
+from older Rhei versions still validate.
 
 ### 8.2. Selecting Records
 

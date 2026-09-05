@@ -180,14 +180,19 @@ fn summary_numbers_the_steps_by_started_at_with_visits_and_measured_tokens() {
 
     let steps: Vec<&str> =
         result.stdout.lines().filter(|line| line.starts_with(char::is_numeric)).collect();
+    // These records carry no `token_convention`, and their `agent` is
+    // `claude-code`, so their 30,000 cached reads are part of the 41,200 input
+    // tokens they name rather than a figure beside it.
+
+    // §FS-rhei-cost-accounting.5.2
     assert_eq!(
         steps,
         vec![
             "1. `plan.1` draft (visit 1) — claude-code, anthropic/claude-fable-5 — 2m32s",
             "2. `plan.2` pending — claude-code, anthropic/claude-sonnet-5 — 18m04s \
-             — 41.2k in / 3.8k out",
+             — 71.2k in / 3.8k out",
             "3. `plan.1` draft (visit 2) — claude-code, anthropic/claude-fable-5 — 45.0s \
-             — 41.2k in / 3.8k out",
+             — 71.2k in / 3.8k out",
         ],
         "got:\n{}",
         result.stdout
