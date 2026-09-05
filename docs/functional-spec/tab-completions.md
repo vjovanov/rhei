@@ -10,7 +10,9 @@ rhei completions <shell>
 The generated completions are dynamic. Shells call back into the installed
 `rhei` binary, so completions stay aligned with the current command tree and
 can offer template names for `rhei instantiate <TAB>` from
-`.agent-grounds/rhei/templates/` and `~/.agent-grounds/rhei/templates/`.
+`.agent-grounds/rhei/templates/` and `~/.agent-grounds/rhei/templates/`, and
+from the deprecated `.agents/rhei/templates/` behind each
+(§FS-rhei-templates.1.1).
 
 ## Install for the Current User
 
