@@ -69,7 +69,7 @@ jobs:
     env:
       GRUND_VERSION: 0.12.3
       LYCHEE_VERSION: 0.23.0
-      FISSILE_VERSION: 0.7.0
+      FISSILE_VERSION: 0.8.3
       TOOLS_ROOT: ${{ github.workspace }}/.ci-tools
     steps:
       - uses: actions/checkout@v6

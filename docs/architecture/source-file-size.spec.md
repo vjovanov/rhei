@@ -55,9 +55,10 @@ it would name no edit anyone could make.
 The register is `fissile`'s exception registries, not a table maintained by
 hand: `docs/file-size-agent-exceptions.toml` for entries that leave a soft
 finding standing and `docs/file-size-human-exceptions.toml` for entries that
-clear the hard gate. `.agents/fissile.toml` encodes §1 — 500 soft and 2000 hard
-for source, 750 and 2000 for a citable spec, 250 and 500 for an entrypoint — so
-the rule is now checked at commit time rather than stated and hoped for.
+clear the hard gate. `.agent-grounds/fissile.toml` encodes §1 — 500 soft and
+2000 hard for source, 750 and 2000 for a citable spec, 250 and 500 for an
+entrypoint — so the rule is now checked at commit time rather than stated and
+hoped for.
 The gate itself is one `fissile check --staged` hook in
 `.pre-commit-config.yaml`, next to `grund check`: it reads the staged set, so it
 answers for the files a commit actually touches and stays silent about the

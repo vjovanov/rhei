@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **The fissile config lives at `.agent-grounds/fissile.toml`, where an agent
+  working in the repository can still reach it.** `.agents/` is where agent
+  *instructions* live, and a managed permission profile mounts it read-only
+  inside a checkout, so an agent that hit a size finding could not adjust a
+  budget or record an exception without leaving its sandbox — tool config had
+  ended up in the one directory it was least able to repair. `vjovanov/fissile#61`
+  moved fissile's config home to `.agent-grounds/`, keeping the old path as a
+  fallback that still works and warns. The move and the pinned-version bump are
+  one change rather than two, because either alone is a regression: a fissile
+  before `0.8.3` does not look in `.agent-grounds/` at all, so it falls back to
+  its built-in defaults *silently*, at exit code 0, and the budgets
+  §AR-source-file-size.1 declares stop being enforced with nothing in the output
+  to say so. CI's `FISSILE_VERSION` therefore moves from `0.7.0` to `0.8.3` in
+  the same commit; the gate-tools cache key names that variable, so it rekeys
+  with it and the bumped binary is built rather than restored from the `0.7.0`
+  cache. (PR #192)
 - **`input.total` counts every input token, whichever agent reported it, and a
   cached read is charged once.** The field had no stated cache-inclusion
   meaning, so each extractor inherited its provider's: OpenAI counts cached
@@ -352,7 +368,7 @@
   needed. Single-rhei plans are unaffected: there the two roots already
   coincided. (PR #139)
 - **Spec documents are measured under a size budget instead of being exempt
-  from measurement.** `.agents/fissile.toml` kept `**/*.spec.md` in
+  from measurement.** `.agent-grounds/fissile.toml` kept `**/*.spec.md` in
   `[scan].exclude`, and §AR-source-file-size.1 put `.spec.md` outside the
   exception register outright, both on the reasoning that a spec is reached
   through grund declarations and read a section at a time rather than loaded as
