@@ -241,7 +241,11 @@ mod error_guidance_tests {
     #[test]
     fn unknown_agent_help_does_not_repeat_a_merged_registry() {
         let known = vec!["claude-code".to_string(), "codex".to_string(), "codex".to_string()];
-        let help = unknown_agent_help("totally-unrelated", &known);
+        let help = unknown_agent_help(
+            "totally-unrelated",
+            &known,
+            ProjectSettingsFile::default().relative_path(),
+        );
         assert_eq!(help.matches("codex").count(), 1, "got: {help}");
         assert!(help.contains("agents.<id>"), "got: {help}");
     }

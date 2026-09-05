@@ -251,3 +251,37 @@ fn user_template_under_the_deprecated_home_is_found_and_warned() {
         &format!("home/{GROUNDS}/templates"),
     );
 }
+
+/// §FS-rhei-templates.1.2: the level the walk settles on contributes both
+/// names, whether or not both are directories. The `Searched:` listing is where
+/// an author about to write their first project template reads where it goes,
+/// and a level found by its `.agents` directory alone must not advertise the
+/// deprecated home as the only place.
+#[test]
+fn the_searched_listing_names_both_homes_of_the_level_it_resolved() {
+    let dir = unique_temp_dir("grounds-templates-searched");
+    std::fs::create_dir_all(dir.join(DEPRECATED_TEMPLATES)).expect("create the deprecated home");
+
+    let result = run_project(&["templates", "--source", "project"], &dir);
+    assert_success(&result);
+    assert!(
+        result.stdout.contains("No templates found."),
+        "the fixture holds no templates; stdout was:\n{}",
+        result.stdout
+    );
+    for home in [GROUNDS_TEMPLATES, DEPRECATED_TEMPLATES] {
+        let named = dir.join(home);
+        assert!(
+            result.stdout.contains(&named.display().to_string()),
+            "the listing must name '{home}'; stdout was:\n{}",
+            result.stdout
+        );
+    }
+    assert!(
+        result.stdout.contains("(does not exist)"),
+        "the absent name is marked, as the no-home branch already marks it; stdout was:\n{}",
+        result.stdout
+    );
+    // Nothing was read from the deprecated home, so nothing is warned about.
+    assert_silent_about_the_deprecated_home(&result);
+}

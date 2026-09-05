@@ -1,7 +1,40 @@
 
+/// Which of rhei's two homes the project settings file came from.
+///
+/// Carried on the merged settings because the messages that tell an author
+/// where to define an agent, a model, or a default hold the settings and not
+/// always a plan root, and naming the write path to a project still on the
+/// deprecated home sends them to a file that shadows the one rhei just read.
+/// §FS-rhei-agents.1.1
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum ProjectSettingsFile {
+    /// `.agent-grounds/rhei/settings.json` — where rhei writes, and the answer
+    /// when no project settings file was read at all.
+    #[default]
+    Current,
+    /// The deprecated `.agents/rhei/settings.json`, read because the current
+    /// home had none. §FS-rhei-templates.1.1
+    Deprecated,
+}
+
+impl ProjectSettingsFile {
+    /// The path, relative to the plan root, that a message names.
+    /// §FS-rhei-agents.1.1
+    fn relative_path(self) -> &'static str {
+        match self {
+            ProjectSettingsFile::Current => PROJECT_SETTINGS_RELATIVE_PATH,
+            ProjectSettingsFile::Deprecated => DEPRECATED_PROJECT_SETTINGS_RELATIVE_PATH,
+        }
+    }
+}
+
 /// Rhei settings loaded from `~/.config/rhei/settings.json` or `.agent-grounds/rhei/settings.json`.
 #[derive(Debug, Default, Deserialize, Clone)]
 struct RheiSettings {
+    /// The project settings file this registry was merged from, so a message
+    /// naming one names the file rhei read. §FS-rhei-agents.1.1
+    #[serde(skip)]
+    project_settings_file: ProjectSettingsFile,
     #[serde(default)]
     agent: Option<AgentConfig>,
     #[serde(default)]

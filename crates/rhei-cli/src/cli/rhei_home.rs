@@ -84,17 +84,20 @@ fn resolve_rhei_home_file(base: &Path, leaf: &str) -> Option<RheiHomePath> {
     rhei_home_paths(base, leaf).into_iter().find(|candidate| candidate.path.is_file())
 }
 
-/// The nearest level at or above `start` holding either name, and the
-/// directories that level holds. Both names are checked at each level *before*
-/// ascending: two full walks, one per name, would let a distant ancestor's
-/// `.agent-grounds` directory beat the enclosing repository's `.agents` one and
-/// break nearest-directory-wins. §FS-rhei-templates.1.2
-fn nearest_rhei_home_dirs(start: &Path, leaf: &str) -> Option<Vec<RheiHomePath>> {
+/// The nearest level at or above `start` holding either name. Both names are
+/// checked at each level *before* ascending: two full walks, one per name,
+/// would let a distant ancestor's `.agent-grounds` directory beat the enclosing
+/// repository's `.agents` one and break nearest-directory-wins.
+///
+/// The level is what is returned, not the directories it holds: a caller that
+/// searches it also has to be able to *name* both of its names, and a level
+/// found by its `.agents` directory alone would otherwise be reported as the
+/// only place a template can go. §FS-rhei-templates.1.2
+fn nearest_rhei_home_level(start: &Path, leaf: &str) -> Option<PathBuf> {
     let mut dir = Some(start);
     while let Some(current) = dir {
-        let found = existing_rhei_home_dirs(current, leaf);
-        if !found.is_empty() {
-            return Some(found);
+        if !existing_rhei_home_dirs(current, leaf).is_empty() {
+            return Some(current.to_path_buf());
         }
         dir = current.parent();
     }

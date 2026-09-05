@@ -13,9 +13,15 @@ fn state_machine_help() -> &'static str {
 }
 
 /// Help for a settings file that is missing or malformed.
+///
+/// No plan root is in scope here, so the project file cannot be resolved and
+/// both of its names are given rather than one: a project on the deprecated
+/// home sent to the new path would shadow the file it reads.
+/// §FS-rhei-agents.1.1
 fn settings_help() -> &'static str {
-    "settings merge from ~/.config/rhei/settings.json then .agent-grounds/rhei/settings.json. \
-     Check both with: rhei diag"
+    "settings merge from ~/.config/rhei/settings.json then the project's \
+     .agent-grounds/rhei/settings.json, or the deprecated .agents/rhei/settings.json \
+     where that is the file the project has. Check them with: rhei validate <plan>"
 }
 
 /// Help for a plan whose markdown does not carry what a command needs.
@@ -136,7 +142,7 @@ fn agent_log_help() -> &'static str {
 
 /// Help for an agent command that would not start or behaved unexpectedly.
 fn agent_command_help() -> &'static str {
-    "check the agent's command and flags in settings.json: rhei diag"
+    "check the agent's command and flags in settings.json: rhei validate <plan>"
 }
 
 /// Help for a run that ended on a failing agent pass.

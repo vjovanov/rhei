@@ -222,10 +222,15 @@ fn require_project_root(project_root: Option<&Path>) -> MietteResult<&Path> {
 
 /// Help for an agent id not in the merged registry. `known` is already seeded
 /// with the built-ins, so this never names them twice. §FS-rhei-errors.1.3
-fn unknown_agent_help(id: &str, known: &[String]) -> String {
+///
+/// `project_settings` is the file the merge resolved, not the path rhei writes:
+/// a project still on the deprecated home that follows this advice to the new
+/// path creates a file shadowing the registry this error just listed.
+/// §FS-rhei-agents.1.1
+fn unknown_agent_help(id: &str, known: &[String], project_settings: &str) -> String {
     let hint = did_you_mean(id, known).map(|hint| format!("{hint} ")).unwrap_or_default();
     format!(
-        "{hint}Define it under `agents.<id>` in .agent-grounds/rhei/settings.json or \
+        "{hint}Define it under `agents.<id>` in {project_settings} or \
          ~/.config/rhei/settings.json."
     )
 }

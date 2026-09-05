@@ -106,6 +106,33 @@
     pub(super) struct HoistedSettings {
         pub(super) added: Vec<String>,
         pub(super) kept: Vec<String>,
+        /// The project file the merge was written to, what stood there before
+        /// it — `None` when nothing did — and the project the write happened
+        /// under, so `undo` can put all three back. §FS-rhei-templates.6.2
+        target: PathBuf,
+        previous: Option<String>,
+        project: PathBuf,
+    }
+
+    impl HoistedSettings {
+        /// Put the project's settings back the way a discarded instantiation
+        /// found them: the merge removed along with the directories written
+        /// for it, or the pre-merge content restored. Instantiation validates
+        /// *after* hoisting, and a command that failed must not change which
+        /// settings file the project reads — least of all onto a file holding
+        /// a template it never instantiated. §FS-rhei-templates.6.2
+        pub(super) fn undo(&self) {
+            match &self.previous {
+                Some(content) => {
+                    let _ = fs::write(&self.target, content);
+                }
+                None => {
+                    if fs::remove_file(&self.target).is_ok() {
+                        prune_empty_parents(&self.target, &self.project);
+                    }
+                }
+            }
+        }
     }
 
     /// Move a member workspace's settings file up to the project and merge it
@@ -152,6 +179,9 @@
             .map_err(|err| miette!(
 help = template_manifest_help(),
 "failed to render merged settings: {err}"))?;
+        // Read before the write, so a discarded instantiation can restore what
+        // the merge overwrote — or remove it. §FS-rhei-templates.6.2
+        let previous = fs::read_to_string(&target).ok();
         fs::write(&target, format!("{rendered}\n"))
             .map_err(|err| file_io_report(&target, "failed to write project settings", err))?;
 
@@ -165,7 +195,13 @@ help = template_manifest_help(),
             .map_err(|err| file_io_report(source.path(), "failed to remove workspace settings", err))?;
         prune_empty_parents(source.path(), workspace);
 
-        Ok(Some(HoistedSettings { added, kept }))
+        Ok(Some(HoistedSettings {
+            added,
+            kept,
+            target,
+            previous,
+            project: project.to_path_buf(),
+        }))
     }
 
     /// What became of a project settings file the hoist read from the deprecated

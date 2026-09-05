@@ -10,7 +10,8 @@ fn resolve_target_agent(
         // §FS-rhei-errors.1.3: `settings.agents` is the merged registry and is
         // already seeded with the built-ins, so it is the whole candidate set.
         let known = settings.agents.keys().cloned().collect::<Vec<_>>();
-        miette!(help = unknown_agent_help(agent.id(), &known), "agent '{}' is not defined", agent.id())
+        let help = unknown_agent_help(agent.id(), &known, settings.project_settings_file.relative_path());
+        miette!(help = help, "agent '{}' is not defined", agent.id())
     })?;
 
     if let Some(mode) = target.mode.as_deref() {
@@ -105,11 +106,15 @@ fn resolve_legacy_agent_with_model(
     let model_profile = match model.as_deref() {
         Some(id) => Some(settings.models.get(id).ok_or_else(|| {
             let known = settings.models.keys().cloned().collect::<Vec<_>>();
+            // The file the project resolves, not the write path: a project on
+            // the deprecated home sent to the new one shadows its own settings.
+            // §FS-rhei-agents.1.1
             miette!(
                 help = format!(
-                    "{}Add a `models.{id}` entry to .agent-grounds/rhei/settings.json or \
+                    "{}Add a `models.{id}` entry to {} or \
                      ~/.config/rhei/settings.json, or drop the model selection.",
-                    did_you_mean(id, &known).map(|hint| format!("{hint} ")).unwrap_or_default()
+                    did_you_mean(id, &known).map(|hint| format!("{hint} ")).unwrap_or_default(),
+                    settings.project_settings_file.relative_path()
                 ),
                 "model '{}' is not defined in settings.models",
                 id
@@ -140,8 +145,9 @@ fn resolve_legacy_agent_with_model(
         // §FS-rhei-errors.1.2: a value carrying a mode or a model is a flag
         // mistake, not a missing settings entry.
         let known = settings.agents.keys().cloned().collect::<Vec<_>>();
+        let project_settings = settings.project_settings_file.relative_path();
         let help = agent_flag_selector_help(agent.id(), &known)
-            .unwrap_or_else(|| unknown_agent_help(agent.id(), &known));
+            .unwrap_or_else(|| unknown_agent_help(agent.id(), &known, project_settings));
         miette!(help = help, "agent '{}' is not defined", agent.id())
     })?;
 
