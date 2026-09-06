@@ -83,6 +83,7 @@ include!("cli/accounting_reading.rs");
 include!("cli/accounting_session.rs");
 include!("cli/accounting_selection.rs");
 include!("cli/accounting.rs");
+include!("cli/accounting_presentation.rs");
 include!("cli/summary_command.rs");
 include!("cli/programs.rs");
 include!("cli/snapshot_pointer.rs");

@@ -202,14 +202,8 @@ fn summary_accounting(inspection: &CostInspection) -> String {
     if summary.cost_micro.or(summary.priced_cost_micro).is_some() {
         out.push_str(&format!("| cost | {} |\n", md_cell(&format_summary_cost(summary))));
     }
-    for (label, dimension) in [
-        ("total tokens", &summary.total),
-        ("input tokens", &summary.input_total),
-        ("input cached", &summary.input_cached_read),
-        ("output tokens", &summary.output_total),
-        ("output cached", &summary.output_cached_read),
-    ] {
-        out.push_str(&format!("| {label} | {} |\n", format_dimension_value(dimension)));
+    for (label, value) in AccountingTokenPresentation::new(summary).rows() {
+        out.push_str(&format!("| {label} | {value} |\n"));
     }
     out.push_str(&format!("| coverage | {:?} |\n", summary.coverage));
     out

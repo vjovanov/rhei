@@ -68,14 +68,9 @@ impl RunAccountingStrip {
         // Which of the strip's two quantities this is, before any number.
         out.push_str(&format!("| source | {} |\n", self.source.label()));
         out.push_str(&format!("| cost | {} |\n", format_summary_cost(accounting)));
-        for (label, dimension) in [
-            ("total tokens", &accounting.total),
-            ("input tokens", &accounting.input_total),
-            ("input cached", &accounting.input_cached_read),
-            ("output tokens", &accounting.output_total),
-            ("output cached", &accounting.output_cached_read),
-        ] {
-            out.push_str(&format!("| {label} | {} |\n", format_dimension_value(dimension)));
+        let tokens = AccountingTokenPresentation::new(accounting);
+        for (label, value) in tokens.rows() {
+            out.push_str(&format!("| {label} | {value} |\n"));
         }
         out.push_str(&format!("| coverage | {:?} |\n", accounting.coverage));
         // A row of its own, and only under a rollup: the events fallback has
@@ -96,15 +91,18 @@ impl RunAccountingStrip {
         let Some(accounting) = &self.run else {
             return String::new();
         };
+        let tokens = AccountingTokenPresentation::new(accounting);
         let mut out = format!(
-            "  This run  {} · Total {} · In {} · In cached {} · Out {} · Out cached {} · \
-             Coverage {:?} · via {}\n",
+            "  This run  {} · Total {} · In {} (incl. cache: read {}, write {}) · \
+             Out {} (incl. cache: read {}, write {}) · Coverage {:?} · via {}\n",
             format_summary_cost(accounting),
-            format_dimension_value(&accounting.total),
-            format_dimension_value(&accounting.input_total),
-            format_dimension_value(&accounting.input_cached_read),
-            format_dimension_value(&accounting.output_total),
-            format_dimension_value(&accounting.output_cached_read),
+            tokens.value(PresentationTokenDimension::Total),
+            tokens.value(PresentationTokenDimension::InputTotal),
+            tokens.value(PresentationTokenDimension::InputCacheRead),
+            tokens.value(PresentationTokenDimension::InputCacheWrite),
+            tokens.value(PresentationTokenDimension::OutputTotal),
+            tokens.value(PresentationTokenDimension::OutputCacheRead),
+            tokens.value(PresentationTokenDimension::OutputCacheWrite),
             accounting.coverage,
             self.source.label(),
         );
