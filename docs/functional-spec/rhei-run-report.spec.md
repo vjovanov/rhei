@@ -41,8 +41,8 @@ The report layout is optimized for scan-first reading:
    spawned agents, spawned programs, callback-only advances, reused-output
    advances, dry-run transitions, terminal-at-start tasks, and blocked tasks.
    When accounting exists, a second strip shows what **this run** spent: cost,
-   input tokens, cached input tokens, output tokens, cached output tokens, and
-   coverage (§2.1).
+   explicitly inclusive input/output totals, their cache-read and cache-write
+   parts, and coverage (§2.1).
 3. **Attention** - the shortest path to action: blocked tasks, gating tasks, and
    halted tasks with the exact reason.
 4. **Transition Ledger** - one row per transition attempt or no-op observation,
@@ -74,10 +74,12 @@ this run. [§FS-rhei-cost-accounting.3.5](rhei-cost-accounting.spec.md#35-run-at
 | source | rollup |
 | cost | unpriced |
 | total tokens | 1.2k |
-| input tokens | 1.0k |
-| input cached | 800 |
-| output tokens | 234 |
-| output cached | - |
+| input tokens (incl. cache) | 1.0k |
+| input cache read | 800 |
+| input cache write | 100 |
+| output tokens (incl. cache) | 234 |
+| output cache read | - |
+| output cache write | 0 |
 | coverage | Partial |
 | workspace total tokens | 1.7M |
 ```
@@ -97,6 +99,14 @@ Three rules make it honest.
    under `source | rollup`. The events fallback has no rollup to read it from, so
    the row is absent there rather than guessed.
 
+The token rows always use the order in the example: `total tokens`, then the
+inclusive input total followed by its cache-read and cache-write parts, then
+the inclusive output total followed by its cache-read and cache-write parts.
+Cache parts are already included in their side's total
+([§FS-rhei-cost-accounting.3.1](rhei-cost-accounting.spec.md#31-token-dimensions));
+the presentation does not add them again. An unavailable cache dimension reads
+`-`, while a measured zero reads `0`.
+
 A run that spawned no agent still gets the strip, and its token rows read `0`.
 Putting the workspace's lifetime total there instead says this run spent what
 every run before it spent together — directly above the report's own note that
@@ -108,7 +118,23 @@ where nothing was ever measured; the report stays silent, as `rhei cost` says
 `(no accounting records found)` rather than printing a total of zero.
 
 The end-of-run console summary carries the same quantity under the same scope
-label (§3.1).
+label (§3.1), grouping cache parts with their inclusive whole. For an input
+total of 1,100 with 700 cache-read and 300 cache-write tokens, and an output
+total of 50 whose cache parts are unavailable, it reads `In 1.1k (incl. cache:
+read 700, write 300)` and `Out 50 (incl. cache: read -, write -)`.
+
+### 2.2. Task Costs
+
+The Task Costs table uses the same symmetric token presentation for every
+task's direct accounting. After `Task` and `Cost`, and before `Coverage`, its
+columns are ordered exactly as `Total`, `Input (incl. cache)`, `Input cache
+read`, `Input cache write`, `Output (incl. cache)`, `Output cache read`, and
+`Output cache write`.
+
+These are the same inclusive totals and cache parts as §2.1: cache parts are
+not added to either side or to `Total`. An unavailable cache dimension reads
+`-`, while a measured zero reads `0`. The table's task scope, direct-cost
+meaning, cost, and coverage placement are unchanged.
 
 ## 3. End-of-Run Console Summary
 
