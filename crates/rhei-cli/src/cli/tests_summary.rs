@@ -40,6 +40,62 @@ fn summary_record(task_id: &str, visit: u64, started_at: &str, ended_at: &str) -
     }
 }
 
+fn summary_dimension(value: Option<u64>) -> rhei_tui::DimensionSummary {
+    rhei_tui::DimensionSummary {
+        value,
+        status: if value.is_some() {
+            rhei_tui::DimensionStatus::Measured
+        } else {
+            rhei_tui::DimensionStatus::Unsupported
+        },
+        missing_count: u64::from(value.is_none()),
+        measured_count: u64::from(value.is_some()),
+    }
+}
+
+/// The aggregate table uses the run report's ordered presentation, preserves
+/// the inclusive total, and distinguishes unavailable from measured zero.
+// §FS-rhei-summary.2.3
+#[test]
+fn accounting_presentation_summary_uses_the_symmetric_cache_dimension_rows() {
+    let inspection = CostInspection {
+        summary: Some(rhei_tui::AccountingRunSummary {
+            total: summary_dimension(Some(1_150)),
+            input_total: summary_dimension(Some(1_100)),
+            input_cached_read: summary_dimension(Some(700)),
+            input_cache_write: summary_dimension(Some(300)),
+            output_total: summary_dimension(Some(50)),
+            output_cached_read: summary_dimension(None),
+            output_cache_write: summary_dimension(Some(0)),
+            cost_micro: None,
+            priced_cost_micro: None,
+            currency: Some("USD".to_string()),
+            coverage: rhei_tui::UsageCoverage::Complete,
+            pricing_status: rhei_tui::PricingStatus::Unpriced,
+            invocation_count: 1,
+            measured_invocation_count: 1,
+            missing_invocation_count: 0,
+        }),
+        invocations: Vec::new(),
+        books: ReachablePriceBooks::builtin_only(),
+        errors: Vec::new(),
+    };
+
+    assert_eq!(
+        summary_accounting(&inspection),
+        "| Accounting | Value |\n\
+         | --- | ---: |\n\
+         | total tokens | 1.1k |\n\
+         | input tokens (incl. cache) | 1.1k |\n\
+         | input cache read | 700 |\n\
+         | input cache write | 300 |\n\
+         | output tokens (incl. cache) | 50 |\n\
+         | output cache read | - |\n\
+         | output cache write | 0 |\n\
+         | coverage | Complete |\n"
+    );
+}
+
 #[test]
 fn task_tally_counts_terminals_in_machine_order_then_the_remainder() {
     // §FS-rhei-summary.2.1: terminal states in declaration order, with the

@@ -67,10 +67,16 @@ One numbered entry per invocation record, ordered by `started_at`:
 
 ### 2.3. The accounting
 
-The aggregate over every record, in the accounting table shape the per-run
-report uses ([§FS-rhei-run-report.2](rhei-run-report.spec.md#2-markdown-ui)): cost when priced, total/input/output
-tokens with cached splits, and coverage. When no record carries a measured
-total the table is replaced by one line:
+The aggregate over every record uses the per-run accounting strip's ordered
+token rows ([§FS-rhei-run-report.2.1](rhei-run-report.spec.md#21-accounting-strip)):
+`total tokens`, `input tokens (incl. cache)`, `input cache read`, `input cache
+write`, `output tokens (incl. cache)`, `output cache read`, and `output cache
+write`. Cost when priced remains before those rows and coverage remains after
+them. Cache parts are already included in their side's total
+([§FS-rhei-cost-accounting.3.1](rhei-cost-accounting.spec.md#31-token-dimensions))
+and are not added again; an unavailable cache dimension reads `-`, while a
+measured zero reads `0`. When no record carries a measured total the table is
+replaced by one line:
 
 ```text
 Token accounting was not measured for this run.

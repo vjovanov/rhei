@@ -107,8 +107,18 @@ result('## Result\n\nMock agent finished.\n')
 /// `claude-code` profile is the fixture agent. Returns the temp directory, the
 /// plan path, and the machine path, in the shape the rest of the harness takes.
 pub fn accounting_workspace(prefix: &str, plan: &str) -> (TestDir, PathBuf, PathBuf) {
+    accounting_workspace_with_agent(prefix, plan, USAGE_REPORTING_AGENT)
+}
+
+/// The accounting workspace with a caller-supplied usage fixture. Presentation
+/// regressions need dimensions the broad accounting fixture does not report.
+pub fn accounting_workspace_with_agent(
+    prefix: &str,
+    plan: &str,
+    agent: &str,
+) -> (TestDir, PathBuf, PathBuf) {
     let dir = unique_temp_dir(prefix);
-    let agent_script = write_python_agent(&dir, "mock-claude-code.py", USAGE_REPORTING_AGENT);
+    let agent_script = write_python_agent(&dir, "mock-claude-code.py", agent);
     let settings_dir = dir.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create settings dir");
     let command = fixture_command(&agent_script);

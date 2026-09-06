@@ -20,6 +20,144 @@
         }
     }
 
+    fn unsupported() -> rhei_tui::DimensionSummary {
+        rhei_tui::DimensionSummary {
+            value: None,
+            status: rhei_tui::DimensionStatus::Unsupported,
+            missing_count: 1,
+            measured_count: 0,
+        }
+    }
+
+    fn presentation_summary(
+        output_cache_write: rhei_tui::DimensionSummary,
+    ) -> rhei_tui::AccountingRunSummary {
+        rhei_tui::AccountingRunSummary {
+            total: measured(1_150),
+            input_total: measured(1_100),
+            input_cached_read: measured(700),
+            input_cache_write: measured(300),
+            output_total: measured(50),
+            output_cached_read: unsupported(),
+            output_cache_write,
+            cost_micro: None,
+            priced_cost_micro: None,
+            currency: Some("USD".to_string()),
+            coverage: rhei_tui::UsageCoverage::Complete,
+            pricing_status: rhei_tui::PricingStatus::Unpriced,
+            invocation_count: 1,
+            measured_invocation_count: 1,
+            missing_invocation_count: 0,
+        }
+    }
+
+    /// The run-level Markdown and TTY surfaces present every cache part beside
+    /// its inclusive whole without changing the normalized total.
+    // §FS-rhei-run-report.2.1
+    #[test]
+    fn accounting_presentation_orders_all_cache_dimensions_and_groups_the_tty_parts() {
+        let strip = RunAccountingStrip {
+            run: Some(presentation_summary(unsupported())),
+            workspace: Some(rhei_tui::AccountingRunSummary {
+                total: measured(2_300),
+                ..presentation_summary(unsupported())
+            }),
+            source: AccountingSource::Rollup,
+        };
+
+        assert_eq!(
+            strip.render_markdown(),
+            "| Accounting (this run) | Value |\n\
+             | --- | ---: |\n\
+             | source | rollup |\n\
+             | cost | unpriced |\n\
+             | total tokens | 1.1k |\n\
+             | input tokens (incl. cache) | 1.1k |\n\
+             | input cache read | 700 |\n\
+             | input cache write | 300 |\n\
+             | output tokens (incl. cache) | 50 |\n\
+             | output cache read | - |\n\
+             | output cache write | - |\n\
+             | coverage | Complete |\n\
+             | workspace total tokens | 2.3k |\n\n"
+        );
+        assert_eq!(
+            strip.render_console(),
+            "  This run  unpriced · Total 1.1k · In 1.1k (incl. cache: read 700, write 300) · \
+             Out 50 (incl. cache: read -, write -) · Coverage Complete · via rollup\n\
+             Workspace 2.3k tokens over its lifetime\n"
+        );
+    }
+
+    /// Missing and zero are different accounting facts and remain visibly
+    /// different on both run-level surfaces.
+    // §FS-rhei-run-report.2.1
+    #[test]
+    fn accounting_presentation_distinguishes_unavailable_from_measured_zero() {
+        let strip = RunAccountingStrip {
+            run: Some(presentation_summary(measured(0))),
+            workspace: None,
+            source: AccountingSource::RunEvents,
+        };
+
+        let markdown = strip.render_markdown();
+        assert!(markdown.contains("| output cache read | - |"), "{markdown}");
+        assert!(markdown.contains("| output cache write | 0 |"), "{markdown}");
+        assert!(
+            strip.render_console().contains("Out 50 (incl. cache: read -, write 0)"),
+            "{}",
+            strip.render_console()
+        );
+    }
+
+    /// Task Costs uses the same seven token dimensions, in the same order,
+    /// and exposes the fixture's priced cache write.
+    // §FS-rhei-run-report.2.2
+    #[test]
+    fn accounting_presentation_task_costs_has_the_symmetric_cache_dimension_columns() {
+        let sink = SummarySink::new();
+        assign_slot(&sink, "1");
+        let mut reported = usage(INVOCATION, 1_150, 50, 1_000);
+        reported.input_total = measured(1_100);
+        reported.input_cached_read = measured(700);
+        reported.input_cache_write = measured(300);
+        reported.output_cached_read = unsupported();
+        reported.output_cache_write = measured(0);
+        report_usage(&sink, "1", Some(0), reported);
+        release_slot(&sink, "1");
+
+        let rhei = rhei_core::parse(
+            "# Rhei: Test Plan\n\n## Tasks\n\n### Task 1: Task 1\n**State:** completed\n",
+        )
+        .expect("plan parses");
+        let rendered = RunSummaryReport::build(
+            &rhei,
+            &rhei_validator::MachineSet::single(machine()),
+            &sink,
+            test_stats(),
+            "plan.rhei.md",
+            &no_task_roots(),
+        )
+        .render_markdown();
+        let task_costs = rendered
+            .split_once("## Task Costs\n\n")
+            .map(|(_, tail)| tail.split_once("\n\n").map_or(tail, |(table, _)| table))
+            .expect("Task Costs section");
+
+        assert_eq!(
+            task_costs.lines().next(),
+            Some(
+                "| Task | Cost | Total | Input (incl. cache) | Input cache read | Input cache \
+                 write | Output (incl. cache) | Output cache read | Output cache write | Coverage |"
+            ),
+            "{task_costs}"
+        );
+        assert!(
+            task_costs.contains("| 1 | $0.00 | 1.1k | 1.1k | 700 | 300 | 50 | - | 0 | Complete |"),
+            "{task_costs}"
+        );
+    }
+
     /// One invocation's usage. `total` and `output_total` carry separate numbers
     /// so a rollup that only gets `invocation_count` right cannot pass.
     fn usage(
