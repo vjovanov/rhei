@@ -83,9 +83,12 @@
         );
         assert_eq!(
             strip.render_console(),
-            "  This run  unpriced · Total 1.1k · In 1.1k (incl. cache: read 700, write 300) · \
-             Out 50 (incl. cache: read -, write -) · Coverage Complete · via rollup\n\
-             Workspace 2.3k tokens over its lifetime\n"
+            concat!(
+                "  This run  unpriced · Total 1.1k · In 1.1k ",
+                "(incl. cache: read 700, write 300) · Out 50 ",
+                "(incl. cache: read -, write -) · Coverage Complete · via rollup\n",
+                "  Workspace 2.3k tokens over its lifetime\n"
+            )
         );
     }
 
