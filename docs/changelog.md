@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Run summaries show every cache token dimension without double-counting it.**
+  The durable accounting strip, its Task Costs table, the TTY end-of-run strip,
+  and `rhei summary` now place cache reads and cache writes beside explicitly
+  inclusive input and output totals. Unsupported dimensions remain `-`, while
+  a measured zero remains `0`; cache parts are not added again to the inclusive
+  total. (PR #195)
 - **CI pins grund 0.13.0.** `GRUND_VERSION` in `.github/workflows/ci.yml` moves
   from `0.12.3` to `0.13.0`; the gate-tools cache key names that variable, so it
   rekeys and builds the new binary rather than restoring the old one from

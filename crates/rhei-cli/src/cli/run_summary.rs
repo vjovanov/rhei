@@ -624,14 +624,11 @@ struct InvocationRow {
 }
 
 /// Direct accounting shown for a task in the end-of-run report.
+// §FS-rhei-run-report.2.2
 struct TaskAccountingRow {
     task: String,
     cost: String,
-    total: String,
-    input: String,
-    input_cached: String,
-    output: String,
-    output_cached: String,
+    tokens: AccountingTokenPresentation,
     coverage: String,
 }
 
@@ -1078,23 +1075,24 @@ impl RunSummaryReport {
         out.push('\n');
 
         if !self.task_accounting.is_empty() {
+            // The shared projection fixes both column order and cache-part
+            // visibility for every direct task rollup. §FS-rhei-run-report.2.2
             out.push_str("## Task Costs\n\n");
-            out.push_str(
-                "| Task | Cost | Total | Input | Input cached | Output | Output cached | Coverage |\n\
-                 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n",
-            );
+            out.push_str("| Task | Cost");
+            for dimension in ACCOUNTING_TOKEN_DIMENSIONS {
+                out.push_str(&format!(" | {}", dimension.column_heading()));
+            }
+            out.push_str(" | Coverage |\n| --- | ---:");
+            for _ in ACCOUNTING_TOKEN_DIMENSIONS {
+                out.push_str(" | ---:");
+            }
+            out.push_str(" | --- |\n");
             for row in &self.task_accounting {
-                out.push_str(&format!(
-                    "| {} | {} | {} | {} | {} | {} | {} | {} |\n",
-                    md_cell(&row.task),
-                    row.cost,
-                    row.total,
-                    row.input,
-                    row.input_cached,
-                    row.output,
-                    row.output_cached,
-                    row.coverage,
-                ));
+                out.push_str(&format!("| {} | {}", md_cell(&row.task), row.cost));
+                for value in row.tokens.values() {
+                    out.push_str(&format!(" | {value}"));
+                }
+                out.push_str(&format!(" | {} |\n", row.coverage));
             }
             out.push('\n');
         }
@@ -1349,6 +1347,8 @@ fn task_detail(
     }
 }
 
+/// Project each task's direct rollup into the symmetric token columns.
+/// §FS-rhei-run-report.2.2
 fn build_task_accounting_rows(
     rows: &[TaskRow],
     activity: &HashMap<String, TaskActivity>,
@@ -1359,11 +1359,7 @@ fn build_task_accounting_rows(
             Some(TaskAccountingRow {
                 task: row.id.clone(),
                 cost: format_summary_cost(accounting),
-                total: format_dimension_value(&accounting.total),
-                input: format_dimension_value(&accounting.input_total),
-                input_cached: format_dimension_value(&accounting.input_cached_read),
-                output: format_dimension_value(&accounting.output_total),
-                output_cached: format_dimension_value(&accounting.output_cached_read),
+                tokens: AccountingTokenPresentation::new(accounting),
                 coverage: format!("{:?}", accounting.coverage),
             })
         })
