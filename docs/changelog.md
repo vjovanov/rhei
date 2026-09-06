@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Every new issue arrives carrying its kind.** `.github/ISSUE_TEMPLATE/` adds
+  four GitHub issue forms — bug report, feature request, usability report, and
+  token or time waste — which apply `bug`, `enhancement`, `usability` and
+  `tokens` as the issue is opened, and `config.yml` disables blank issues so
+  nothing can be filed without a kind. Each form asks for the fields that make a
+  report actionable: the context (command, directory, version), what happened,
+  what was expected, an optional workaround, and, on the token form, the cost.
+  (PR #N)
 - **Run summaries show every cache token dimension without double-counting it.**
   The durable accounting strip, its Task Costs table, the TTY end-of-run strip,
   and `rhei summary` now place cache reads and cache writes beside explicitly
