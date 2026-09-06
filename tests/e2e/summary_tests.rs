@@ -209,16 +209,24 @@ fn summary_prints_the_aggregate_accounting_table() {
     let result = run_cli("summary", &plan_path, &machine_path, &[]);
     assert_success(&result);
 
-    for expected in [
-        "| Accounting | Value |",
-        "| total tokens | 150.0k |",
-        "| input tokens | 142.4k |",
-        "| input cached | 60.0k |",
-        "| output tokens | 7.6k |",
-        "| coverage | Partial |",
-    ] {
+    for expected in ["| Accounting | Value |", "| coverage | Partial |"] {
         assert!(result.stdout.contains(expected), "expected {expected:?}; got:\n{}", result.stdout);
     }
+    let expected_rows = [
+        "| total tokens | 150.0k |",
+        "| input tokens (incl. cache) | 142.4k |",
+        "| input cache read | 60.0k |",
+        "| input cache write | - |",
+        "| output tokens (incl. cache) | 7.6k |",
+        "| output cache read | - |",
+        "| output cache write | - |",
+    ]
+    .join("\n");
+    assert!(
+        result.stdout.contains(&expected_rows),
+        "expected ordered accounting rows:\n{expected_rows}\ngot:\n{}",
+        result.stdout
+    );
     assert!(
         !result.stdout.contains("| cost |"),
         "unpriced run shows no cost; got:\n{}",
