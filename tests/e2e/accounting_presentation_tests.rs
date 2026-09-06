@@ -7,7 +7,9 @@
 use std::fs;
 
 #[cfg(unix)]
-use super::accounting_support::{accounting_workspace_with_agent, WORKING_PLAN};
+use super::accounting_support::{
+    accounting_workspace_with_agent, invocation_records, WORKING_PLAN,
+};
 #[cfg(unix)]
 use super::*;
 
@@ -148,6 +150,25 @@ fn accounting_presentation_every_surface_shows_cache_writes_without_double_count
 
     let run = run_in_tty(&dir, &plan, &machine);
     assert_success(&run);
+    let current = invocation_records(&dir)
+        .into_iter()
+        .find(|record| record.get("token_convention").is_some())
+        .expect("the current run wrote one convention-tagged record");
+    assert_eq!(
+        current["tokens"]["total"]["value"].as_u64(),
+        Some(1_150),
+        "the run total remains inclusive input plus inclusive output"
+    );
+    let rollup: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dir.join("runtime/accounting/summary.json"))
+            .expect("accounting summary"),
+    )
+    .expect("accounting summary parses");
+    assert_eq!(
+        rollup["summary"]["total"]["value"].as_u64(),
+        Some(2_300),
+        "the current and restated legacy records remain inclusive in aggregate"
+    );
     let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
     let summary = run_cli("summary", &plan, &machine, &[]);
     assert_success(&summary);
