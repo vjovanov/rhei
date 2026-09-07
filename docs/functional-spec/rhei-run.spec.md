@@ -587,7 +587,10 @@ With `--parallel N`, up to `N` subprocesses run concurrently. The orchestrator:
 - Serializes every state write through its own file lock, so two agents completing at once cannot corrupt the plan.
 - Refills freed slots immediately: after any subprocess exits and its result is
   processed, the orchestrator re-reads the plan, recomputes the ready set, and
-  starts newly ready work while the rest of the pool keeps running.
+  starts newly ready work while the rest of the pool keeps running. Each task
+  selected during that refill is resolved from its reloaded task metadata with
+  the normal execution precedence, including the full task `**Target:**`
+  override defined by §FS-rhei-plan-language.3.11.
 
 Tasks whose transitions would race on the same task node are never scheduled in
 parallel: scheduling is driven by the ready set, which excludes tasks already in
