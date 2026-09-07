@@ -290,7 +290,15 @@ fn collect_ready_agent_work_items(
             continue;
         }
 
-        let invocations = resolve_agent_invocations(machine, &current_state, settings, opts)?;
+        // A refill resolves from the freshly loaded task, including its full
+        // execution override. §FS-rhei-run.5
+        let invocations = resolve_agent_invocations_for_task(
+            machine,
+            &current_state,
+            settings,
+            opts,
+            Some(task),
+        )?;
         if invocations.is_empty() {
             if state_declares_autonomous_agent_work(state_def) {
                 return Err(miette!(

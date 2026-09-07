@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Parallel refills preserve each task's requested execution identity.** When
+  a freed `--parallel` slot schedules newly ready work, the reloaded task's full
+  `**Target:**` override now continues to select its agent, mode, provider, and
+  model instead of silently falling back to the state's target. (PR #208)
 - **Every new issue arrives carrying its kind.** `.github/ISSUE_TEMPLATE/` adds
   four GitHub issue forms — bug report, feature request, usability report, and
   token or time waste — which apply `bug`, `enhancement`, `usability` and
