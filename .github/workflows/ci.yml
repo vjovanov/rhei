@@ -69,7 +69,7 @@ jobs:
     env:
       GRUND_VERSION: 0.13.2-dev
       GRUND_REVISION: 89d7a65232868f1ce1033a0678298dade40fb9d5
-      GRUND_REPOSITORY: https://github.com/vjovanov/grund.git
+      GRUND_REPOSITORY: https://github.com/agent-grounds/grund.git
       LYCHEE_VERSION: 0.23.0
       FISSILE_VERSION: 0.8.3
       TOOLS_ROOT: ${{ github.workspace }}/.ci-tools

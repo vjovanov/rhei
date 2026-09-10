@@ -324,7 +324,7 @@ fn a_supervisor_parked_at_a_human_gate_still_holds_its_subtree() {
     );
 }
 
-/// vjovanov/rhei#122: a visit's subprocess exiting non-zero must not release
+/// agent-grounds/rhei#122: a visit's subprocess exiting non-zero must not release
 /// the subtree, burn the visit, or take a forward edge — in particular not
 /// `openDescendants < 1` -> `completed`, which this scenario makes available
 /// the moment the visit starts (its only child is already terminal). A

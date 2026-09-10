@@ -1,4 +1,4 @@
-// vjovanov/rhei#146: the session contract as a codex-shaped agent needs it —
+// agent-grounds/rhei#146: the session contract as a codex-shaped agent needs it —
 // a nested, `cwd`-confirmed transcript locator, a resume emitted before the
 // stdin separator, and a capture-enabled `rhei snapshot continue` that does
 // not require a `session_dir_flag`.

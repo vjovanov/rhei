@@ -618,7 +618,7 @@ for line in sys.stdin:
         );
     }
 
-    // vjovanov/rhei#125: a fixed-location session (dir_template, no
+    // agent-grounds/rhei#125: a fixed-location session (dir_template, no
     // session_dir_flag) supports emit on its own — this is the ticket's exact
     // repro shape. §FS-rhei-snapshots.9.1
     #[test]

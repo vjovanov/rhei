@@ -6,7 +6,12 @@ set -euo pipefail
 # §FS-rhei-distribution.1
 
 ua="rhei-release-name-check/0.1"
-repo_pattern='github.com[/:]vjovanov/rhei'
+# Both owners match on purpose. The repository moved to `agent-grounds`, but a
+# package already published on crates.io, PyPI or npm carries the repository URL
+# it was released with, and that metadata only changes at the next release. A
+# pattern naming the new owner alone reads every one of those as a name taken by
+# a stranger, which is the opposite of what this check is for.
+repo_pattern='github.com[/:](vjovanov|agent-grounds)/rhei'
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 

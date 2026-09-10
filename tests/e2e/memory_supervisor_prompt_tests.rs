@@ -26,7 +26,7 @@ fn repository_evidence(label: &str) -> String {
     evidence
 }
 
-/// vjovanov/rhei#209: an `execute_on` state receives one compact supervisory
+/// agent-grounds/rhei#209: an `execute_on` state receives one compact supervisory
 /// handoff through `rhei run`, even when both authored context scopes contain
 /// large but individually under-cap sections. The prompt keeps its operative
 /// task and navigation sections while omitting all four evidence bodies.

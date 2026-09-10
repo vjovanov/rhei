@@ -366,7 +366,7 @@ fn program_transition_is_applicable(
 
 // Keyed strictly to `poll:` states, mutually exclusive with `visits`, so an
 // exhausted supervising `visits` budget never widens into this carve-out
-// (vjovanov/rhei#122). §FS-rhei-run.5.1
+// (agent-grounds/rhei#122). §FS-rhei-run.5.1
 fn poll_attempts_exhausted(
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,

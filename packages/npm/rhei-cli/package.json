@@ -5,11 +5,11 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vjovanov/rhei.git"
+    "url": "git+https://github.com/agent-grounds/rhei.git"
   },
-  "homepage": "https://github.com/vjovanov/rhei#readme",
+  "homepage": "https://github.com/agent-grounds/rhei#readme",
   "bugs": {
-    "url": "https://github.com/vjovanov/rhei/issues"
+    "url": "https://github.com/agent-grounds/rhei/issues"
   },
   "bin": {
     "rhei": "bin/rhei.js",
