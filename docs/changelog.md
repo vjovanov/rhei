@@ -9,6 +9,11 @@
   to brief one selected step. Ordinary worker prompts retain both context
   blocks unchanged. (PR #211)
 
+- **A retained headless lock no longer makes a dead supervisor look live.** On
+  Linux, `rhei runs` now verifies that the recorded process owns a contended
+  run lock, so an inherited lock held after that process exits is classified as
+  ended while inconclusive ownership checks remain unknown. (PR #N)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When

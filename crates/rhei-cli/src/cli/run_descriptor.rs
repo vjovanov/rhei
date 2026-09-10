@@ -151,8 +151,8 @@ impl RunDescriptor {
     /// The workspace descriptor first agrees on id, pid, and non-terminal
     /// status. The run lock is then the primary process-independent probe. On
     /// Linux, a stable process-start identity plus an exclusively locked file
-    /// descriptor carrying this run's ownership record can close only the gap
-    /// where the held inode was renamed or unlinked.
+    /// descriptor carrying this run's ownership record identifies the recorded
+    /// supervisor whether the locked inode is current or displaced.
     ///
     /// Every step can also fail to answer, and a failure to answer is its own
     /// verdict: see [`Liveness`].
@@ -238,16 +238,15 @@ enum RunLockProbe {
     Unknown(String),
 }
 
-/// Reconcile the primary lock probe with stable ownership of the displaced
-/// inode. Descriptor identity and terminal status have already taken
+/// Reconcile the primary lock probe with stable ownership of the current or
+/// displaced inode. Descriptor identity and terminal status have already taken
 /// precedence in `liveness`.
 // §FS-rhei-run-headless.3
 #[cfg(target_os = "linux")]
 fn classify_lock_and_process(lock: RunLockProbe, descriptor: &RunDescriptor) -> Liveness {
     match lock {
-        RunLockProbe::Held => Liveness::Live,
         RunLockProbe::Unknown(reason) => Liveness::Unknown(reason),
-        RunLockProbe::Free => match probe_recorded_lock_owner(descriptor) {
+        RunLockProbe::Held | RunLockProbe::Free => match probe_recorded_lock_owner(descriptor) {
             ProcessProbe::OwnsLock => Liveness::Live,
             ProcessProbe::Gone | ProcessProbe::DoesNotOwnLock => Liveness::Ended,
             ProcessProbe::Unknown(reason) => Liveness::Unknown(reason),
