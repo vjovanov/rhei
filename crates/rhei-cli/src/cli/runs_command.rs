@@ -105,9 +105,15 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
     // §FS-rhei-run-headless.3 §FS-rhei-run-headless.7
     match descriptor.liveness() {
         Liveness::Ended | Liveness::Gone => {
-            println!("Run {} has already ended.", descriptor.id);
-            report_recorded_result(&descriptor);
-            return Ok(());
+            // A Linux ownership mismatch is an ended listing verdict, but an
+            // existing recorded process still needs the signal authorization
+            // path to refuse an unowned pid rather than report success.
+            // §FS-rhei-run-headless.7
+            if !ended_run_has_live_recorded_process(&descriptor) {
+                println!("Run {} has already ended.", descriptor.id);
+                report_recorded_result(&descriptor);
+                return Ok(());
+            }
         }
         Liveness::Live => {}
         Liveness::Unknown(reason) => {
@@ -141,6 +147,28 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
         println!("It is terminating its in-flight work; `rhei runs` shows when it is gone.");
     }
     Ok(())
+}
+
+/// Keep an alive but unowned Linux pid on the pre-signal authorization path.
+/// A gone pid remains an already-ended run; a live pid may have been reused or
+/// may belong to an unrelated process, and only the exact lock proof can tell.
+// §FS-rhei-run-headless.7
+#[cfg(target_os = "linux")]
+fn ended_run_has_live_recorded_process(descriptor: &RunDescriptor) -> bool {
+    use rustix::process::{pidfd_open, Pid, PidfdFlags};
+
+    if !matches!(descriptor.status, RunStatus::Running) {
+        return false;
+    }
+    let Some(pid) = i32::try_from(descriptor.pid).ok().and_then(Pid::from_raw) else {
+        return false;
+    };
+    pidfd_open(pid, PidfdFlags::empty()).is_ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ended_run_has_live_recorded_process(_descriptor: &RunDescriptor) -> bool {
+    false
 }
 
 #[cfg(target_os = "linux")]
