@@ -25,6 +25,7 @@ mod laid_output_root_tests;
 mod list_ready_tests;
 mod memory_map_tests;
 mod memory_prompt_tests;
+mod memory_supervisor_prompt_tests;
 mod new_guard_tests;
 mod new_tests;
 mod new_write_tests;
