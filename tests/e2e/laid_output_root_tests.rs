@@ -84,7 +84,7 @@ fn write_laid_output_agent_settings(project: &Path) {
     .expect("write settings");
 }
 
-/// vjovanov/rhei#137: the run scheduler's completion condition resolved
+/// agent-grounds/rhei#137: the run scheduler's completion condition resolved
 /// declared `outputs:` against the run-level workspace root instead of the
 /// owning rhei's execution root — the same root the agent prompt and
 /// the transition-time check already used. A member rhei one directory below

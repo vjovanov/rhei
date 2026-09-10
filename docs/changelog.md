@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- The repository moved to the `agent-grounds` GitHub organization, along with
+  `ephor`, `fissile` and `grund`, and every live reference now names it: the
+  crate's `repository`, the four npm and Python package manifests, CI's
+  `GRUND_REPOSITORY` clone URL, one program path and eleven test fixtures
+  carrying a full `owner/repo` key. The crate, npm and PyPI names are unchanged,
+  so nothing an installer names moves. `scripts/check-registry-names.sh` now
+  accepts either owner, because a package already published carries the
+  repository URL it was released with until its next release, and a pattern
+  naming only the new owner reads those as names taken by a stranger. The
+  generated `AGENTS.md` block is left alone: `grund init` writes it from grund's
+  own template, so it corrects itself when that template ships. (PR #213)
+
 - **Supervisor handoffs link broad project context instead of pasting it.** A
   task in a state that declares `execute_on` still receives its position,
   operative handoff memory, and direct navigation to its rhei and project, but

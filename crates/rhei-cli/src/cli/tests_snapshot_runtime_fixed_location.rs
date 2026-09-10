@@ -1,4 +1,4 @@
-// vjovanov/rhei#125: fixed-location session emit (`dir_template`, with and
+// agent-grounds/rhei#125: fixed-location session emit (`dir_template`, with and
 // without `assign_id_flag`) — split from tests_snapshot_runtime.rs to stay
 // under the file-size budget. §AR-source-file-size.3
 
@@ -27,7 +27,7 @@ impl Drop for NoHome {
     }
 }
 
-// vjovanov/rhei#125 R1-01: an unresolvable `dir_template` (no `HOME`) must
+// agent-grounds/rhei#125 R1-01: an unresolvable `dir_template` (no `HOME`) must
 // degrade to no fixed-location tracking rather than fail the spawn, even on
 // a state with no snapshot block, since preload runs for every spawn. §FS-rhei-snapshots.10.1
 #[test]
@@ -59,7 +59,7 @@ fn snapshot_fixed_location_unresolvable_dir_template_runs_cold_instead_of_failin
     assert!(preload.extra_args.is_empty());
 }
 
-// vjovanov/rhei#128: an unrecognized `{name}` placeholder must degrade to no
+// agent-grounds/rhei#128: an unrecognized `{name}` placeholder must degrade to no
 // fixed-location tracking rather than fail the spawn, and must never be read
 // as a literal directory name. §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.1
 #[test]
@@ -91,7 +91,7 @@ fn snapshot_fixed_location_unrecognized_placeholder_runs_cold_instead_of_failing
     assert!(preload.extra_args.is_empty());
 }
 
-// vjovanov/rhei#128: pins the ticket's own correction — `.` dashes the same
+// agent-grounds/rhei#128: pins the ticket's own correction — `.` dashes the same
 // as `/`, so `/x/.claude-worktrees/y` dashes to `-x--claude-worktrees-y`, not
 // the dot-preserving shape the ticket's reproduction showed. §FS-rhei-snapshots.9.1
 #[test]
@@ -112,7 +112,7 @@ fn snapshot_dashed_spawn_working_dir_matches_claude_code_convention() {
     );
 }
 
-// vjovanov/rhei#128: `dir_template: <parent>/{cwd_dashed}` resolves against
+// agent-grounds/rhei#128: `dir_template: <parent>/{cwd_dashed}` resolves against
 // the working directory this spawn is given — not the workspace root or the
 // plan input path — canonicalized before dashing. §FS-rhei-snapshots.9.1
 #[test]
@@ -150,7 +150,7 @@ fn snapshot_fixed_location_cwd_dashed_placeholder_resolves_against_spawn_working
     );
 }
 
-// vjovanov/rhei#128: the ticket's own reproduction, turned positive — a
+// agent-grounds/rhei#128: the ticket's own reproduction, turned positive — a
 // `dir_template: <parent>/{cwd_dashed}` locates the transcript written under
 // the cwd-derived child after the spawn floor. §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.2
 #[test]
@@ -240,7 +240,7 @@ transitions:
     .expect("write states");
 }
 
-// vjovanov/rhei#125: a fixed-location session with `assign_id_flag` gets
+// agent-grounds/rhei#125: a fixed-location session with `assign_id_flag` gets
 // the flag and a rhei-chosen id at spawn, and emit reads the exact
 // `<dir>/<id>.<ext>` path afterward. §FS-rhei-snapshots.9.1 §FS-rhei-snapshots.10.2
 #[test]

@@ -1,4 +1,4 @@
-// vjovanov/rhei#146 R1-01: which of `resume` and `fork` a preload emits, and
+// agent-grounds/rhei#146 R1-01: which of `resume` and `fork` a preload emits, and
 // what it hands the chosen one — split from tests_snapshot_runtime.rs, which
 // is at its file-size budget. §AR-source-file-size.3
 

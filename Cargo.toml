@@ -16,8 +16,8 @@ version = "0.4.2-dev"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.82"
-repository = "https://github.com/vjovanov/rhei"
-homepage = "https://github.com/vjovanov/rhei"
+repository = "https://github.com/agent-grounds/rhei"
+homepage = "https://github.com/agent-grounds/rhei"
 keywords = ["markdown", "planning", "agents", "workflow"]
 
 [workspace.dependencies]

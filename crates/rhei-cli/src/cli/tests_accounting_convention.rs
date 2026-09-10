@@ -16,7 +16,7 @@ const ONE_TURN_PER_AGENT: [(AgentUsageExtractor, &str); 3] = [
     ),
 ];
 
-/// The price book the reproduction of `vjovanov/rhei#166` used, cut down to the
+/// The price book the reproduction of `agent-grounds/rhei#166` used, cut down to the
 /// two models it priced. Real rates, so the amounts below are the ticket's own.
 fn repro_price_book() -> PriceBook {
     PriceBook {

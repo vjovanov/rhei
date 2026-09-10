@@ -24,9 +24,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/vjovanov/rhei"
-Repository = "https://github.com/vjovanov/rhei"
-Issues = "https://github.com/vjovanov/rhei/issues"
+Homepage = "https://github.com/agent-grounds/rhei"
+Repository = "https://github.com/agent-grounds/rhei"
+Issues = "https://github.com/agent-grounds/rhei/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
