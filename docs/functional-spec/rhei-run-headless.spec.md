@@ -486,7 +486,10 @@ down the work it was asked to stop.
 Stopping a run that has already ended is not an error: it says so and exits
 `0`. That short-circuit needs a *decided* end, though. An entry whose liveness
 could not be checked (§3) still reaches the pre-signal checks rather than being
-reported as ended.
+reported as ended. On Linux, failure to open a stable process handle decides
+that the recorded process is absent only for `ESRCH`; unsupported pidfds,
+permission failures, resource exhaustion, and every other open error are
+inconclusive and refuse the stop rather than reporting success.
 
 Before every signal, `rhei stop` re-reads the workspace descriptor. A missing
 or changed descriptor refuses the signal rather than trusting the registry's
