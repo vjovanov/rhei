@@ -176,6 +176,7 @@ mod tests {
     include!("cli/tests_subtree_supervision_scope.rs");
     include!("cli/tests_subtree_supervision_barrier.rs");
     include!("cli/tests_run_descriptor.rs");
+    include!("cli/tests_stop_pidfd.rs");
     include!("cli/tests_run_registry.rs");
     include!("cli/tests_attach_support.rs");
     include!("cli/tests_new_verify.rs");

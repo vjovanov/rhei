@@ -108,7 +108,7 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
             // A Linux ownership mismatch is an ended listing verdict; an
             // existing recorded process still needs signal authorization to refuse an unowned pid.
             // §FS-rhei-run-headless.7
-            if !ended_run_has_live_recorded_process(&descriptor) {
+            if !ended_run_has_live_recorded_process(&descriptor)? {
                 println!("Run {} has already ended.", descriptor.id);
                 report_recorded_result(&descriptor);
                 return Ok(());
@@ -153,21 +153,41 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
 /// may belong to an unrelated process, and only the exact lock proof can tell.
 // §FS-rhei-run-headless.7
 #[cfg(target_os = "linux")]
-fn ended_run_has_live_recorded_process(descriptor: &RunDescriptor) -> bool {
+fn ended_run_has_live_recorded_process(descriptor: &RunDescriptor) -> MietteResult<bool> {
     use rustix::process::{pidfd_open, Pid, PidfdFlags};
 
     if !matches!(descriptor.status, RunStatus::Running) {
-        return false;
+        return Ok(false);
     }
     let Some(pid) = i32::try_from(descriptor.pid).ok().and_then(Pid::from_raw) else {
-        return false;
+        return Ok(false);
     };
-    pidfd_open(pid, PidfdFlags::empty()).is_ok()
+    pidfd_open_result_has_live_recorded_process(
+        descriptor,
+        pidfd_open(pid, PidfdFlags::empty()),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn pidfd_open_result_has_live_recorded_process<T>(
+    descriptor: &RunDescriptor,
+    result: rustix::io::Result<T>,
+) -> MietteResult<bool> {
+    match result {
+        Ok(_) => Ok(true),
+        Err(rustix::io::Errno::SRCH) => Ok(false),
+        Err(err) => Err(miette!(
+            help = "check whether this system supports pidfds and retry `rhei stop`",
+            "refusing to stop run {} because pid {} could not be checked safely: {err}",
+            descriptor.id,
+            descriptor.pid
+        )),
+    }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn ended_run_has_live_recorded_process(_descriptor: &RunDescriptor) -> bool {
-    false
+fn ended_run_has_live_recorded_process(_descriptor: &RunDescriptor) -> MietteResult<bool> {
+    Ok(false)
 }
 
 #[cfg(target_os = "linux")]
