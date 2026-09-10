@@ -154,7 +154,7 @@ Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › {Kind} {ancestor-id}
   that matters most to a leaf: it is where the decomposition was decided and
   where the acceptance for the whole subtree is written.
 - A task is **supervising** for prompt composition exactly when its current
-  normalized state declares `execute_on` ([§FS-rhei-supervision.1.1](rhei-supervision.spec.md#11-declaration)). The role follows the
+  normalized state declares `execute_on` ([§FS-rhei-supervision.1.1](rhei-supervision.spec.md#11-the-execute_on-field)). The role follows the
   state declaration, not the task's depth, whether it has children, or the
   event that selected the visit.
 - For an ordinary, non-supervising task, `### Rhei Context` and `### Project
