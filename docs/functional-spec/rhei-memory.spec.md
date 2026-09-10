@@ -101,7 +101,9 @@ the inputs are what the task acts on and the history is what it acts *within*.
 
 ### 3.1. `## Position`
 
-Where this invocation sits in the project, top down.
+Where this invocation sits in the project, top down. The complete shape below
+is for an ordinary task; a supervising task stops before the two context
+blocks, as specified after the example.
 
 ```
 ## Position
@@ -151,11 +153,23 @@ Panta: {panta-title} › rhei `{rhei-id}`: {rhei-title} › {Kind} {ancestor-id}
   four-level tree does not paste four bodies. The parent's body is the memory
   that matters most to a leaf: it is where the decomposition was decided and
   where the acceptance for the whole subtree is written.
-- `### Rhei Context` and `### Project Context` paste the content sections of
-  the owning rhei and of the Panta manifest, verbatim and in authored order.
-  These are the plan writer's standing notes, and until now only a worker that
-  opened the file read them. A bare rhei with no Panta manifest has no
-  `### Project Context`.
+- A task is **supervising** for prompt composition exactly when its current
+  normalized state declares `execute_on` ([§FS-rhei-supervision.1.1](rhei-supervision.spec.md#11-declaration)). The role follows the
+  state declaration, not the task's depth, whether it has children, or the
+  event that selected the visit.
+- For an ordinary, non-supervising task, `### Rhei Context` and `### Project
+  Context` paste the content sections of the owning rhei and of the Panta
+  manifest, verbatim and in authored order. These are the plan writer's
+  standing notes, and until now only a worker that opened the file read them.
+  A bare rhei with no Panta manifest has no `### Project Context`.
+- For a supervising task, omit both context headings and their bodies. The
+  rest of `## Position` is unchanged, and the prompt still carries the task's
+  own content, child map, checkpoints, supervisor brief and declared inputs,
+  previous-visit memory, and other applicable sections defined by
+  [§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition), [§FS-rhei-supervision.5](rhei-supervision.spec.md#5-prompt-composition), and this spec. `### Reading the rhei` (§3.4) names
+  the owning rhei document, project root, and read-only navigation commands, so
+  the full standing context remains directly reachable without its bytes being
+  copied into every supervisory handoff.
 
 ### 3.2. `## Plan History`
 
@@ -309,11 +323,13 @@ Given an invocation `I = (task, state, visit_count, identity)`:
    when `task ∈ Prior(sibling)` or `Consumes(sibling)` names an export of
    `task`. Paste `body(P)`, fenced (§4.5); cap 200 lines, overflow line
    `… truncated; read <task file path of P>`.
-3. `### Rhei Context` = the content sections of `R₀`'s index (or the H2
-   sections before `## Tasks` of its single-file plan), verbatim, in authored
-   order; `### Project Context` = the content sections of `index.panta.md`.
-   Each capped at 1000 lines with the overflow line
-   `… truncated; read <path>`. Omit either when empty.
+3. If the normalized `state(task)` declares `execute_on`, render neither
+   `### Rhei Context` nor `### Project Context`. Otherwise, `### Rhei Context`
+   = the content sections of `R₀`'s index (or the H2 sections before `## Tasks`
+   of its single-file plan), verbatim, in authored order; `### Project Context`
+   = the content sections of `index.panta.md`. Each rendered context is capped
+   at 1000 lines with the overflow line `… truncated; read <path>`. Omit either
+   when empty.
 
 ### 4.3. Plan History
 
@@ -406,12 +422,16 @@ Given an invocation `I = (task, state, visit_count, identity)`:
 
 ## 5. Surfaces
 
-- `rhei run` composes the sections for every spawned agent, in every mode.
+- `rhei run` composes the sections for every spawned agent, in every mode. The
+  shared `## Position` renderer applies the role rule of §3.1 and §4.2.
 - `rhei next` text output renders the same sections in the same order after
   the instructions, as it does for the supervision sections today
   ([§FS-rhei-supervision.3.4](rhei-supervision.spec.md#34-manual-workers)); JSON output carries each as a string field named
   after the section: `position`, `plan_history`, `previous_visits`,
-  `navigation`. Two differences follow from what that surface prints:
+  `navigation`. It uses that same role-aware `## Position` renderer, so a
+  supervising task omits inline rhei and project context on both surfaces and
+  an ordinary task keeps it on both. Two differences follow from what that
+  surface prints:
   - `rhei next` renders no `## Rhei Commands`, so the two sub-sections of §3.4
     would arrive with no `##` parent. On this surface they are wrapped in
     `## Rhei Navigation`; the JSON field stays `navigation`.
