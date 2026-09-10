@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Supervisor handoffs link broad project context instead of pasting it.** A
+  task in a state that declares `execute_on` still receives its position,
+  operative handoff memory, and direct navigation to its rhei and project, but
+  no longer rereads their potentially repository-scale standing context merely
+  to brief one selected step. Ordinary worker prompts retain both context
+  blocks unchanged. (PR #N)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When

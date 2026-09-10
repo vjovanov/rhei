@@ -177,6 +177,12 @@ fn render_position(render_context: &RuntimeTemplateContext<'_>) -> String {
         out.push_str(&render_siblings(render_context, parent));
         out.push_str(&render_parent_body(render_context, memory, parent));
     }
+    // Supervisors keep the navigation map rendered later in the prompt, so
+    // repository-scale standing context remains reachable without being pasted.
+    // §FS-rhei-memory.4.2
+    if task_is_supervising(render_context.task, render_context.machine) {
+        return out;
+    }
     let rhei_id = owning_rhei_id(render_context);
     out.push_str(&render_context_block(
         "Rhei Context",
