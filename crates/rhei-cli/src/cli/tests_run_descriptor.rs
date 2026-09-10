@@ -66,6 +66,25 @@ mod run_descriptor_tests {
         }
     }
 
+    /// Hold the current run lock as the supplied descriptor's exact owner on
+    /// Linux, and with the platform's lock-only identity elsewhere.
+    pub(super) fn held_run_lock_for(descriptor: &RunDescriptor) -> HeldRunLock {
+        let held = try_acquire_run_lock(&descriptor.workspace)
+            .expect("lock")
+            .expect("available");
+        #[cfg(target_os = "linux")]
+        {
+            let mut held = held;
+            write_run_lock_owner(&mut held, &descriptor.id, descriptor.pid)
+                .expect("record lock owner");
+            held
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            held
+        }
+    }
+
     #[cfg(unix)]
     fn exited_process_pid() -> u32 {
         let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
@@ -210,9 +229,56 @@ mod run_descriptor_tests {
             Liveness::Ended,
             "nothing holds the lock, so the run is gone whatever its status says"
         );
+    }
 
+    /// Linux contention identifies a lock holder, not the recorded supervisor.
+    /// A successful exact-owner check finds this dead pid and decides the
+    /// descriptor has ended. §FS-rhei-run-headless.3
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_dead_supervisor_with_a_held_current_lock_has_ended() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let mut running = descriptor("dead02", &workspace.path, "2026-08-22T14:03:22Z");
+        running.pid = exited_process_pid();
+        publish_run_descriptor(&running);
         let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
-        assert_eq!(running.liveness(), Liveness::Live, "a held run lock is what makes a run live");
+
+        assert_eq!(
+            running.liveness(),
+            Liveness::Ended,
+            "another process retaining the current lock does not keep the recorded pid live"
+        );
+    }
+
+    /// An exact process can still hold the wrong run's lock. A successful
+    /// inspection of the structured owner record decides that mismatch as an
+    /// end, not as liveness for this descriptor. §FS-rhei-run-headless.3
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_recorded_process_that_does_not_own_the_held_current_lock_has_ended() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let running = descriptor("stale1", &workspace.path, "2026-08-22T14:03:22Z");
+        publish_run_descriptor(&running);
+        let mut held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        write_run_lock_owner(&mut held, "other1", running.pid).expect("other run's owner record");
+
+        assert_eq!(running.liveness(), Liveness::Ended);
+    }
+
+    /// A held pathname with an unreadable ownership record proves contention
+    /// but cannot decide who owns it. §FS-rhei-run-headless.3
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_inconclusive_owner_check_for_the_held_current_lock_is_unknown() {
+        let _registry = IsolatedRegistry::new();
+        let workspace = workspace();
+        let running = descriptor("blind1", &workspace.path, "2026-08-22T14:03:22Z");
+        publish_run_descriptor(&running);
+        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+
+        assert!(matches!(running.liveness(), Liveness::Unknown(_)));
     }
 
     /// A free replacement pathname does not decide liveness when the recorded
@@ -256,7 +322,7 @@ mod run_descriptor_tests {
 
         let successor = descriptor("live22", &workspace.path, "2026-08-22T11:00:00Z");
         publish_run_descriptor(&successor);
-        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let _held = held_run_lock_for(&successor);
 
         assert_eq!(ghost.liveness(), Liveness::Gone, "the workspace no longer names the ghost");
         assert_eq!(

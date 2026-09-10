@@ -3,7 +3,9 @@
 // §FS-rhei-run-headless.2 §FS-rhei-run-headless.3 §FS-rhei-run-headless.6
 
 mod run_registry_tests {
-    use super::run_descriptor_tests::{descriptor, publish_ended, workspace, IsolatedRegistry};
+    use super::run_descriptor_tests::{
+        descriptor, held_run_lock_for, publish_ended, workspace, IsolatedRegistry,
+    };
     use super::super::*;
 
     fn ids(runs: &[RunDescriptor]) -> Vec<&str> {
@@ -15,10 +17,12 @@ mod run_registry_tests {
         let _registry = IsolatedRegistry::new();
         let older = workspace();
         let newer = workspace();
-        let _held_older = try_acquire_run_lock(&older.path).expect("lock").expect("available");
-        let _held_newer = try_acquire_run_lock(&newer.path).expect("lock").expect("available");
-        publish_run_descriptor(&descriptor("old111", &older.path, "2026-08-22T10:00:00Z"));
-        publish_run_descriptor(&descriptor("new222", &newer.path, "2026-08-22T18:00:00Z"));
+        let older_run = descriptor("old111", &older.path, "2026-08-22T10:00:00Z");
+        let newer_run = descriptor("new222", &newer.path, "2026-08-22T18:00:00Z");
+        publish_run_descriptor(&older_run);
+        publish_run_descriptor(&newer_run);
+        let _held_older = held_run_lock_for(&older_run);
+        let _held_newer = held_run_lock_for(&newer_run);
 
         assert_eq!(ids(&sweep_run_registry().live), vec!["new222", "old111"]);
     }
@@ -75,8 +79,9 @@ mod run_registry_tests {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
         publish_run_descriptor(&descriptor("ghost1", &workspace.path, "2026-08-22T10:00:00Z"));
-        publish_run_descriptor(&descriptor("live22", &workspace.path, "2026-08-22T11:00:00Z"));
-        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let successor = descriptor("live22", &workspace.path, "2026-08-22T11:00:00Z");
+        publish_run_descriptor(&successor);
+        let _held = held_run_lock_for(&successor);
 
         assert_eq!(ids(&sweep_run_registry().live), vec!["live22"]);
         assert!(!run_registry_path("ghost1").expect("path").exists(), "superseded entries go");
@@ -118,8 +123,9 @@ mod run_registry_tests {
         use std::os::unix::fs::PermissionsExt;
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
-        publish_run_descriptor(&descriptor("chmod0", &workspace.path, "2026-08-22T10:00:00Z"));
-        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
+        let running = descriptor("chmod0", &workspace.path, "2026-08-22T10:00:00Z");
+        publish_run_descriptor(&running);
+        let _held = held_run_lock_for(&running);
         let rhei_dir = workspace.path.join(".rhei");
         fs::set_permissions(&rhei_dir, fs::Permissions::from_mode(0o000)).expect("chmod 000");
 
@@ -145,8 +151,9 @@ mod run_registry_tests {
         publish_ended("ab0001", &first.path, "2026-08-22T10:00:00Z");
         publish_ended("ab0002", &second.path, "2026-08-22T10:30:00Z");
         publish_ended("ab0003", &third.path, "2026-08-22T11:00:00Z");
-        publish_run_descriptor(&descriptor("ab9999", &live.path, "2026-08-22T12:00:00Z"));
-        let _held = try_acquire_run_lock(&live.path).expect("lock").expect("available");
+        let running = descriptor("ab9999", &live.path, "2026-08-22T12:00:00Z");
+        publish_run_descriptor(&running);
+        let _held = held_run_lock_for(&running);
 
         assert_eq!(resolve_run(Some("ab")).expect("the live run wins").id, "ab9999");
         // An exact id still reaches an ended run, which is the point of keeping
@@ -158,8 +165,9 @@ mod run_registry_tests {
     fn an_exact_id_resolves() {
         let _registry = IsolatedRegistry::new();
         let workspace = workspace();
-        let _held = try_acquire_run_lock(&workspace.path).expect("lock").expect("available");
-        publish_run_descriptor(&descriptor("abc123", &workspace.path, "2026-08-22T14:03:22Z"));
+        let running = descriptor("abc123", &workspace.path, "2026-08-22T14:03:22Z");
+        publish_run_descriptor(&running);
+        let _held = held_run_lock_for(&running);
         assert_eq!(resolve_run(Some("abc123")).expect("resolved").id, "abc123");
     }
 
@@ -168,10 +176,12 @@ mod run_registry_tests {
         let _registry = IsolatedRegistry::new();
         let first = workspace();
         let second = workspace();
-        let _held_first = try_acquire_run_lock(&first.path).expect("lock").expect("available");
-        let _held_second = try_acquire_run_lock(&second.path).expect("lock").expect("available");
-        publish_run_descriptor(&descriptor("ab0001", &first.path, "2026-08-22T10:00:00Z"));
-        publish_run_descriptor(&descriptor("ab0002", &second.path, "2026-08-22T11:00:00Z"));
+        let first_run = descriptor("ab0001", &first.path, "2026-08-22T10:00:00Z");
+        let second_run = descriptor("ab0002", &second.path, "2026-08-22T11:00:00Z");
+        publish_run_descriptor(&first_run);
+        publish_run_descriptor(&second_run);
+        let _held_first = held_run_lock_for(&first_run);
+        let _held_second = held_run_lock_for(&second_run);
 
         assert_eq!(resolve_run(Some("ab0001")).expect("exact").id, "ab0001");
         assert!(resolve_run(Some("ab00012")).is_err(), "a longer non-id must not match");
@@ -289,9 +299,10 @@ mod run_registry_tests {
         let _registry = IsolatedRegistry::new();
         let live = workspace();
         let blind = workspace();
-        publish_run_descriptor(&descriptor("lv0001", &live.path, "2026-08-22T10:00:00Z"));
+        let live_run = descriptor("lv0001", &live.path, "2026-08-22T10:00:00Z");
+        publish_run_descriptor(&live_run);
         publish_run_descriptor(&descriptor("uk0002", &blind.path, "2026-08-22T11:00:00Z"));
-        let _held_live = try_acquire_run_lock(&live.path).expect("lock").expect("available");
+        let _held_live = held_run_lock_for(&live_run);
         let _held_blind = try_acquire_run_lock(&blind.path).expect("lock").expect("available");
         let lock = blind.path.join(".rhei").join("run.lock");
         fs::set_permissions(&lock, fs::Permissions::from_mode(0o000)).expect("chmod 000");
@@ -374,9 +385,10 @@ mod run_registry_tests {
         let blind = workspace();
         let over = workspace();
         publish_ended("rr0003", &over.path, "2026-08-22T09:00:00Z");
-        publish_run_descriptor(&descriptor("rr0001", &live.path, "2026-08-22T10:00:00Z"));
+        let live_run = descriptor("rr0001", &live.path, "2026-08-22T10:00:00Z");
+        publish_run_descriptor(&live_run);
         publish_run_descriptor(&descriptor("rr0002", &blind.path, "2026-08-22T11:00:00Z"));
-        let _held_live = try_acquire_run_lock(&live.path).expect("lock").expect("available");
+        let _held_live = held_run_lock_for(&live_run);
         let _held_blind = try_acquire_run_lock(&blind.path).expect("lock").expect("available");
         let lock = blind.path.join(".rhei").join("run.lock");
         fs::set_permissions(&lock, fs::Permissions::from_mode(0o000)).expect("chmod 000");
