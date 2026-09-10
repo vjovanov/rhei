@@ -203,33 +203,40 @@ hundred retained entries, a full listing is not an answer to "which one did you
 mean?".
 
 **The run lock is the primary liveness oracle, and stable lock ownership closes
-its pathname gap.** A refused `.rhei/run.lock` proves that a run holds the
-current lock file. An acquirable or missing pathname does not by itself prove
-that the recorded run ended: a lock belongs to the opened inode, and renaming
-or unlinking that inode can leave the live run holding it while the original
-pathname is absent or names an unlocked replacement. On Linux, each acquired
-run-lock inode records the run id, pid, workspace, and the process's kernel
-start identity. A matching non-terminal registry record remains live across
-that displacement only when the workspace descriptor agrees on both id and pid
-and `/proc` proves that the same process identity still owns an exclusively
-locked file descriptor carrying that record. Numeric pid existence, executable
-name, command line, or a coarse start-time coincidence is not ownership. A
-successful inspection that finds no matching owned lock ends an otherwise-free
-record; a failed Linux ownership inspection makes it unknown. Platforms without
-an equivalent stable ownership probe retain lock-only behavior: a free current
-lock ends the record and a missing pathname is unknown. The fallback never
-overrides terminal status, a genuinely held current lock, or a workspace
-descriptor with a different id or pid. Probing is a **read**: it creates neither
-the lock file nor the `.rhei` directory, because a listing must not write into
-every workspace it inspects.
+its identity and pathname gaps.** A refused `.rhei/run.lock` proves only that
+some process holds the current lock file; it does not identify the supervisor
+recorded by a matching non-terminal descriptor. An acquirable or missing
+pathname likewise does not by itself prove that the recorded run ended: a lock
+belongs to the opened inode, and renaming or unlinking that inode can leave the
+live run holding it while the original pathname is absent or names an unlocked
+replacement.
+
+On Linux, each acquired run-lock inode records the run id, pid, workspace, and
+the process's kernel start identity. After the workspace descriptor agrees on
+id and pid, `/proc` proof governs both a held current pathname and a displaced
+inode: the same process identity owning an exclusively locked file descriptor
+with that exact record is live; a successful inspection that finds the recorded
+process gone or not the owner is ended; and an inconclusive inspection is
+unknown. Numeric pid existence, executable name, command line, or a coarse
+start-time coincidence is not ownership. Platforms without an equivalent
+stable ownership probe retain lock-only behavior: a held current lock is live,
+a free current lock is ended, and a missing pathname is unknown. Neither rule
+overrides terminal status or a workspace descriptor with a different id or
+pid. Probing is a **read**: it creates neither the lock file nor the `.rhei`
+directory, because a listing must not write into every workspace it inspects.
+
+An ended liveness verdict does not release, replace, or steal a kernel lock
+that another process still holds. A new run remains subject to the ordinary run
+lock refusal until that holder releases it.
 
 **A refused lock is a held lock, on every platform.** The refusal is spelled
 with a different error per operating system — `EWOULDBLOCK` where the lock is a
 `flock`, a lock-violation error where it is a mandatory byte range — and the
-probe classifies both as *live*. Reading only one spelling turns every running
-run on the other platform into an *unknown* entry, which is the one verdict
-that makes `attach`, `stop`, and `runs` hedge about a run that is plainly
-there.
+probe must recognize both as contention. On Linux, exact ownership then decides
+whether the recorded run is live, ended, or unknown; elsewhere the held lock is
+live. Reading only one spelling turns every running run on the other platform
+into an *unknown* entry, which is the one verdict that makes `attach`, `stop`,
+and `runs` hedge about a run that is plainly there.
 
 **A released lock is not everywhere released at the same instant.** Where the
 lock is a `flock`, the kernel drops it with the descriptor, so a run that has
@@ -243,13 +250,14 @@ and the next probe answers *ended*.
 **A probe has three answers, not two: live, ended, and *unknown*.** An entry
 this process could not read, a workspace descriptor it could not open, a lock it
 could not probe — none of those say anything about the run. A missing lock file
-is not a free lock, because `flock` survives unlinking; only stable proof that
-the recorded process owns the displaced run-lock inode can turn that
-otherwise-unknown case into live. Only a *decided* end lets anything be pruned,
-and only the two conditions of §2 prune at all; an unknown entry is kept and
-reported (§6). Treating unknown as death let a momentary `chmod 000`, a full
-disk, an exhausted descriptor table, or an inconclusive ownership inspection
-permanently unregister a run that was working the whole time.
+is not a free lock, because `flock` survives unlinking; on Linux the stable
+ownership inspection decides whether the recorded process owns the displaced
+run-lock inode, is gone or not its owner, or cannot be checked conclusively.
+Only a *decided* end lets anything be pruned, and only the two conditions of §2
+prune at all; an unknown entry is kept and reported (§6). Treating unknown as
+death let a momentary `chmod 000`, a full disk, an exhausted descriptor table,
+or an inconclusive ownership inspection permanently unregister a run that was
+working the whole time.
 
 **Every consumer answers the third case, and none of them answers it "ended".**
 Resolution keeps it (above); `rhei runs` lists it separately (§6); `rhei attach`
@@ -487,9 +495,10 @@ then opens a stable handle to the process, revalidates its start identity, and
 requires `/proc` to prove that the same process owns an exclusively locked file
 descriptor carrying this run's exact structured lock record. The proof applies
 whether that descriptor names the current `.rhei/run.lock` inode or a renamed
-or unlinked one. Current-path contention establishes listing liveness, not
-permission to signal a recorded pid. Missing, mismatched, stale, or
-inconclusive ownership refuses the signal with a diagnostic, and the stable
+or unlinked one. Current-path contention establishes only that some process
+holds the lock; listing liveness and permission to signal a recorded pid both
+require exact ownership on Linux. Missing, mismatched, stale, or inconclusive
+ownership refuses the signal with a diagnostic, and the stable
 process handle keeps exit and pid reuse between proof and delivery from
 redirecting the signal. Numeric pid existence and registry/workspace agreement
 alone are never sufficient. Platforms without this stable ownership probe
@@ -505,10 +514,14 @@ retain the previous best-effort descriptor re-read and lock-only stop behavior.
   is printed. Two launchers racing each other fail the same way, at the launch
   lock of §1.1, and only one run is ever started.
 - **The run dies without cleaning up.** The descriptor still says `running`.
-  The next `rhei runs` finds the lock free and stops listing it as live, and
-  `rhei attach` reports the run as ended. The entry stays until the workspace
-  stops naming the run (§2), so `rhei attach <id>` can still say what happened —
-  and `--wait` reports the missing exit status rather than inventing `0`.
+  On Linux, the next `rhei runs` stops listing it as live once exact ownership
+  finds the recorded supervisor gone or not the owner, even when another
+  process inherited and retains the held lock description. On other platforms,
+  the next free-lock probe stops listing it. `rhei attach` reports the run as
+  ended. The entry stays until the workspace stops naming the run (§2), so
+  `rhei attach <id>` can still say what happened — and `--wait` reports the
+  missing exit status rather than inventing `0`. Any independently retained
+  kernel lock still refuses a new run until its holder releases it.
 - **`runtime/events.jsonl` cannot be written.** A warning on stderr; the run
   continues. The surfaces that read records — `rhei attach` and
   `rhei attach --json` — are then unavailable and say so, naming the file. A run
