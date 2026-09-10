@@ -1,6 +1,7 @@
 // `## Position`: where this invocation sits in the project, top down — the
 // chain from the Panta to this ticket, the siblings beside it, the parent whose
-// decomposition it belongs to, and the standing notes of its rhei and project.
+// decomposition it belongs to, and, for ordinary work, the standing notes of
+// its rhei and project.
 //
 // Its own part because orientation is composed from the plan tree alone, while
 // the history beside it is composed from the runtime tree.
