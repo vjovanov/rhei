@@ -105,9 +105,8 @@ pub(crate) fn stop_command(reference: Option<&str>, kill: bool, wait: bool) -> M
     // §FS-rhei-run-headless.3 §FS-rhei-run-headless.7
     match descriptor.liveness() {
         Liveness::Ended | Liveness::Gone => {
-            // A Linux ownership mismatch is an ended listing verdict, but an
-            // existing recorded process still needs the signal authorization
-            // path to refuse an unowned pid rather than report success.
+            // A Linux ownership mismatch is an ended listing verdict; an
+            // existing recorded process still needs signal authorization to refuse an unowned pid.
             // §FS-rhei-run-headless.7
             if !ended_run_has_live_recorded_process(&descriptor) {
                 println!("Run {} has already ended.", descriptor.id);
