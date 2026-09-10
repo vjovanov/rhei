@@ -12,7 +12,7 @@
 - **A retained headless lock no longer makes a dead supervisor look live.** On
   Linux, `rhei runs` now verifies that the recorded process owns a contended
   run lock, so an inherited lock held after that process exits is classified as
-  ended while inconclusive ownership checks remain unknown. (PR #N)
+  ended while inconclusive ownership checks remain unknown. (PR #212)
 
 ## 2. [0.4.1] - 2026-09-07
 
