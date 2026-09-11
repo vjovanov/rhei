@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{rhei_binary, rhei_process, rhei_process_at, stderr, unique_temp_dir, CliRun};
+use super::{rhei_binary, rhei_process_at, unique_temp_dir, CliRun};
+#[cfg(unix)]
+use super::{rhei_process, stderr};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
