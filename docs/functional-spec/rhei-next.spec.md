@@ -112,6 +112,9 @@ reported as held by its supervisor rather than as blocked.
    kinds the scan did. In a directory workspace those are the kinds the
    workspace index declares in `structure.nodeKinds`
    ([§FS-rhei-plan-language.3.7](rhei-plan-language.spec.md#37-node-kind-validity)),
+   and for a basin ticket, the basin having no index of its own, the kinds the
+   project manifest declares
+   ([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)) —
    never the omitted-`structure` default of `Task` alone. A plan whose declared
    kinds omit `task` is therefore claimed exactly like one that declares it: a
    task the scan selected is never lost at re-read, and the re-read rejects a

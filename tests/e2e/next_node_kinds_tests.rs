@@ -1,10 +1,11 @@
-//! `rhei next` against a directory workspace that declares its own node kinds.
+//! `rhei next` against a plan that declares its own node kinds.
 //!
-//! A workspace index declares the heading keywords its task files may use
+//! A rhei declares the heading keywords its task files may use
 //! (§FS-rhei-plan-language.3.7). Claim mode re-reads the selected task's file
 //! under the lock before writing `**Assignee:**`, and that re-read parses under
-//! the kinds the workspace declared rather than the omitted-`structure` default
-//! (§FS-rhei-next.3.1).
+//! the kinds that rhei declared rather than the omitted-`structure` default
+//! (§FS-rhei-next.3.1) — whether they come from a workspace index, a
+//! single-file plan's own frontmatter, or, for the basin, the project manifest.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -126,5 +127,93 @@ fn next_refuses_a_custom_kind_when_the_workspace_declares_none() {
     assert!(
         !content.contains("**Assignee:**"),
         "nothing should be claimed in a plan that fails to parse; got:\n{content}"
+    );
+}
+
+/// A single-file rhei is its own metadata file, so the claim-time re-read
+/// reaches its declared kinds through the plan's own frontmatter and there is
+/// nothing to thread — the branch `claim_node_kinds` takes when the metadata
+/// file and the task file are one. Pinned so a change to that branch cannot
+/// reintroduce the defect here with nothing turning red.
+// §FS-rhei-next.3.1: the re-read under the lock uses the declared node kinds.
+#[test]
+fn next_claims_a_custom_kind_root_in_a_single_file_plan() {
+    let plan = r#"# Rhei: Custom Kinds Single File
+---
+structure:
+  maxLevels: 2
+  nodeKinds: [ticket, step]
+---
+
+## Tasks
+
+### Ticket ticket: Claimable custom-kind root
+**State:** pending
+
+#### Step ticket.triage: Already terminal child
+**State:** completed
+"#;
+    let dir = unique_temp_dir("next-custom-kind-single-file");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
+    let machine_path = write_fixture_file(&dir, "states.yaml", CLAIM_MACHINE);
+
+    let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+
+    let content = fs::read_to_string(&plan_path).expect("read plan file");
+    assert!(
+        content.contains(
+            "### Ticket ticket: Claimable custom-kind root\n**State:** review\n**Assignee:** codex"
+        ),
+        "the single-file custom-kind root should be claimed; got:\n{content}"
+    );
+}
+
+/// The basin has no index of its own: its rhei is synthesised from the project
+/// manifest, so the kinds the claim-time re-read applies are the ones
+/// `index.panta.md` declares. This path failed for the same reason the
+/// directory workspace did.
+// §FS-rhei-next.3.1: a basin ticket takes its kinds from the project manifest.
+#[test]
+fn next_claims_a_custom_kind_basin_ticket_under_the_project_manifest() {
+    let manifest = r#"# Panta: Custom Kinds Project
+---
+structure:
+  maxLevels: 2
+  nodeKinds: [ticket, step]
+---
+"#;
+    let ticket = r#"### Ticket loose: Claimable basin capture
+**State:** pending
+
+#### Step loose.triage: Already terminal child
+**State:** completed
+"#;
+    let dir = unique_temp_dir("next-custom-kind-basin");
+    let project = dir.join("project");
+    let basin = project.join("basin");
+    fs::create_dir_all(&basin).expect("create basin dir");
+    fs::write(project.join("index.panta.md"), manifest).expect("write panta manifest");
+    let ticket_file = basin.join("001-loose.md");
+    fs::write(&ticket_file, ticket).expect("write basin ticket");
+    let machine_path = write_fixture_file(&dir, "states.yaml", CLAIM_MACHINE);
+
+    let peek = run_cli("next", &project, &machine_path, &["--no-callbacks", "--peek"]);
+    assert_success(&peek);
+    assert!(
+        peek.stdout.contains("Task basin.loose"),
+        "peek should name the basin ticket; got:\n{}",
+        peek.stdout
+    );
+
+    let result = run_cli("next", &project, &machine_path, &["--no-callbacks"]);
+    assert_success(&result);
+
+    let content = fs::read_to_string(&ticket_file).expect("read basin ticket");
+    assert!(
+        content.contains(
+            "### Ticket loose: Claimable basin capture\n**State:** review\n**Assignee:** codex"
+        ),
+        "the basin ticket should be claimed; got:\n{content}"
     );
 }
