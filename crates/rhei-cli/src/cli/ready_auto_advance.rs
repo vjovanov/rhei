@@ -79,7 +79,26 @@ fn find_next_transition(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
 ) -> MietteResult<Option<String>> {
-    let current_state = normalized_state_name(task.state.as_str(), machine);
+    find_next_transition_from(task, rhei, machine, task.state.as_str())
+}
+
+/// The same selection, with the state the edge leaves named apart from `task`.
+///
+/// `rhei` and `task` are only what a rule's condition is evaluated *against* —
+/// the subtree `openDescendants` counts, the metadata a condition reads — while
+/// `from_state_raw` is the state the edge leaves. They agree wherever `task`
+/// still carries that state, and differ only for a caller judging an invocation
+/// against the plan as re-read after it ran: the re-read graph supplies the
+/// operands, and the state the invocation ran in supplies the edge, even where
+/// the invocation moved its own ticket onward in between.
+// §FS-rhei-agents.3.2
+fn find_next_transition_from(
+    task: &rhei_core::ast::Task,
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    from_state_raw: &str,
+) -> MietteResult<Option<String>> {
+    let current_state = normalized_state_name(from_state_raw, machine);
 
     // First, look for an exact from-state match.
     for rule in machine.transitions() {
@@ -97,7 +116,7 @@ fn find_next_transition(
                 &task.id,
                 Some(task),
                 &current_state,
-                task.state.as_str(),
+                from_state_raw,
             )?
         {
             return Ok(Some(rule.to.0.clone()));
@@ -123,7 +142,7 @@ fn find_next_transition(
                     &task.id,
                     Some(task),
                     &current_state,
-                    task.state.as_str(),
+                    from_state_raw,
                 )?
             {
                 return Ok(Some(rule.to.0.clone()));
@@ -132,6 +151,17 @@ fn find_next_transition(
     }
 
     Ok(None)
+}
+
+/// [`selected_forward_transition`] with the same state named apart from `task`.
+// §FS-rhei-agents.3.2 §FS-rhei-run.3
+fn selected_forward_transition_from(
+    rhei: &rhei_core::ast::Rhei,
+    machine: &rhei_validator::StateMachine,
+    task: &rhei_core::ast::Task,
+    from_state_raw: &str,
+) -> Option<String> {
+    find_next_transition_from(task, rhei, machine, from_state_raw).ok().flatten()
 }
 
 type BeforeTransitionCallback<'a> =

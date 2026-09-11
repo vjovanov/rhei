@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::*;
 
-fn run_snapshot_command(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
+pub(super) fn run_snapshot_command(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
     let mut cmd = rhei_command(isolated_home_for(plan_path));
     cmd.arg("--state-machine").arg(machine_path).arg("snapshot");
     for arg in args {
@@ -68,7 +68,7 @@ if session_dir:
 
 /// The snapshot agent's settings, written under `root`. Which root that is
 /// carries meaning in a Panta project, so callers say it rather than inherit it.
-fn write_fake_snapshot_settings(root: &Path, fake_agent: &Path) {
+pub(super) fn write_fake_snapshot_settings(root: &Path, fake_agent: &Path) {
     let settings_dir = root.join(".agent-grounds/rhei");
     fs::create_dir_all(&settings_dir).expect("create .agent-grounds/rhei");
     fs::write(
