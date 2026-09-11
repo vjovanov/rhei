@@ -84,7 +84,14 @@
 - **A large supervisor brief no longer aborts a `claude-code` spawn.** The
   built-in profile now delivers the prompt on Claude Code's stdin under an
   explicit bare `-p`, instead of passing it as one command-line argument that
-  Linux rejects above 131072 bytes. The `--` separator every `stdin_prompt`
+  Linux rejects at 131072 bytes or more. Emitting the prompt flag with no value
+  is a general rule rather than a `claude-code` detail: any agent entry that
+  declares both `prompt_flag` and `stdin_prompt` now receives that flag, where
+  before it received neither the flag nor the prompt. The two fields answer
+  different questions — which flag makes the agent non-interactive, and where
+  the prompt text travels — so an agent whose prompt flag *requires* a value
+  must not set `stdin_prompt`, or the flag will swallow whatever follows it.
+  The `--` separator every `stdin_prompt`
   profile emits moved to the end of the command line, so a state's
   `mcp_servers:` and `skills:` reach the agent rather than landing past the
   separator where they are read as prompt text and ignored. An agent that still

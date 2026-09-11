@@ -15,7 +15,7 @@ use std::fs;
 use super::*;
 
 /// Larger than every supported platform's limit: per §FS-rhei-errors.7.1 Linux
-/// rejects a single argument above 131072 bytes, Windows a command line above
+/// rejects a single argument of 131072 bytes or more, Windows a command line above
 /// 32767 characters, and macOS a total above roughly one megabyte. One size
 /// clears all three, so neither test is vacuous on any of them.
 const OVERSIZED_BODY_BYTES: usize = 2 * 1024 * 1024;

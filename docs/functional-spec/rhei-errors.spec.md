@@ -210,7 +210,9 @@ difference to be stated where it occurs.
 
 On Linux and macOS the operating system answers. Both report `E2BIG` — errno 7 —
 and rhei reads it from the failure it was handed. The two caps differ: Linux
-rejects any single argument above 131072 bytes whatever `ARG_MAX` says, while
+rejects any single argument of 131072 bytes or more whatever `ARG_MAX` says —
+the cap is on the argument as the kernel stores it, which is the text plus its
+terminating NUL, so the last size that fits is one byte short of it — while
 macOS has no per-argument cap and fails on a total of roughly one megabyte. The
 same error therefore fires at a different size on each, which is a declared
 difference in the limit rather than a difference in behaviour.
@@ -220,6 +222,14 @@ On Windows rhei answers, by measuring the command line it composed against the
 to read this from, and the Rust error kind that would name it portably is newer
 than this workspace's minimum supported Rust version, so there is nothing to
 match on.
+
+**The measurement is the fallback for an indistinct failure, not an override of
+a distinct one.** Windows still names the failures it can name — a binary that
+is not there, and one this user may not run — and a failure that names its own
+cause answers the question before the ruler comes out. A long command line
+standing beside it is a coincidence, and reading it as the cause is how a
+missing binary comes to be blamed on the prompt. Only what the platform leaves
+unexplained is left for the measurement to explain.
 
 **The measurement explains a failure; it never causes one.** Rhei does not
 refuse to spawn on a size it has only estimated. A composed length is an

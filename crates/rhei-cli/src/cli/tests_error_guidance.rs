@@ -405,6 +405,31 @@ mod error_guidance_tests {
             assert_eq!(said.help, spawn_not_started_help());
         }
 
+        /// The same rule where the evidence is a measurement rather than an
+        /// errno: a failure that names its own cause settles the question before
+        /// the ruler comes out. §FS-rhei-errors.7.1
+        #[test]
+        fn a_failure_the_platform_names_is_not_overridden_by_the_measurement() {
+            let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+            let said = spawn_failure_guidance(&denied, IN_ARGV, OVERSIZED, OVERSIZED);
+
+            assert_eq!(said.detail, "", "a long command line denied nobody permission");
+            assert_eq!(said.help, spawn_not_started_help());
+        }
+
+        /// The kernel counts the terminating NUL, so an argument of exactly the
+        /// limit is already refused — and inside that one-byte window the reader
+        /// used to get the `PATH` misdirection. §FS-rhei-errors.7.2
+        #[test]
+        fn a_prompt_of_exactly_the_limit_is_what_the_platform_refused() {
+            let at_the_cap = COMMAND_LINE_LIMIT_BYTES;
+            let too_large = too_large_for_this_platform();
+            let said = spawn_failure_guidance(&too_large, IN_ARGV, at_the_cap, at_the_cap + 40);
+
+            assert!(said.detail.contains("prompt"), "a prompt at the cap: {:?}", said.detail);
+            assert!(said.help.contains("stdin"), "the remedy is delivery: {}", said.help);
+        }
+
         /// A transport that puts no part of the prompt on the command line
         /// cannot have been stopped by the prompt's size, so the line's own
         /// measurement is reported and the remedy stays where it was.
