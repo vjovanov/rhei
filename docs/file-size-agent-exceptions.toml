@@ -450,3 +450,23 @@ until = "The agent's stream capture — the log writer, the reader threads and t
 reason = """
 Over budget before this change; the touch that surfaced it replaced the spawn failure's hard-coded help with a call that asks whether the command line's size explains it, and left the file two lines shorter than it was. The stream-capture helpers above the spawn are the seam, and they are not taken here because §AR-source-file-size.3 names the CLI's module list and a new module belongs in the same commit as that edit, not in a behaviour fix.
 """
+[[exceptions]]
+path = "docs/functional-spec/rhei-transitions.spec.md"
+match = "exact"
+rules = ["citable-spec"]
+kind = "deferred"
+max_accepted = { value = 1600, unit = "lines" }
+until = "The multi-language integration examples (Examples 2-5: Bash, JavaScript, Python, Java) live in docs/functional-spec/rhei-callbacks.spec.md, leaving this document the transition schema and its semantics."
+reason = """
+The boundary that is missing is a home for the worked integration examples. More than half this file is Examples 1-6, six full callback implementations in four languages, and the sibling document that should hold them, rhei-callbacks.spec.md, exists but covers only part of that ground. Moving them is a citation-surface change of its own: every cross-reference into the numbered examples has to be re-pointed, and the schema sections that the examples illustrate stay where they are. The schema, trigger, and wildcard sections above them are one subject and do not split.
+"""
+[[exceptions]]
+path = "docs/functional-spec/rhei-states.spec.md"
+match = "exact"
+rules = ["citable-spec"]
+kind = "deferred"
+max_accepted = { value = 1200, unit = "lines" }
+until = "Artifact Contracts (section 3, with optional inputs, handoffs and terminal results) is a declaration of its own under docs/functional-spec/, cited from the state schema that requires it."
+reason = """
+The boundary that is missing is a document for artifact contracts. Section 3 is a self-contained subject - what a state must consume and produce, how handoffs inherit, what a terminal result owes - and it is cited from outside this file, so lifting it needs its own grund declaration and a re-point of every marker that reaches into section 3 today. The rest of the document is one subject: the state schema and the validation rules, profiles and node policy that are read against it, and splitting those apart would separate a field from the rule that constrains it.
+"""

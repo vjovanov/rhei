@@ -16,6 +16,7 @@ mod cost_project_scope_support;
 mod cost_project_scope_tests;
 mod cost_selection_tests;
 mod current_dir_target_tests;
+mod dead_end_state_tests;
 mod diagnostic_wrap_tests;
 mod error_guidance_tests;
 mod examples_tests;
