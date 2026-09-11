@@ -18,6 +18,9 @@ fn cost_command(options: CostCommandOptions<'_>) -> MietteResult<()> {
     // §FS-rhei-panta.6.5: an id the project does not hold is refused here, the
     // way every other `--rhei` refuses one, rather than selecting nothing.
     let scope = resolve_rhei_scope(&loaded, options.scope)?;
+    if let Some(task_id) = options.task {
+        refuse_task_outside_scope(&loaded, task_id, &scope)?;
+    }
     let roots = accounting_roots(&loaded, &execution_workspace_root(&input_buf), &scope);
     let inspection = read_cost_inspection_over(&roots, &scope);
     let selected = selection.apply(inspection.scoped(), inspection.unreadable_root);
@@ -55,6 +58,38 @@ fn cost_command(options: CostCommandOptions<'_>) -> MietteResult<()> {
         print_run_cost(&loaded.rhei, &selection, &selected, options.by);
     }
     Ok(())
+}
+
+/// Refuse a `--task` the reading's scope does not hold, before any record is
+/// read.
+///
+/// The ticket's records sit in a root this reading never opens, so answering it
+/// would print the same `Direct: none` as a ticket that genuinely cost nothing
+/// — the empty-that-reads-as-zero the scope rule exists to remove. The error
+/// names the scope and the rhei the ticket belongs to, because the reader's
+/// next move is to widen to one or the other. An id **no rhei holds** is left
+/// alone: it is unknown, and the reading says so on its own.
+/// §FS-rhei-panta.6.5
+fn refuse_task_outside_scope(
+    loaded: &LoadedPlan,
+    task_id: &str,
+    scope: &RheiScope,
+) -> MietteResult<()> {
+    if task_in_rhei_scope(scope, task_id) {
+        return Ok(());
+    }
+    let held = flatten_tasks(&loaded.rhei).into_iter().any(|task| task.id.to_string() == task_id);
+    if !held {
+        return Ok(());
+    }
+    let owner = task_id.split_once('.').map(|(head, _)| head).unwrap_or(task_id);
+    Err(miette!(
+        help = cost_task_scope_help(),
+        "task '{}' is outside the accounting scope of this reading ({}); it belongs to rhei '{}'",
+        task_id,
+        scope_label(scope),
+        owner
+    ))
 }
 
 /// What `rhei cost` was asked for. §FS-rhei-cost-accounting.8

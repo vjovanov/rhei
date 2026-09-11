@@ -330,6 +330,14 @@ fn rhei_scope_help() -> &'static str {
      List the rheis with: rhei list"
 }
 
+/// Help for a `rhei cost --task` naming a ticket outside the accounting roots
+/// the reading covers. The scope may come from `--rhei` or from the member the
+/// positional named, so both ways out are spelled. §FS-rhei-panta.6.5
+fn cost_task_scope_help() -> &'static str {
+    "point the command at the project, with no --rhei, to read every accounting root, \
+     or narrow to the rhei that owns the ticket. List the rheis with: rhei list"
+}
+
 /// Help for `--local` used where no project root could be found.
 fn local_install_help() -> &'static str {
     "--local writes into the current project. Run it inside a git repository or a \

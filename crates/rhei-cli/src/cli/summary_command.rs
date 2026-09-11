@@ -132,9 +132,9 @@ fn summary_task_tally(
     tally
 }
 
-/// One numbered entry per invocation record. `read_cost_inspection` already
-/// sorted them, so the numbering is the `started_at` order the spec asks for.
-/// §FS-rhei-summary.2.2
+/// One numbered entry per invocation record. The reading sorts the whole union
+/// of its roots, so the numbering is the `started_at` order the spec asks for
+/// however many roots the scope selected. §FS-rhei-summary.2.2
 fn summary_steps(inspection: &CostInspection) -> String {
     let mut per_task: BTreeMap<&str, usize> = BTreeMap::new();
     for held in &inspection.invocations {
