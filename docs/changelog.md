@@ -31,13 +31,15 @@
 - **A continued snapshot session lands under the rhei that owns the ticket.**
   `rhei snapshot continue` created its agent session directory under the
   project root, so in a Panta project one ticket's live transcript sat beside
-  the shared snapshot cache and a narrowed `rhei reset --rhei <id>` never swept
-  it. The session directory now resolves against the owning rhei's execution
-  root, where `rhei run` already puts it, while the fixed-location
+  the shared snapshot cache instead of with the rhei that ran the ticket. A
+  session is that ticket's own runtime artifact rather than a stored
+  generation, and the project root is where the cache lives and not the
+  session. The session directory now resolves against the owning rhei's
+  execution root, where `rhei run` already puts it, while the fixed-location
   `dir_template` and the locator that reads it back keep resolving against the
   directory the continuation's own agent runs in — two roots where one value
   used to stand for both. A single-file plan is unaffected, because the two
-  roots are the same directory there. (PR #N)
+  roots are the same directory there. (PR #223)
 
 - **A reading reports how long an invocation took, even when the record
   predates the field.** `rhei cost --json --task` now derives an invocation's
