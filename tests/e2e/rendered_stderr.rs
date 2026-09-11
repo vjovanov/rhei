@@ -13,6 +13,14 @@
 //! never merged, and a continuation is rejoined with the single space the wrap
 //! removed, so a token the renderer really did break stays broken and stays
 //! findable.
+//!
+//! What it is not is exact, and the limit is worth knowing before you write an
+//! assertion rather than after. miette hands the whole message to
+//! `textwrap::fill`, which splits at the newlines the message already carries
+//! before wrapping each piece — so a piece ending within one word of the column
+//! is byte-for-byte what a greedy wrap would have produced, and is joined as
+//! one. Two shipped diagnostics sit there today, and `diagnostic_wrap_tests`
+//! runs both, recording the join as a limit rather than as a promise.
 
 /// The column miette lays a report out to when stderr is not a tty.
 ///
@@ -91,13 +99,20 @@ pub fn undo_soft_wrap(rendered: &str) -> String {
     lines.join("\n")
 }
 
-/// Whether the renderer, and not the message, put the break before `rest`.
+/// Whether the break before `rest` is one the renderer could have made.
 ///
 /// The wrap is greedy: it breaks only once the next word no longer fits. So a
-/// continuation is a line whose first word could not have been added to the
-/// line before it, and a predecessor that stopped short of the column stopped
-/// because the message itself ended the line there. Joining at one of those
-/// would run two of the binary's own lines into one sentence.
+/// predecessor that stopped short of the column stopped because the message
+/// itself ended the line there, and joining at one of those would run two of
+/// the binary's own lines into one sentence.
+///
+/// The converse does not follow, and that is this rule's one limit: a newline
+/// the message carried itself, falling where the line was already full, renders
+/// identically to a wrap. Nothing in the rendered text separates the two, so
+/// this answers `true` and the lines are joined. Guessing from the preceding
+/// character would settle the cases we know of and be wrong where nobody is
+/// looking, which is how this class of defect is made. `diagnostic_wrap_tests`
+/// runs the two shipped diagnostics that meet it.
 fn broke_here(printed: usize, rest: &str, available: usize) -> bool {
     let first_word = rest.split(' ').next().unwrap_or_default();
     !first_word.is_empty() && printed + 1 + width(first_word) > available

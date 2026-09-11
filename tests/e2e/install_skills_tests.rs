@@ -1,8 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
-use super::{rhei_binary, stderr, unique_temp_dir, CliRun};
+use super::{rhei_binary, rhei_process, rhei_process_at, stderr, unique_temp_dir, CliRun};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
@@ -29,7 +28,7 @@ fn run_install_skills_in_dir(home: &Path, cwd: &Path, extra_args: &[&str]) -> Cl
 
 /// Run a specific `rhei` binary from a specific working directory.
 fn run_install_skills_with(home: &Path, bin: &Path, cwd: &Path, extra_args: &[&str]) -> CliRun {
-    let mut cmd = Command::new(bin);
+    let mut cmd = rhei_process_at(bin);
     cmd.env("HOME", home);
     cmd.env("XDG_STATE_HOME", home.join("state"));
     cmd.current_dir(cwd);
@@ -368,7 +367,7 @@ fn link_mode_creates_symlinks() {
 #[cfg(unix)]
 #[test]
 fn a_refused_install_prints_its_help_and_not_only_its_message() {
-    let mut cmd = Command::new(rhei_binary());
+    let mut cmd = rhei_process();
     cmd.env_remove("HOME");
     cmd.args(["install-skills", "--agent", "kilocode", "--link"]);
     let output = cmd.output().expect("rhei command should run");

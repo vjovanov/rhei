@@ -53,6 +53,16 @@ broken and the suite can still catch it. Rendered blocks are never merged: a
 message and its `help:` stay apart, because a phrase matched across the two was
 never printed. A false pass costs more than the false failure it replaces.
 
+The inverse is close but not exact, and the gap is worth knowing before you
+write the assertion. A diagnostic may carry a newline of its own, and when the
+text before that newline happens to fill the column the rendered result is
+identical to a wrap — so those two lines are joined, and a `contains` can match
+across them. The renderer cannot be asked which it was: miette splits the
+message at its own newlines before wrapping each piece. Assert a phrase that
+lives on one side of a newline the message wrote itself.
+`diagnostic_wrap_tests` runs the two shipped diagnostics that meet this and
+records it as a limit rather than a promise.
+
 ## Rust
 
 `cargo test --workspace --all-targets` builds and runs these; `cargo test -p
