@@ -103,6 +103,16 @@
   own, was broken the same way and is fixed the same way: its kinds now come
   from the project manifest. (PR #214)
 
+- **A test run given its own target directory rebuilds `rhei` there.** The E2E
+  and integration harnesses derive the profile directory they check from the
+  running test binary, but spawned their `cargo build -p rhei-cli` without it,
+  so a run invoked with `--target-dir` built into the checkout's default
+  `target/` and then panicked over the binary missing from the directory it was
+  given. The nested build now carries `--target-dir` for that same directory,
+  keeping the release profile it already followed, and a build that succeeds
+  while leaving nothing behind now quotes the command it ran beside the path it
+  checked. (PR #221)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When
