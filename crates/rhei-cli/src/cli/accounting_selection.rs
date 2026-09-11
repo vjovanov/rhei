@@ -109,11 +109,15 @@ impl CostSelection {
             && self.until.as_ref().is_none_or(|until| secs < until.secs)
     }
 
-    /// Apply the selection to every record the workspace holds.
+    /// Apply the selection to every record the reading holds.
+    ///
+    /// `roots_unreadable` says that one of the accounting roots existed and
+    /// could not be read, so nothing computed here may claim `complete`.
+    // §FS-rhei-cost-accounting.6.2
     pub(crate) fn apply<'a>(
         &self,
-        records: impl IntoIterator<Item = &'a AccountingInvocationRecord>,
-        books: &'a ReachablePriceBooks,
+        records: impl IntoIterator<Item = ScopedRecord<'a>>,
+        roots_unreadable: bool,
     ) -> CostSelectionResult<'a> {
         // The window comes first: it decides the *scope* the run filter is then
         // applied to, and it is also the scope run attribution is reported
@@ -125,7 +129,7 @@ impl CostSelection {
                 scope.push(record);
                 continue;
             }
-            match record_started_at_secs(record) {
+            match record_started_at_secs(record.record) {
                 Some(secs) if self.window_contains(secs) => scope.push(record),
                 Some(_) => {}
                 // Unplaceable, so counted rather than dropped: it demotes the
@@ -134,22 +138,22 @@ impl CostSelection {
             }
         }
 
-        let unattributed: Vec<&AccountingInvocationRecord> =
-            scope.iter().copied().filter(|record| record.run_id.is_none()).collect();
+        let unattributed: Vec<ScopedRecord<'a>> =
+            scope.iter().copied().filter(|held| held.record.run_id.is_none()).collect();
         let attributed_count = scope.len() as u64 - unattributed.len() as u64;
         let selected = match &self.run {
             None => scope,
             Some(RunSelector::Unattributed) => unattributed.clone(),
             Some(RunSelector::Named(id)) => scope
                 .into_iter()
-                .filter(|record| record.run_id.as_deref() == Some(id.as_str()))
+                .filter(|held| held.record.run_id.as_deref() == Some(id.as_str()))
                 .collect(),
         };
 
         CostSelectionResult {
             records: selected,
             unattributed,
-            books,
+            roots_unreadable,
             attributed_count,
             // Only a *named* run is uncertain. `--run unattributed` asked for
             // exactly the records it got, so it carries ordinary coverage like
@@ -165,14 +169,16 @@ impl CostSelection {
 /// sure of. §FS-rhei-cost-accounting.6.1 §FS-rhei-cost-accounting.6.2
 pub(crate) struct CostSelectionResult<'a> {
     /// What the selection matched, and what every aggregate is computed from.
-    pub(crate) records: Vec<&'a AccountingInvocationRecord>,
+    /// Each record carries the books of the root it was read from.
+    /// §FS-rhei-cost-accounting.5.2
+    pub(crate) records: Vec<ScopedRecord<'a>>,
     /// The records in the run filter's scope that name no run. Reported
     /// whatever the coverage is, so an unattributed history cannot be mistaken
     /// for an attributed one. §FS-rhei-cost-accounting.3.5
-    pub(crate) unattributed: Vec<&'a AccountingInvocationRecord>,
-    /// The books every rollup over this selection reads its records against.
-    /// §FS-rhei-cost-accounting.5.2
-    pub(crate) books: &'a ReachablePriceBooks,
+    pub(crate) unattributed: Vec<ScopedRecord<'a>>,
+    /// An accounting root in scope could not be read, so this selection saw
+    /// less than it was asked for. §FS-rhei-cost-accounting.6.2
+    roots_unreadable: bool,
     /// The records in that scope that do name one.
     pub(crate) attributed_count: u64,
     /// A named run was asked for, so records that name no run put its total in
@@ -192,18 +198,20 @@ impl CostSelectionResult<'_> {
     /// Whether the whole selection may still report `complete`.
     // §FS-rhei-cost-accounting.6.2
     fn is_uncertain(&self) -> bool {
-        self.window_uncertain || (self.selects_named_run && self.has_unattributed())
+        self.roots_unreadable
+            || self.window_uncertain
+            || (self.selects_named_run && self.has_unattributed())
     }
 
     /// The rollup over the selection, with §6.2's demotion applied.
     pub(crate) fn summary(&self) -> Option<rhei_tui::AccountingRunSummary> {
-        let summary = summarize_records(self.records.iter().copied(), self.books)?;
+        let summary = summarize_records(self.records.iter().copied())?;
         Some(demote_if(summary, self.is_uncertain()))
     }
 
     /// The rollup over the records that name no run.
     pub(crate) fn unattributed_summary(&self) -> Option<rhei_tui::AccountingRunSummary> {
-        summarize_records(self.unattributed.iter().copied(), self.books)
+        summarize_records(self.unattributed.iter().copied())
     }
 
     /// Whether one group of the selection may report `complete`.
@@ -222,9 +230,9 @@ impl CostSelectionResult<'_> {
         &self,
         by: CostGroup,
         group_is_unattributed: bool,
-        records: &[&AccountingInvocationRecord],
+        records: &[ScopedRecord<'_>],
     ) -> Option<rhei_tui::AccountingRunSummary> {
-        let summary = summarize_records(records.iter().copied(), self.books)?;
+        let summary = summarize_records(records.iter().copied())?;
         Some(demote_if(summary, self.group_is_uncertain(by, group_is_unattributed)))
     }
 }

@@ -58,8 +58,8 @@ fn summary_dimension(value: Option<u64>) -> rhei_tui::DimensionSummary {
 // §FS-rhei-summary.2.3
 #[test]
 fn accounting_presentation_summary_uses_the_symmetric_cache_dimension_rows() {
-    let inspection = CostInspection {
-        summary: Some(rhei_tui::AccountingRunSummary {
+    let inspection = CostInspection::from_records(
+        Some(rhei_tui::AccountingRunSummary {
             total: summary_dimension(Some(1_150)),
             input_total: summary_dimension(Some(1_100)),
             input_cached_read: summary_dimension(Some(700)),
@@ -76,10 +76,8 @@ fn accounting_presentation_summary_uses_the_symmetric_cache_dimension_rows() {
             measured_invocation_count: 1,
             missing_invocation_count: 0,
         }),
-        invocations: Vec::new(),
-        books: ReachablePriceBooks::builtin_only(),
-        errors: Vec::new(),
-    };
+        Vec::new(),
+    );
 
     assert_eq!(
         summary_accounting(&inspection),
@@ -102,30 +100,28 @@ fn task_tally_counts_terminals_in_machine_order_then_the_remainder() {
     // non-terminal remainder appended as `N in progress`.
     let machine = summary_machine();
     let plan = summary_plan(&["cancelled", "completed", "completed", "implement"]);
-    assert_eq!(summary_task_tally(&plan, &machine), "2 tasks completed, 1 cancelled, 1 in progress");
+    assert_eq!(summary_task_tally(&plan, &machine, &None), "2 tasks completed, 1 cancelled, 1 in progress");
 }
 
 #[test]
 fn task_tally_stays_singular_and_names_an_empty_plan() {
     let machine = summary_machine();
-    assert_eq!(summary_task_tally(&summary_plan(&["completed"]), &machine), "1 task completed");
-    assert_eq!(summary_task_tally(&summary_plan(&[]), &machine), "no tasks");
+    assert_eq!(summary_task_tally(&summary_plan(&["completed"]), &machine, &None), "1 task completed");
+    assert_eq!(summary_task_tally(&summary_plan(&[]), &machine, &None), "no tasks");
 }
 
 #[test]
 fn a_visit_is_printed_only_where_a_task_has_more_than_one_record() {
     // §FS-rhei-summary.2.2: a repeated supervisor visit is distinguishable and
     // a one-shot step stays clean.
-    let inspection = CostInspection {
-        summary: None,
-        books: ReachablePriceBooks::builtin_only(),
-        invocations: vec![
-            (PathBuf::from("a.json"), summary_record("1", 1, "2026-05-20T10:00:00Z", "2026-05-20T10:02:32Z")),
-            (PathBuf::from("b.json"), summary_record("2", 1, "2026-05-20T10:03:00Z", "2026-05-20T10:21:04Z")),
-            (PathBuf::from("c.json"), summary_record("1", 2, "2026-05-20T10:22:00Z", "2026-05-20T10:22:45Z")),
+    let inspection = CostInspection::from_records(
+        None,
+        vec![
+            summary_record("1", 1, "2026-05-20T10:00:00Z", "2026-05-20T10:02:32Z"),
+            summary_record("2", 1, "2026-05-20T10:03:00Z", "2026-05-20T10:21:04Z"),
+            summary_record("1", 2, "2026-05-20T10:22:00Z", "2026-05-20T10:22:45Z"),
         ],
-        errors: Vec::new(),
-    };
+    );
     let steps = summary_steps(&inspection);
     assert!(steps.contains("1. `1` work (visit 1) —"), "got:\n{steps}");
     assert!(steps.contains("2. `2` work — "), "got:\n{steps}");
@@ -160,14 +156,9 @@ fn an_unmeasured_record_contributes_no_token_clause() {
 #[test]
 fn an_empty_accounting_store_still_renders_a_lead_line_and_the_unmeasured_line() {
     // §FS-rhei-summary.5: a freshly instantiated workspace is summarizable.
-    let inspection = CostInspection {
-        summary: None,
-        invocations: Vec::new(),
-        books: ReachablePriceBooks::builtin_only(),
-        errors: Vec::new(),
-    };
+    let inspection = CostInspection::from_records(None, Vec::new());
     let rendered =
-        render_summary(&summary_plan(&["implement"]), &summary_machine(), &inspection, false);
+        render_summary(&summary_plan(&["implement"]), &summary_machine(), &inspection, &None, false);
     assert_eq!(
         rendered,
         "`supervised-ticket-fix` workflow: 0 agent invocations across 0 models; \

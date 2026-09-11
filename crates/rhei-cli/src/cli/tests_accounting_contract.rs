@@ -89,7 +89,7 @@ fn old_invocation_records_remain_readable_without_new_optional_fields() {
     let inspection = read_cost_inspection(dir.path());
     assert!(inspection.errors.is_empty(), "{:?}", inspection.errors);
     assert_eq!(inspection.invocations.len(), 1);
-    let record = &inspection.invocations[0].1;
+    let record = &inspection.invocations[0].record;
     assert_eq!(record.duration_ms, None);
     assert_eq!(record.cli_session, None);
     assert_eq!(record.pricing.status, "unpriced");

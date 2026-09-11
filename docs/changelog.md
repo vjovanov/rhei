@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`rhei cost` and `rhei summary` read the accounting of the rhei they were
+  pointed at.** Both resolved their accounting root one level above where a run
+  laid into a Panta work root writes its records, so every spelling of a member
+  — the directory, its `index.rhei.md`, `.` or `..` from inside it, or nothing
+  at all — reported the project directory's records rather than the member's,
+  and the project spelling reported only whatever the project directory
+  happened to hold. A member now reads its own accounting root and the project
+  reads the union of the run root and every rhei execution root, `basin`
+  included, deduplicated by canonicalized path so a root two single-file rheis
+  share is read once and each record counted once. Both commands take
+  `--rhei <ID>` (repeatable), spelled as `rhei list`'s is, so one ticket's cost
+  is reachable from the project spelling. An empty `rhei cost` keeps its first
+  line and names the roots it searched beneath it, so an answer of zero is
+  distinguishable from a miss, and `--json` carries a `roots` array on every
+  reading. `rhei summary`'s task tally narrows with its records and never
+  prints the roots line, because its output is publishable verbatim. Where
+  records are written is unchanged. (PR #219)
+
 ### Changed
 
 - **A reading reports how long an invocation took, even when the record

@@ -220,11 +220,10 @@ pub fn rhei_from(fixture: &ScopeFixture, cwd: &Path, argv: &[&str]) -> CliRun {
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    // The one seam between captured bytes and an assertion, so a refusal read
+    // here is the sentence the binary printed rather than where miette wrapped
+    // it. §FS-rhei-errors.2
+    CliRun::from(&output)
 }
 
 /// `rhei cost --json` over a target, parsed. §FS-rhei-cost-accounting.8.4

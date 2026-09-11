@@ -3,21 +3,30 @@
 /// numbered entry per recorded agent invocation, and the aggregate token
 /// accounting. §FS-rhei-summary
 ///
-/// It loads the plan and reads `runtime/accounting/`, writes no file, spawns
-/// nothing, and estimates nothing: a fact that was not recorded is omitted
-/// rather than guessed. §FS-rhei-summary.1
-fn summary_command(input: &Path, state_machine: Option<&Path>, details: bool) -> MietteResult<()> {
+/// It loads the plan and reads the accounting roots its scope selects
+/// (§FS-rhei-panta.6.5), writes no file, spawns nothing, and estimates nothing:
+/// a fact that was not recorded is omitted rather than guessed.
+/// §FS-rhei-summary.1
+fn summary_command(
+    input: &Path,
+    scope: &[String],
+    state_machine: Option<&Path>,
+    details: bool,
+) -> MietteResult<()> {
     let input_buf = normalize_workspace_input(input);
     let loaded = load_plan(&input_buf)?;
+    // §FS-rhei-panta.6.5: scope is one thing for both reading commands, so
+    // `--rhei` is refused and resolved here exactly as `rhei cost` does it.
+    let scope = resolve_rhei_scope(&loaded, scope)?;
     let resolved = resolve_state_machine_for_loaded_plan(&input_buf, &loaded, state_machine)?;
-    let accounting_root = execution_workspace_root(&input_buf).join("runtime/accounting");
-    let inspection = read_cost_inspection(&accounting_root);
+    let roots = accounting_roots(&loaded, &execution_workspace_root(&input_buf), &scope);
+    let inspection = read_cost_inspection_over(&roots, &scope);
     // A record that would not parse names a local file, so the warning goes to
     // stderr and stdout stays publishable verbatim. §FS-rhei-summary.4
     for error in &inspection.errors {
         eprintln!("warning: {error}");
     }
-    print!("{}", render_summary(&loaded.rhei, &resolved.machine, &inspection, details));
+    print!("{}", render_summary(&loaded.rhei, &resolved.machine, &inspection, &scope, details));
     Ok(())
 }
 
@@ -27,9 +36,10 @@ fn render_summary(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     inspection: &CostInspection,
+    scope: &RheiScope,
     details: bool,
 ) -> String {
-    let tail = summary_lead_tail(rhei, machine, inspection);
+    let tail = summary_lead_tail(rhei, machine, inspection, scope);
     let name = &machine.name;
     let mut out = String::new();
     if details {
@@ -59,30 +69,35 @@ fn summary_lead_tail(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
     inspection: &CostInspection,
+    scope: &RheiScope,
 ) -> String {
     let invocations = inspection.invocations.len();
     let models: BTreeSet<&str> = inspection
         .invocations
         .iter()
-        .filter_map(|(_, record)| record.model.as_deref())
+        .filter_map(|held| held.record.model.as_deref())
         .collect();
     format!(
         "{invocations} agent invocation{} across {} model{}; {}.",
         plural_s(invocations),
         models.len(),
         plural_s(models.len()),
-        summary_task_tally(rhei, machine)
+        summary_task_tally(rhei, machine, scope)
     )
 }
 
 /// Tasks per terminal state in machine declaration order, with the
 /// in-progress remainder appended so a mid-run summary says it is one.
-/// §FS-rhei-summary.2.1
+///
+/// The tally counts the tasks of the invocation's own scope: one sentence must
+/// not describe two, and a member's invocations beside the whole project's task
+/// counts reads as a summary of neither. §FS-rhei-summary.2.1
 fn summary_task_tally(
     rhei: &rhei_core::ast::Rhei,
     machine: &rhei_validator::StateMachine,
+    scope: &RheiScope,
 ) -> String {
-    let tasks = flatten_tasks(rhei);
+    let tasks: Vec<&rhei_core::ast::Task> = narrow_to_rhei_scope(flatten_tasks(rhei), scope);
     let mut parts: Vec<(usize, &str)> = Vec::new();
     for (state, def) in &machine.states {
         if !def.terminal {
@@ -122,11 +137,12 @@ fn summary_task_tally(
 /// §FS-rhei-summary.2.2
 fn summary_steps(inspection: &CostInspection) -> String {
     let mut per_task: BTreeMap<&str, usize> = BTreeMap::new();
-    for (_, record) in &inspection.invocations {
-        *per_task.entry(record.task_id.as_str()).or_default() += 1;
+    for held in &inspection.invocations {
+        *per_task.entry(held.record.task_id.as_str()).or_default() += 1;
     }
     let mut out = String::new();
-    for (index, (_, record)) in inspection.invocations.iter().enumerate() {
+    for (index, held) in inspection.invocations.iter().enumerate() {
+        let record = &held.record;
         // A repeated visit and a task with several records both need the visit
         // spelled out; a one-shot step stays clean. §FS-rhei-summary.2.2
         let sibling_records = per_task.get(record.task_id.as_str()).copied().unwrap_or(0);
@@ -142,7 +158,7 @@ fn summary_steps(inspection: &CostInspection) -> String {
         if let Some(duration) = summary_step_duration(record) {
             out.push_str(&format!(" — {duration}"));
         }
-        if let Some(tokens) = summary_step_tokens(record, &inspection.books) {
+        if let Some(tokens) = summary_step_tokens(record, inspection.books_of(held)) {
             out.push_str(&format!(" — {tokens}"));
         }
         out.push('\n');

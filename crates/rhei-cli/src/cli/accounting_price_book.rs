@@ -136,8 +136,8 @@ fn validate_price_book_currency(
             accounting_root.display()
         ));
     }
-    for (_, record) in inspection.invocations {
-        let Some(record_currency) = record.pricing.currency else {
+    for held in inspection.invocations {
+        let Some(record_currency) = held.record.pricing.currency else {
             continue;
         };
         if record_currency != price_book.currency {
