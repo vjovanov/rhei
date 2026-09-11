@@ -12,6 +12,7 @@
 // included file.
 #![allow(dead_code)]
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -39,6 +40,37 @@ fn profile_dir() -> PathBuf {
     deps.parent().expect("profile dir").to_path_buf()
 }
 
+/// One freshness build: the binary the harness will execute, and the `cargo`
+/// arguments meant to produce it.
+///
+/// Both are derived from the same profile directory, so the directory the
+/// harness checks and the directory the nested build is directed at cannot
+/// drift apart. §AR-ci-release.1
+struct FreshnessBuild {
+    binary: PathBuf,
+    args: Vec<OsString>,
+}
+
+impl FreshnessBuild {
+    /// Derived from the profile directory the running test binary sits in, so it
+    /// follows whichever target directory this run was given. §AR-ci-release.1
+    fn for_profile_dir(profile_dir: &Path) -> Self {
+        let binary = profile_dir.join(format!("rhei{}", std::env::consts::EXE_SUFFIX));
+        let mut args: Vec<OsString> =
+            ["build", "-p", "rhei-cli", "--locked"].into_iter().map(OsString::from).collect();
+        if profile_dir.file_name().and_then(|name| name.to_str()) == Some("release") {
+            args.push("--release".into());
+        }
+        Self { binary, args }
+    }
+
+    /// The diagnostic for a build that succeeded and left no binary at
+    /// `binary`. §AR-ci-release.1
+    fn missing_output_message(&self) -> String {
+        format!("no rhei binary at {}", self.binary.display())
+    }
+}
+
 fn verify_rhei_binary(
     path: &Path,
     build: impl FnOnce() -> bool,
@@ -57,27 +89,23 @@ pub fn rhei_binary() -> PathBuf {
     static RHEI_BINARY: OnceLock<PathBuf> = OnceLock::new();
     RHEI_BINARY
         .get_or_init(|| {
-            let dir = profile_dir();
-            let path = dir.join(format!("rhei{}", std::env::consts::EXE_SUFFIX));
-            let result = verify_rhei_binary(&path, || {
+            let build = FreshnessBuild::for_profile_dir(&profile_dir());
+            let result = verify_rhei_binary(&build.binary, || {
                 let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-                let mut build = Command::new(cargo);
-                build.args(["build", "-p", "rhei-cli", "--locked"]).current_dir(repo_root());
-                if dir.file_name().and_then(|name| name.to_str()) == Some("release") {
-                    build.arg("--release");
-                }
-                build
+                Command::new(cargo)
+                    .args(&build.args)
+                    .current_dir(repo_root())
                     .status()
                     .unwrap_or_else(|err| panic!("run cargo build -p rhei-cli: {err}"))
                     .success()
             });
             match result {
-                Ok(()) => path,
+                Ok(()) => build.binary,
                 Err(BinaryVerificationError::BuildFailed) => {
                     panic!("cargo build -p rhei-cli failed")
                 }
                 Err(BinaryVerificationError::MissingOutput) => {
-                    panic!("no rhei binary at {}", path.display())
+                    panic!("{}", build.missing_output_message())
                 }
             }
         })
@@ -86,7 +114,76 @@ pub fn rhei_binary() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{verify_rhei_binary, BinaryVerificationError};
+    use std::ffi::{OsStr, OsString};
+    use std::path::{Path, PathBuf};
+
+    use super::{verify_rhei_binary, BinaryVerificationError, FreshnessBuild};
+
+    /// A profile directory under a target directory of the shape a caller gives
+    /// with `--target-dir`. Built from components, so the assertions read the
+    /// same on Windows, and never touched on disk — the seam is pure.
+    fn supplied_profile_dir(profile: &str) -> PathBuf {
+        Path::new("supplied-target").join(profile)
+    }
+
+    fn target_dir_arg(args: &[OsString]) -> Option<&OsStr> {
+        args.iter()
+            .position(|arg| arg == "--target-dir")
+            .and_then(|flag| args.get(flag + 1))
+            .map(OsString::as_os_str)
+    }
+
+    /// The nested build is directed at the directory the harness checks, so a
+    /// run given a target directory of its own rebuilds where the harness is
+    /// looking. §AR-ci-release.1
+    #[test]
+    fn freshness_build_is_directed_at_the_profile_directory_it_checks() {
+        let profile_dir = supplied_profile_dir("debug");
+
+        let build = FreshnessBuild::for_profile_dir(&profile_dir);
+
+        let target_dir = target_dir_arg(&build.args).unwrap_or_else(|| {
+            panic!("the nested build names no target directory: {:?}", build.args)
+        });
+        assert_eq!(Path::new(target_dir), profile_dir.parent().expect("a target directory"));
+        assert!(
+            build.binary.starts_with(target_dir),
+            "{} is not under the target directory {}",
+            build.binary.display(),
+            Path::new(target_dir).display()
+        );
+    }
+
+    /// Directing the rebuild does not drop what the profile directory already
+    /// told the harness. §AR-ci-release.1
+    #[test]
+    fn freshness_build_keeps_the_release_flag_for_a_release_profile() {
+        let release = FreshnessBuild::for_profile_dir(&supplied_profile_dir("release"));
+        let debug = FreshnessBuild::for_profile_dir(&supplied_profile_dir("debug"));
+
+        assert!(release.args.iter().any(|arg| arg == "--release"), "{:?}", release.args);
+        assert!(!debug.args.iter().any(|arg| arg == "--release"), "{:?}", debug.args);
+    }
+
+    /// A build that succeeded and left nothing behind says the path it checked
+    /// and the build it ran, not the path alone. §AR-ci-release.1
+    #[test]
+    fn missing_output_names_the_path_checked_and_the_build_that_ran() {
+        let build = FreshnessBuild::for_profile_dir(&supplied_profile_dir("debug"));
+
+        let message = build.missing_output_message();
+
+        assert!(
+            message.contains(&build.binary.display().to_string()),
+            "{message:?} does not name the path it checked"
+        );
+        for arg in &build.args {
+            assert!(
+                message.contains(arg.to_string_lossy().as_ref()),
+                "{message:?} does not name the nested build's {arg:?}"
+            );
+        }
+    }
 
     #[test]
     fn existing_binary_still_runs_freshness_build() {
