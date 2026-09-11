@@ -11,7 +11,9 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use super::{fixture_command, stderr, stdout, unique_temp_dir, write_python_agent, TestDir};
+use super::{fixture_command, unique_temp_dir, write_python_agent, TestDir};
+#[cfg(unix)]
+use super::{stderr, stdout};
 
 /// A state machine whose only work is a program, so a run does real work with
 /// no agent binary in sight. The command is absolute because a test workspace
