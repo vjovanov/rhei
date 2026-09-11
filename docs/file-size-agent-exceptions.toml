@@ -132,7 +132,7 @@ path = "crates/rhei-cli/src/cli/tests_snapshot_runtime.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 1900, unit = "lines" }
+max_accepted = { value = 1950, unit = "lines" }
 until = "Split into preload, emit, redactor, and fanout-target groups when new cases are added."
 reason = """
 Snapshot runtime tests share preload/emit/redactor fixtures and helper builders.
@@ -372,7 +372,7 @@ path = "crates/rhei-cli/src/cli/snapshot_continue_lock.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 700, unit = "lines" }
+max_accepted = { value = 750, unit = "lines" }
 until = "The run lock has a module of its own that run, the liveness probe, and the headless launcher call, leaving this file the snapshot-continue path alone."
 reason = """
 Over budget before this change; the touch that surfaced it deleted the blocking run-lock helper the interruptible wait replaced. The run lock has no module of its own: every run, liveness probe, and headless launcher takes or reads it, yet it lives beside snapshot-continue selection because that was the first caller, and there is no lock boundary for the others to call.

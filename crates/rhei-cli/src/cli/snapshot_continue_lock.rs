@@ -56,8 +56,14 @@ fn snapshot_continue_command(
         ));
     }
 
-    let preload =
-        prepare_snapshot_continue_preload(&ctx.workspace_root, &record, session, !no_capture)?;
+    // The spawn root is what `cmd.current_dir` sets below. §FS-rhei-snapshots.7
+    let preload = prepare_snapshot_continue_preload(
+        &ctx.loaded.task_root(&record.task_id, &ctx.workspace_root),
+        &ctx.workspace_root,
+        &record,
+        session,
+        !no_capture,
+    )?;
     let status = spawn_snapshot_continue_agent(ctx, &record, &resolved, session, &preload.inner)?;
     let completion = if status.success() {
         SnapshotCompletion::Success
@@ -162,12 +168,19 @@ fn snapshot_record_target_selector(record: &SnapshotRecord) -> MietteResult<Stri
 
 /// Stage the continuation's session.
 ///
+/// The two roots are not interchangeable (§FS-rhei-snapshots.7):
+/// `execution_root` is the owning rhei's, where the ticket's session directory
+/// lives so a narrowed `rhei reset` sweeps it; `spawn_working_dir` is the
+/// child's, which a fixed `dir_template` and its locator resolve against. One
+/// directory in a single-file layout, two in a Panta project.
+///
 /// `capture` is what decides whether the fixed-location fallback is resolved:
 /// a `--no-capture` continuation reads no transcript afterwards, so an
 /// unresolvable `dir_template` is not its problem.
 // §FS-rhei-snapshots.9.3.4
 fn prepare_snapshot_continue_preload(
-    workspace_root: &Path,
+    execution_root: &Path,
+    spawn_working_dir: &Path,
     record: &SnapshotRecord,
     session: &serde_json::Value,
     capture: bool,
@@ -175,8 +188,10 @@ fn prepare_snapshot_continue_preload(
     let mut preload = SnapshotPreload::default();
     let mut staged_source = None;
     if let Some(flag) = snapshot_session_string(session, "session_dir_flag") {
+        // The session belongs to the rhei that ran the ticket, not to the
+        // project: `rhei reset --rhei` sweeps it there. §FS-rhei-snapshots.7
         let dir = snapshot_session_dir(
-            workspace_root,
+            execution_root,
             &record.task_id,
             &record.emitting_state,
             &record.target_slug,
@@ -196,10 +211,13 @@ fn prepare_snapshot_continue_preload(
         // is present to act on it. §FS-rhei-snapshots.9.1.1
         if let Some(layout) = snapshot_session_layout(session) {
             if let Some(template) = snapshot_layout_dir_template(layout) {
+                // Both resolve against the directory the child runs in, not the
+                // owning rhei's: that is what `{cwd_dashed}` names.
+                // §FS-rhei-snapshots.7
                 preload.fixed_session_dir =
-                    Some(resolve_snapshot_dir_template(&template, workspace_root)?);
+                    Some(resolve_snapshot_dir_template(&template, spawn_working_dir)?);
                 preload.fixed_session_locator =
-                    resolve_snapshot_session_locator(layout, workspace_root)?;
+                    resolve_snapshot_session_locator(layout, spawn_working_dir)?;
                 preload.fixed_session_scan_floor = Some(std::time::SystemTime::now());
             }
         }

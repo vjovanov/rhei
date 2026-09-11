@@ -41,10 +41,11 @@ fn entry_names(path: &Path) -> Vec<String> {
     names
 }
 
-/// A snapshot session is one ticket's live agent transcript, so a continuation
-/// writes it under the execution root of the rhei that owns that ticket. The
-/// project root the command was given is where the *cache* lives and nothing
-/// else, so a session left there is never swept by a narrowed `rhei reset`.
+/// A snapshot session is one ticket's live agent transcript, so it is that
+/// ticket's own runtime artifact and a continuation writes it under the
+/// execution root of the rhei that owns the ticket, where `rhei run` already
+/// puts it. The project root the command was given is where the *cache* lives,
+/// which is a different artifact with a different owner.
 ///
 /// The claim is asserted positively, after the session directories the
 /// preceding `rhei run` wrote have been cleared, so only the continuation can
