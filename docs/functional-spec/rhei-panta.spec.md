@@ -157,12 +157,18 @@ is dropped. A member named `..` from its own `tasks/` is the member, loaded
 through its project — reading it as the `tasks/` directory's neighbour would
 load the member alone and call its valid cross-rhei prior missing.
 
-Two commands do not widen:
+One command does not narrow: `rhei validate` takes no `--rhei` at all
+([§FS-rhei-validate.1.1](rhei-validate.spec.md#11-why-there-is-no---rhei)), so pointing it at a member rhei validates the whole
+project and says so.
 
-- `rhei validate` takes no `--rhei` at all ([§FS-rhei-validate.1.1](rhei-validate.spec.md#11-why-there-is-no---rhei)), so pointing
-  it at a member rhei validates the whole project and says so.
-- `rhei cost` reads accounting artifacts under the target's own runtime root and
-  resolves no dependency graph, so it stays on the path it was given.
+`rhei cost` and `rhei summary` load through the project like every other
+command — they read the plan for its tickets and its state machine, and a
+member's cross-rhei `**Prior:**` has to resolve for that reading to be right.
+What does not widen with the load is the **accounting root**: pointed at a
+member, they read that member's accounting, not the project's (§6.5). The two
+were once written here as commands that "stay on the path they were given",
+which described neither half correctly — the load always widened, and the
+accounting root widened with it, which is the defect §6.5 exists to settle.
 
 An **empty project** — an `index.panta.md` with no rheis yet, the state
 `rhei init` leaves behind — is a valid project, not an error. Read commands
@@ -387,6 +393,54 @@ roadmap.
   is the implicit canvas, never a drawn root box. Rheis as *visually grouped*
   top-level bands, and a `basin` group placed last and de-emphasized, remain
   presentation work tracked on the roadmap (§4).
+
+### 6.5. Cost and summary
+
+`rhei cost` and `rhei summary` read accounting artifacts. Every other command
+in §6.4 acts on tickets, and a ticket belongs to exactly one rhei; a record
+belongs to an **accounting root**, and a project has several. What each
+spelling means is therefore a question those commands alone have to answer.
+
+Both take a positional and resolve it exactly as §6 says, and both take
+`--rhei <id>` (repeatable), spelled and behaved as `rhei list`'s: an id the
+project does not hold is an error naming the available ids, and an explicit
+`--rhei` wins over the id the path implies. From that the invocation has a
+scope — named rheis, or the whole project — and the scope decides which
+accounting roots are read:
+
+- **A member**, however spelled — the directory, its `index.rhei.md`, `.` or
+  `..` from inside it, or nothing at all from within it — reads that member's
+  accounting root and no other. A project spelling with `--rhei <id>` reads
+  the same thing.
+- **The project** reads the union: the run root, plus the execution root of
+  every rhei in it ([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)), as one set. `basin` is a participating
+  execution root like any other and is read when `basin/` exists.
+
+An accounting root is `runtime/accounting/` under a root so enumerated
+([§FS-rhei-cost-accounting.2](rhei-cost-accounting.spec.md#2-runtime-files)). Two rules keep the union honest, because the
+enumeration is not one-to-one in either direction:
+
+1. **Roots are deduplicated by canonicalized path, never by spelling**
+   ([§REQ-cross-platform.5](../requirements/cross-platform.md#5-paths-are-data)). Single-file rheis share the project directory as
+   their execution root (§AR-rhei-panta.5), so the same root is reached
+   several times and a root reached twice would count its records twice.
+2. **The root decides when it belongs to one in-scope rhei; a record's
+   `task_id` decides only where one root is shared.** Under `--rhei` naming a
+   single-file rhei, the shared project root is read and its records filtered
+   to that rhei's tickets. Filtering by `task_id` everywhere would drop the
+   records written before tickets were project-qualified (§6.3); deciding by
+   root everywhere would report every single-file rhei under a `--rhei` naming
+   one of them.
+
+One record is counted once, keyed by `invocation_id`. A root that holds no
+accounting directory, or an empty one, contributes nothing and is not an
+error — a member that has never been run is an ordinary member.
+
+Neither command writes, and neither widens what it reads beyond the scope it
+resolved. Where the records are *written* is not changed by any of this: a run
+writes each invocation record under the execution root of the rhei that owns
+the ticket, and its capture streams under the run root
+([§FS-rhei-cost-accounting.5.1](rhei-cost-accounting.spec.md#51-price-book-selection)). This point is about the reading.
 
 ## Related Specifications
 
