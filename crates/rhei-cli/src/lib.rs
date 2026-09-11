@@ -159,6 +159,7 @@ mod tests {
     include!("cli/tests_file_locks.rs");
     include!("cli/tests_headless_console_log.rs");
     include!("cli/tests_agent_resolution.rs");
+    include!("cli/tests_agent_prompt_transport.rs");
     include!("cli/tests_spawn_records.rs");
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_accounting.rs");

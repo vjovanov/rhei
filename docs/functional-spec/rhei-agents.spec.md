@@ -183,9 +183,9 @@ agent's `command`, flags, and modes are declared.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `command` | string array | Yes | Base command and fixed arguments |
-| `prompt_flag` | string | No | Flag to pass the prompt (e.g., `--prompt`, `-p`). Omit if using stdin. |
+| `prompt_flag` | string | No | Flag that carries the prompt (e.g., `--prompt`, `-p`) — or, with `stdin_prompt`, the flag that puts the agent in non-interactive mode, emitted with no value. Omit when the agent needs neither. |
 | `model_flag` | string | No | Flag to pass the concrete provider model name. Omit if the agent doesn't support model selection. |
-| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of passed via flag, then stdin is closed unless `intervene_stdin` is also true. Default: `false`. |
+| `stdin_prompt` | boolean | No | When `true`, the prompt is piped to stdin instead of being passed as the `prompt_flag` value, `prompt_flag` is still emitted if present, a `--` is appended last, and stdin is closed unless `intervene_stdin` is also true. Default: `false`. |
 | `intervene_stdin` | boolean | No | When `true`, `rhei run --dashboard` keeps the child stdin pipe open after the initial prompt so live dashboard interventions can be written to it. Use only for agents that start work without waiting for stdin EOF. Default: `false`. |
 | `timeout` | string | No | Default timeout for this agent (e.g., `30m`). Overridden by state-level `agent_timeout`. |
 | `mcp_flag` | string | No | Flag used to attach one MCP server per occurrence. `rhei run` emits the flag once per resolved server with a launch spec as its value. Mutually exclusive with `mcp_config_flag`. |
@@ -193,6 +193,16 @@ agent's `command`, flags, and modes are declared.
 | `skill_flag` | string | No | Flag used to enable one skill per occurrence. `rhei run` emits the flag once per resolved skill id. Omit to declare the agent does not support skills. |
 | `modes` | object | No | Named flag sets, keyed by mode name. Values are ordered string arrays appended to the command at spawn time. See [Modes](#22-modes). |
 | `session` | object | No | Optional `CustomAgentProfile.session` block describing snapshot resume, fork, interactive continuation, and transcript layout capabilities. The authoritative schema is [Snapshots Specification — CustomAgentProfile.session](rhei-snapshots.spec.md#91-customagentprofilesession). |
+
+**A prompt flag set alongside `stdin_prompt` is emitted, with no value.** The
+two fields answer different questions — which flag makes the agent
+non-interactive, and where the prompt text travels — so declaring both is not a
+contradiction to be resolved by dropping one. `claude -p` is a boolean
+`--print`, and a profile that names it means it. Dropping the flag instead
+leaves the agent's mode to whatever else happens to be on the command line: a
+setting the author wrote and rhei discarded without a word, which is the same
+defect as a separator swallowing a tooling flag. An agent whose prompt flag
+requires a value does not set `stdin_prompt`.
 
 Built-in agent ids (see [Known Agent Profiles](#2-known-agent-profiles)) are
 preloaded as the default agents registry. A user entry with the same id in
@@ -461,12 +471,24 @@ historically the agent's default.
 
 | Agent ID | Binary | Prompt Delivery | Model Flag | MCP Wiring | Skill Wiring | `yolo` Mode Flags |
 |----------|--------|-----------------|------------|------------|--------------|-------------------|
-| `claude-code` | `claude` | `-p <prompt>` and typed `--output-format json`; with `intervene_stdin`, stream-json stdin/output | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
+| `claude-code` | `claude` | stdin, under a bare `-p`, with typed `--output-format json`; with `intervene_stdin`, stream-json stdin/output | `--model <m>` | `--mcp-config <path>` | `--skill <id>` | `--permission-mode bypassPermissions` |
 | `codex` | `codex exec` | `--` (stdin) | `--model <m>` | `--mcp <spec>` (per server) | unsupported | `--sandbox danger-full-access --skip-git-repo-check -c approval_policy="never"` |
 | `gemini` | `gemini` | `--prompt <prompt>` | `--model <m>` | unsupported | unsupported | `--approval-mode yolo` |
 | `cursor` | `cursor-agent` | `--print <prompt>` | `--model <m>` | unsupported | unsupported | `--force` |
 | `kilocode` | `kilo` | positional via `--auto <prompt>` | `--model <m>` | unsupported | unsupported | `--yolo` |
 | `pi` | `pi` | `-p <prompt>` | `--model <m>` | unsupported | `--skill <path>` | (no modes — pi has no permission layer; isolate at the sandbox/container level) |
+
+**Prompt delivery is a property of the transport, not of the prompt.** A profile
+either passes the prompt as one command-line argument or writes it to the
+agent's stdin, and it does the same for a one-line prompt and for a supervisor
+brief of two hundred kilobytes. Every supported platform caps what a command
+line may carry — Linux at 131072 bytes for any single argument, Windows at 32767
+characters for the whole line, macOS at roughly a megabyte in total — so an
+agent known to read its prompt from stdin is declared that way rather than left
+to fail at spawn once a plan has run long enough to compose a large brief.
+`claude-code` and `codex` are the built-ins that read stdin. The rest carry the
+prompt in `argv`, are bounded by the platform's cap, and say so when they reach
+it ([§FS-rhei-errors.7](rhei-errors.spec.md#7-a-spawn-failure-the-command-lines-size-explains)).
 
 The agent IDs match those used by `rhei install-skills --agent`.
 
@@ -536,14 +558,25 @@ agent, the resolved mode's flags are appended right after the base
 `command`, before the prompt and model flags. The full flag order is:
 
 ```
-<command...> <mode flags...> <prompt_flag> <prompt>? <model_flag> <model>? <mcp/skill flags...>
+<command...> <mode flags...> <autonomous_args...> <accounting flags...>
+  <prompt_flag> <prompt>?
+  <model_flag> <model>?
+  <snapshot strategy flags...>
+  <mcp flags...> <skill flags...>
+  --
 ```
 
-(When `stdin_prompt` is `true`, the prompt is written to stdin instead of
-being passed via `prompt_flag`, and `--` is appended after the model flag so
-agents like `codex exec --` get a clean positional-arg separator. The stdin pipe
-is then closed to provide EOF for non-interactive agents unless `intervene_stdin`
-is set for a genuinely streaming stdin transport.)
+The prompt value is present only when `stdin_prompt` is `false`; the flag itself
+is emitted either way. The `--` is emitted only when `stdin_prompt` is `true`,
+and it is the **last** argument rhei composes. Past a separator an argument is
+positional text rather than a flag, so everything rhei has to say to the agent —
+the snapshot strategy flags
+([§FS-rhei-snapshots.10.1](rhei-snapshots.spec.md#101-spawn-time-preload)), the
+MCP flags, the skill flags — arrives before it. A flag emitted after the
+separator is not an error the agent reports: it is read as prompt text and
+ignored, so a state that declared an MCP server would run without it and nothing
+would say so. The stdin pipe is then closed to provide EOF for non-interactive
+agents unless `intervene_stdin` is set for a genuinely streaming stdin transport.
 
 Mode names are free-form. `yolo` is a widely-used convention for
 "autonomous, dangerous posture"; `safe`, `review`, `plan`, and `audit` are
@@ -1559,18 +1592,23 @@ state's transcript, worker, and duration to its neighbour.
 ```
 Pass 1: 2 ready, 0 terminal, 5 total.
 
-Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
+Would spawn: claude --output-format json -p --model claude-sonnet-4-6 --
   Task app.1: Set up database schema [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
   Log: runtime/logs/task-app.1-pending.log
 
-Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
+Would spawn: gemini --prompt "<prompt...>" --model gemini-3-pro
   Task app.3: Write frontend components [draft -> pending]
-  Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
+  Agent: gemini, Model: impl-alt (google/gemini-3-pro), Timeout: 30m
   Log: runtime/logs/task-app.3-pending.log
 
 Dry run complete - no agents were spawned.
 ```
+
+The prompt is never printed in full. An agent that carries it in `argv` shows
+the `<prompt...>` placeholder where it would sit; an agent that delivers it on
+stdin has no prompt on its command line at all, which is why the `claude-code`
+line above ends at the separator.
 
 ## 10. `rhei run --no-agent` — Callback-Only Mode
 

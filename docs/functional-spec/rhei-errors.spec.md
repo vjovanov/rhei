@@ -160,6 +160,69 @@ honest answer for a cause the user cannot have created is §1.2's bug report.
 Recurring categories share one wording so that improving a remedy improves
 every site that reaches it.
 
+## 7. A Spawn Failure the Command Line's Size Explains
+
+An agent that carries its prompt in `argv`
+([§FS-rhei-agents.2.2](rhei-agents.spec.md#22-modes)) is bounded by the
+platform's limit on a command line, and a plan that has run long enough composes
+a prompt that reaches it. The operating system reports this as a failure to
+start a process, which reads exactly like a missing binary — so a spawn failure
+asks one further question before it prints the `PATH` remedy: **could this be
+the size of what rhei composed?**
+
+When the answer is yes, the failure names the size as the cause and points at
+prompt delivery:
+
+```
+  × failed to spawn agent 'gemini': Argument list too long (os error 7)
+  │ the composed prompt is 214016 bytes and this agent passes it as one
+  │ command-line argument, past this platform's 131072-byte limit
+  help: use an agent that delivers the prompt on stdin ('claude-code',
+        'codex'), or register a custom agent with "stdin_prompt": true
+```
+
+Three things follow from §1.2, and none of them is cosmetic.
+
+The remedy is a change the user can make. A settings entry for a built-in id
+replaces that profile wholesale
+([§FS-rhei-agents.1.3](rhei-agents.spec.md#13-merge-semantics)), so "set
+`stdin_prompt` on `gemini`" would paste back as a different failure — a partial
+profile with no session layout — which §1.2 rules out. The help therefore names
+the agents that already deliver on stdin and the shape of a custom entry that
+does.
+
+The size is stated, not implied. A user cannot see the composed prompt, so the
+byte count and the platform's limit are what turn "too long" into a decision
+about which agent to run.
+
+Every other spawn failure keeps the message and the help it has. A binary that
+is genuinely missing still says so, and still says `rhei diag`.
+
+### 7.1. What Answers the Question, per Platform
+
+The rule is one rule on every platform; the evidence behind it is not, and
+[§REQ-cross-platform.2](../requirements/cross-platform.md#2-parity) asks the
+difference to be stated where it occurs.
+
+On Linux and macOS the operating system answers. Both report `E2BIG` — errno 7 —
+and rhei reads it from the failure it was handed. The two caps differ: Linux
+rejects any single argument above 131072 bytes whatever `ARG_MAX` says, while
+macOS has no per-argument cap and fails on a total of roughly one megabyte. The
+same error therefore fires at a different size on each, which is a declared
+difference in the limit rather than a difference in behaviour.
+
+On Windows rhei answers, by measuring the command line it composed against the
+32767-character `CreateProcessW` limit. Windows reports no error distinct enough
+to read this from, and the Rust error kind that would name it portably is newer
+than this workspace's minimum supported Rust version, so there is nothing to
+match on.
+
+**The measurement explains a failure; it never causes one.** Rhei does not
+refuse to spawn on a size it has only estimated. A composed length is an
+approximation of what the operating system will actually count, and turning an
+invocation that would have run into a refusal is worse than the failure this
+point is about.
+
 ## Related
 
 - [Templates Specification](rhei-templates.spec.md) [§FS-rhei-templates](rhei-templates.spec.md#fs-rhei-templates-rhei-templates-specification) —

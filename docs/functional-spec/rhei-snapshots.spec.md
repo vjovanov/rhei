@@ -1157,15 +1157,16 @@ For each spawn of a state declaring `snapshot.inherit:`:
    it. `ForkStrategy::Native` is passed the source snapshot's transcript path
    and `ResumeStrategy::Native` the manifest's `session_id`.
 8. Spawn the subprocess with the strategy-defined flags placed after the
-   agent's own mode, prompt and model flags and **before** the `--` separator
-   a `stdin_prompt` profile emits — never after it. Past a `--`, an argument
-   is prompt text rather than a flag or a subcommand, so a resume that lands
-   there is read as part of the prompt and does nothing. For a profile with
-   no `stdin_prompt` there is no separator, and the same insertion point puts
-   the strategy flags ahead of the MCP and skill flags. The position is a
-   property of the spawn rather than of any one agent: it is the same slot for
-   `--session-dir <dir>`, `--fork <path>`, `--continue <id>`, and for a resume
-   the agent spells as a positional subcommand.
+   agent's own mode, prompt and model flags and ahead of the MCP and skill
+   flags — one slot, whether or not the profile emits a separator. A
+   `stdin_prompt` profile's `--` is the last argument of the whole command
+   line ([§FS-rhei-agents.2.2](rhei-agents.spec.md#22-modes)), so every flag
+   named here precedes it as a consequence rather than as a second rule. Past
+   a `--`, an argument is prompt text rather than a flag or a subcommand, so a
+   resume that lands there is read as part of the prompt and does nothing. The
+   position is a property of the spawn rather than of any one agent: it is the
+   same slot for `--session-dir <dir>`, `--fork <path>`, `--continue <id>`, and
+   for a resume the agent spells as a positional subcommand.
 
 ### 10.2. Emit on Exit
 
