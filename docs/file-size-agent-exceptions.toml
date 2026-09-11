@@ -412,8 +412,8 @@ path = "crates/rhei-cli/src/cli/accounting.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 1800, unit = "lines" }
-until = "The cost reading — inspection, selection payload, the published invocations, and the human report — is a module of its own beside accounting_selection.rs, and agent output usage extraction is another, leaving this file the invocation record's writing path."
+max_accepted = { value = 1500, unit = "lines" }
+until = "an accounting_usage_extraction module holds the per-agent output extractors and the capture stream, leaving accounting.rs the record writer"
 reason = """
-Three responsibilities share this file and none of them has a module to move to yet: capturing and extracting an agent's usage from its output, pricing and writing the invocation record, and the reading `rhei cost` publishes. The seams are real, but no single lift retires the finding — taking the cost reading out leaves about 1250 lines, still far over the 500-line budget — so the split is a three-way division of the module and a piece of work of its own, not something to land inside a nine-line behaviour fix that is under review. accounting_records.rs, accounting_selection.rs, and accounting_session.rs are where the first pieces already went; the boundaries the rest needs do not exist.
+The writer half and the usage-extraction half have never been separated. What is left after the `rhei cost` surface moved to accounting_cost_command is two responsibilities under one name: writing an invocation record for a finished agent process, and parsing agent stdout and the capture stream into ExtractedUsage. The boundary that is missing is an accounting_usage_extraction module holding the three per-agent extractors, the capture-file append and the display-line rendering; nothing here can reach 500 lines until it exists, and carving it out is a change with its own review surface rather than a step inside a fix to what rhei cost reads.
 """

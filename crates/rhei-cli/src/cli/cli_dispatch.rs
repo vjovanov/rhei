@@ -579,12 +579,15 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             opts.narrow_to(target.scope_with(opts.rhei_scope()));
             run_command(target.path(), state_machine.or(before_subcommand).as_deref(), opts)
         }
-        // `rhei cost` reads accounting artifacts under the target's own runtime
-        // root and resolves no dependency graph, so it stays on the path it was
-        // given rather than widening to the enclosing project.
-        Commands::Cost { input, task, json, by, run, since, until } => {
+        // A member loads through its project like every other command, and the
+        // rhei it named narrows which accounting roots are read rather than
+        // being dropped here. §FS-rhei-panta.6.5
+        Commands::Cost { input, rhei, task, json, by, run, since, until } => {
+            let target = resolve_plan_target(input)?;
+            let scope = target.scope_with(&rhei);
             cost_command(CostCommandOptions {
-                input: resolve_plan_target(input)?.path(),
+                input: target.path(),
+                scope: &scope,
                 task: task.as_deref(),
                 json,
                 by,
@@ -594,13 +597,13 @@ fn dispatch(cli: Cli) -> MietteResult<()> {
             })
         }
         Commands::Schema { name, list: _ } => accounting_schema_command(name.as_deref()),
-        // `rhei summary` reads the same target-local accounting root, so it
-        // stays on the path it was given for the same reason. §FS-rhei-summary.1
-        Commands::Summary { input, details } => summary_command(
-            resolve_plan_target(input)?.path(),
-            before_subcommand.as_deref(),
-            details,
-        ),
+        // `rhei summary` resolves its positional and its `--rhei` exactly as
+        // `rhei cost` does, so the two narrow together. §FS-rhei-summary.1
+        Commands::Summary { input, rhei, details } => {
+            let target = resolve_plan_target(input)?;
+            let scope = target.scope_with(&rhei);
+            summary_command(target.path(), &scope, before_subcommand.as_deref(), details)
+        }
         Commands::Attach { run, json, since, wait } => {
             attach_command(run.as_deref(), json, since, wait)
         }
