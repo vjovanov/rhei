@@ -169,9 +169,12 @@ enum ExtractedUsageStatus {
     ExtractorFailed,
 }
 
+/// Each variant names the structured stdout format Rhei asks its agent for;
+/// the shared `Json` suffix is the point, not an accident.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(clippy::enum_variant_names)]
 enum AgentUsageExtractor {
-    StructuredCapture,
+    ClaudeStreamJson,
     CodexJson,
     PiJson,
 }
@@ -692,7 +695,7 @@ fn agent_usage_extractor(agent: &str) -> Option<AgentUsageExtractor> {
     match agent {
         "codex" => Some(AgentUsageExtractor::CodexJson),
         "pi" => Some(AgentUsageExtractor::PiJson),
-        "claude-code" => Some(AgentUsageExtractor::StructuredCapture),
+        "claude-code" => Some(AgentUsageExtractor::ClaudeStreamJson),
         _ => None,
     }
 }
@@ -761,7 +764,14 @@ fn usage_capture_for_spawn(
     })
 }
 
-fn configure_agent_accounting_args(cmd: &mut std::process::Command, resolved: &ResolvedAgent) {
+/// Declare the structured output mode each extractor parses. A `claude-code`
+/// intervention spawn is already in stream-json mode, so the flags must not
+/// be repeated there. §FS-rhei-agents.1.1.2
+fn configure_agent_accounting_args(
+    cmd: &mut std::process::Command,
+    resolved: &ResolvedAgent,
+    stream_json_already_configured: bool,
+) {
     match agent_usage_extractor(resolved.agent.id()) {
         // §FS-rhei-cost-accounting.4: Agent usage is extracted from JSONL events.
         Some(AgentUsageExtractor::CodexJson) => {
@@ -769,6 +779,9 @@ fn configure_agent_accounting_args(cmd: &mut std::process::Command, resolved: &R
         }
         Some(AgentUsageExtractor::PiJson) => {
             cmd.args(["--mode", "json"]);
+        }
+        Some(AgentUsageExtractor::ClaudeStreamJson) if !stream_json_already_configured => {
+            cmd.args(["--output-format", "stream-json", "--verbose"]);
         }
         _ => {}
     }
@@ -793,6 +806,7 @@ fn capture_agent_output_usage(
         return;
     }
     let Some(usage) = extract_usage_from_output_line(capture.extractor, line) else {
+        record_usage_extraction_failure(capture, line);
         return;
     };
     if append_usage_capture_event(&capture.path, usage).is_err() {
@@ -815,6 +829,14 @@ fn capture_agent_output_usage(
             usage,
         });
     }
+}
+
+/// Persist a format-change diagnostic so the invocation is recorded as
+/// `extractor-failed` instead of silently unmeasured. §FS-rhei-cost-accounting.4
+fn record_usage_extraction_failure(capture: &AgentUsageCapture, line: &str) {
+    let AgentUsageExtractor::ClaudeStreamJson = capture.extractor else { return };
+    let Some(diagnostic) = claude_usage_extraction_failure(line) else { return };
+    let _ = append_usage_failure_event(&capture.path, &diagnostic);
 }
 
 enum AgentOutputLine {
@@ -847,7 +869,7 @@ fn extract_usage_from_output_line(
     match extractor {
         AgentUsageExtractor::CodexJson => extract_codex_json_usage(line),
         AgentUsageExtractor::PiJson => extract_pi_json_usage(line),
-        AgentUsageExtractor::StructuredCapture => None,
+        AgentUsageExtractor::ClaudeStreamJson => extract_claude_json_usage(line),
     }
 }
 
@@ -857,7 +879,7 @@ fn display_output_line(extractor: AgentUsageExtractor, line: &str) -> AgentOutpu
             .map(AgentOutputLine::Replace)
             .unwrap_or(AgentOutputLine::Passthrough),
         AgentUsageExtractor::PiJson => display_pi_json_line(line),
-        AgentUsageExtractor::StructuredCapture => AgentOutputLine::Passthrough,
+        AgentUsageExtractor::ClaudeStreamJson => display_claude_json_line(line),
     }
 }
 
@@ -868,6 +890,160 @@ fn extract_codex_json_usage(line: &str) -> Option<ExtractedUsage> {
         return None;
     }
     object.get("usage").and_then(usage_from_json_payload)
+}
+
+/// Bill only Claude Code's terminal `result` event, whose `usage` is the
+/// cumulative total for the whole process. §FS-rhei-cost-accounting.4
+fn extract_claude_json_usage(line: &str) -> Option<ExtractedUsage> {
+    // The per-message `assistant` events repeat the same message usage and
+    // carry partial output counts, so summing them double counts input and
+    // undercounts output — the trap the Pi extractor avoids on `turn_end`.
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("result") {
+        return None;
+    }
+    claude_result_usage(object)
+}
+
+fn claude_result_usage(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> Option<ExtractedUsage> {
+    let usage = object.get("usage")?.as_object()?;
+    // §FS-rhei-cost-accounting.3.1: Cached-read input stays separate from input.
+    let extracted = ExtractedUsage {
+        input_total: dimension_u64(usage.get("input_tokens")),
+        input_cached_read: dimension_u64(usage.get("cache_read_input_tokens")),
+        input_cache_write: dimension_u64(usage.get("cache_creation_input_tokens")),
+        output_total: dimension_u64(usage.get("output_tokens")),
+        ..ExtractedUsage::default()
+    };
+    extracted.has_total().then_some(extracted)
+}
+
+/// Describe a `result` event whose usage could not be read. Any other line is
+/// not a format change and must not be reported as one. §FS-rhei-cost-accounting.4
+fn claude_usage_extraction_failure(line: &str) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let object = value.as_object()?;
+    if object.get("type").and_then(serde_json::Value::as_str) != Some("result") {
+        return None;
+    }
+    if claude_result_usage(object).is_some() {
+        return None;
+    }
+    Some(match object.get("usage") {
+        None => "claude-code result event carries no 'usage' object".to_string(),
+        Some(serde_json::Value::Object(_)) => {
+            "claude-code result usage has no input_tokens or output_tokens".to_string()
+        }
+        Some(other) => format!(
+            "claude-code result usage is {}, expected an object",
+            claude_json_type_name(other)
+        ),
+    })
+}
+
+fn claude_json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "a boolean",
+        serde_json::Value::Number(_) => "a number",
+        serde_json::Value::String(_) => "a string",
+        serde_json::Value::Array(_) => "an array",
+        serde_json::Value::Object(_) => "an object",
+    }
+}
+
+/// Render Claude Code stream-json events as the prose an operator reads in the
+/// agent log instead of raw JSON. §FS-rhei-cost-accounting.4
+fn display_claude_json_line(line: &str) -> AgentOutputLine {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return AgentOutputLine::Passthrough;
+    };
+    let Some(object) = value.as_object() else {
+        return AgentOutputLine::Passthrough;
+    };
+    let Some(event_type) = object.get("type").and_then(serde_json::Value::as_str) else {
+        return AgentOutputLine::Passthrough;
+    };
+    match event_type {
+        "system" => object
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| AgentOutputLine::Replace(format!("claude session started: {id}")))
+            .unwrap_or(AgentOutputLine::Suppress),
+        "assistant" => display_claude_assistant_message(object),
+        "result" => display_claude_result(object),
+        _ => AgentOutputLine::Suppress,
+    }
+}
+
+fn display_claude_assistant_message(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> AgentOutputLine {
+    let Some(content) = object
+        .get("message")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return AgentOutputLine::Suppress;
+    };
+    let mut display = Vec::new();
+    for item in content.iter().filter_map(serde_json::Value::as_object) {
+        match item.get("type").and_then(serde_json::Value::as_str) {
+            Some("text") => {
+                if let Some(text) =
+                    item.get("text").and_then(serde_json::Value::as_str).filter(|t| !t.is_empty())
+                {
+                    display.push(text.to_string());
+                }
+            }
+            Some("tool_use") => {
+                if let Some(name) = item.get("name").and_then(serde_json::Value::as_str) {
+                    display.push(format!("claude tool: {name}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    if display.is_empty() {
+        AgentOutputLine::Suppress
+    } else {
+        AgentOutputLine::Replace(display.join("\n"))
+    }
+}
+
+fn display_claude_result(
+    object: &serde_json::Map<String, serde_json::Value>,
+) -> AgentOutputLine {
+    let mut display = Vec::new();
+    if object.get("is_error").and_then(serde_json::Value::as_bool) == Some(true) {
+        let detail = object
+            .get("result")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| object.get("subtype").and_then(serde_json::Value::as_str))
+            .unwrap_or("unknown error");
+        display.push(format!("claude error: {detail}"));
+    }
+    if let Some(usage) = claude_result_usage(object) {
+        display.push(format!(
+            "claude run completed: total={} input={} cached_input={} cache_write_input={} output={}",
+            sum_optional_pair(usage.input_total, usage.output_total)
+                .map(format_plain_u64)
+                .unwrap_or_else(|| "-".to_string()),
+            usage.input_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+            usage.input_cached_read.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+            usage.input_cache_write.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+            usage.output_total.map(format_plain_u64).unwrap_or_else(|| "-".to_string()),
+        ));
+    }
+    if display.is_empty() {
+        AgentOutputLine::Suppress
+    } else {
+        AgentOutputLine::Replace(display.join("\n"))
+    }
 }
 
 fn extract_pi_json_usage(line: &str) -> Option<ExtractedUsage> {
@@ -1019,6 +1195,18 @@ fn format_plain_u64(value: u64) -> String {
     value.to_string()
 }
 
+fn append_usage_failure_event(path: &Path, diagnostic: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let event = serde_json::json!({
+        "schema": ACCOUNTING_USAGE_EVENT_SCHEMA,
+        "error": diagnostic,
+    });
+    let mut file = fs::OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{}", event)
+}
+
 fn append_usage_capture_event(path: &Path, usage: ExtractedUsage) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -1083,6 +1271,11 @@ fn extract_usage_from_capture(capture_path: Option<&Path>) -> ExtractedUsageStat
             Ok(value) => value,
             Err(_) => return ExtractedUsageStatus::ExtractorFailed,
         };
+        // §FS-rhei-cost-accounting.4: A recorded format change fails extraction.
+        if let Some(diagnostic) = failure_from_structured_event_value(&value) {
+            diag_warn!("agent usage extraction failed: {diagnostic}");
+            return ExtractedUsageStatus::ExtractorFailed;
+        }
         if let Some(usage) = usage_from_structured_event_value(&value) {
             aggregate.merge(usage);
             saw = true;
@@ -1129,6 +1322,14 @@ fn parse_token_count(text: &str) -> Option<u64> {
     } else {
         compact.parse().ok()
     }
+}
+
+fn failure_from_structured_event_value(value: &serde_json::Value) -> Option<String> {
+    let object = value.as_object()?;
+    if object.get("schema").and_then(serde_json::Value::as_str)? != ACCOUNTING_USAGE_EVENT_SCHEMA {
+        return None;
+    }
+    object.get("error").and_then(serde_json::Value::as_str).map(str::to_string)
 }
 
 fn usage_from_structured_event_value(value: &serde_json::Value) -> Option<ExtractedUsage> {

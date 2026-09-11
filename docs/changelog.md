@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Measure Claude Code token usage. Every `claude-code` invocation was recorded
+  with `extraction_status: "no-usage-emitted"` and no token values, so any run
+  or benchmark that used Claude Code reported no spend. The agent mapped to an
+  inert extractor: nothing added a structured-output flag at spawn, nothing
+  parsed stdout, and the only behavior left was an environment-variable capture
+  contract Claude Code does not implement. Rhei now spawns `claude` with
+  `--output-format stream-json --verbose` and bills the terminal `result`
+  event, whose `usage` is the cumulative process total, mapping all four token
+  dimensions and keeping cached-read input separate from ordinary input. The
+  per-message `assistant` events are deliberately not counted: they repeat the
+  same message usage and carry partial output counts, so summing them would
+  double count input and undercount output. A `result` event Rhei cannot read
+  is recorded as `extractor-failed` with a diagnostic instead of passing as
+  unmeasured. §FS-rhei-cost-accounting.4
+
 - Show why a task is parked. A state that declares no artifacts of its own —
   typically a gating `needs-human` — now borrows the previous state's outputs
   in the inspector's artifacts section, labeled with the state they come from,
