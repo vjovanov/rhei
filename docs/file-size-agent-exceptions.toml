@@ -403,7 +403,7 @@ match = "exact"
 rules = ["source"]
 kind = "deferred"
 max_accepted = { value = 900, unit = "lines" }
-until = "The tooling-resolution tests move beside the settings-tooling ones and the watch/validation tests join the plan-watch code they exercise, leaving this file the complete and reset rewrites and the ledger they read."
+until = "The tooling-resolution tests move to a fragment of their own beside tooling_resolution.rs, the watch/validation tests join the plan-watch code they exercise, the dashboard-gate tests move beside the dashboard code and the ledger tests beside transition_ledger.rs. Satisfying that retunes this entry to 550 rather than retiring it: the four moves take 896 non-blank lines to 527, and the complete and reset rewrites left behind are still over the 500-line budget on their own."
 reason = """
-Three unrelated suites share this fragment because none of the three has a home yet: tooling resolution is tested here and in tests_settings_tooling.rs with no single owner, plan-watch predicates are tested here while their code lives in the watch commands, and only the complete and reset rewrites belong to the file's own name. Splitting now would place two of the three in files named after nothing, so the boundary has to exist before the split does.
+Over budget before this change; the touch that surfaced it added one line to a claim-context literal. Four unrelated suites share this fragment because none of them has a home yet: tooling resolution is tested here and in tests_settings_tooling.rs with no single owner, plan-watch predicates are tested here while their code lives in the watch commands, the dashboard-gate tests sit nowhere near the dashboard, and only the complete and reset rewrites belong to the file's own name. tests_settings_tooling.rs cannot take the tooling suite either, being 1110 lines with 90 to its own accepted ceiling against a 155-line suite, so the boundary has to exist before the split does.
 """
