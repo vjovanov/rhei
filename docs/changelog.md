@@ -28,6 +28,15 @@
   run lock, so an inherited lock held after that process exits is classified as
   ended while inconclusive ownership checks remain unknown. (PR #212)
 
+- **`rhei next` can claim a task in a workspace that declares its own node
+  kinds.** Claim mode re-reads the selected task's file under the lock before
+  writing `**Assignee:**`, and that re-read now parses under the kinds the
+  workspace index declares in `structure.nodeKinds` instead of the
+  omitted-`structure` default of `Task` alone. A directory workspace whose
+  kinds omit `task` selected its root and then failed to claim it with
+  `task '<id>' not found in <task-file>`, which left the manual workflow
+  usable only through `rhei run`. (PR #TBD)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When
