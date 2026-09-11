@@ -53,21 +53,38 @@ struct FreshnessBuild {
 
 impl FreshnessBuild {
     /// Derived from the profile directory the running test binary sits in, so it
-    /// follows whichever target directory this run was given. §AR-ci-release.1
+    /// follows whichever target directory this run was given. The nested build is
+    /// directed at that directory with `--target-dir`, because `--target-dir` on
+    /// the outer `cargo test` reaches no child process and an inherited
+    /// `CARGO_TARGET_DIR` can name a third place. A profile directory with no
+    /// parent cannot come out of `profile_dir()`, which asserts its own shape, so
+    /// that case leaves the flag off and lets Cargo choose rather than panicking
+    /// in a helper that has nothing useful to say. §AR-ci-release.1
     fn for_profile_dir(profile_dir: &Path) -> Self {
         let binary = profile_dir.join(format!("rhei{}", std::env::consts::EXE_SUFFIX));
         let mut args: Vec<OsString> =
             ["build", "-p", "rhei-cli", "--locked"].into_iter().map(OsString::from).collect();
+        // Cargo lays profile directories under the target directory, so the parent is
+        // what the flag takes: `<target>`, or `<target>/<triple>` cross-compiled.
+        if let Some(target_dir) = profile_dir.parent() {
+            args.push("--target-dir".into());
+            args.push(target_dir.as_os_str().to_os_string());
+        }
         if profile_dir.file_name().and_then(|name| name.to_str()) == Some("release") {
             args.push("--release".into());
         }
         Self { binary, args }
     }
 
-    /// The diagnostic for a build that succeeded and left no binary at
-    /// `binary`. §AR-ci-release.1
+    /// The diagnostic for a build that succeeded and left no binary at `binary`.
+    /// It quotes the build that ran after the path it checked, so a reader sees
+    /// which directory the rebuild was aimed at instead of going looking for a
+    /// broken checkout. The opening sentence is fixed: the reproducer for
+    /// agent-grounds/rhei#181 recognises the defect by it. §AR-ci-release.1
     fn missing_output_message(&self) -> String {
-        format!("no rhei binary at {}", self.binary.display())
+        let args: Vec<String> =
+            self.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        format!("no rhei binary at {} after `cargo {}`", self.binary.display(), args.join(" "))
     }
 }
 
