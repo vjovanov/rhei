@@ -350,15 +350,10 @@ mod error_guidance_tests {
         /// wherever the errno arm fires elsewhere.
         const OVERSIZED: usize = 2 * 1024 * 1024;
 
-        /// An agent that carries its prompt on the command line: the only kind
-        /// the size of a prompt can stop.
-        fn argv_agent() -> CustomAgentProfile {
-            CustomAgentProfile {
-                command: vec!["argv-agent".to_string()],
-                prompt_flag: Some("--prompt".to_string()),
-                ..Default::default()
-            }
-        }
+        /// Whether the prompt reached the command line, which the caller reads
+        /// off the composed argument vector. §FS-rhei-errors.7.2
+        const IN_ARGV: bool = true;
+        const OFF_ARGV: bool = false;
 
         /// The failure this platform reports for a command line it will not
         /// take: `E2BIG` on Linux and macOS, and on Windows something
@@ -373,8 +368,12 @@ mod error_guidance_tests {
 
         #[test]
         fn an_oversized_prompt_is_named_as_the_cause() {
-            let said =
-                spawn_failure_guidance(&too_large_for_this_platform(), &argv_agent(), OVERSIZED, OVERSIZED);
+            let said = spawn_failure_guidance(
+                &too_large_for_this_platform(),
+                IN_ARGV,
+                OVERSIZED,
+                OVERSIZED,
+            );
 
             assert!(
                 said.detail.contains(&format!("{OVERSIZED} bytes")),
@@ -397,7 +396,7 @@ mod error_guidance_tests {
         fn a_missing_binary_keeps_the_path_remedy_it_had() {
             let said = spawn_failure_guidance(
                 &std::io::Error::from(std::io::ErrorKind::NotFound),
-                &argv_agent(),
+                IN_ARGV,
                 OVERSIZED,
                 OVERSIZED,
             );
@@ -406,20 +405,56 @@ mod error_guidance_tests {
             assert_eq!(said.help, spawn_not_started_help());
         }
 
-        /// A stdin transport puts no part of the prompt on the command line, so
-        /// blaming the prompt's size would be untrue whatever the errno says.
+        /// A transport that puts no part of the prompt on the command line
+        /// cannot have been stopped by the prompt's size, so the line's own
+        /// measurement is reported and the remedy stays where it was.
         #[test]
-        fn a_stdin_agent_is_never_told_its_prompt_was_too_large() {
-            let profile = CustomAgentProfile { stdin_prompt: true, ..argv_agent() };
+        fn a_prompt_that_never_reached_argv_is_not_blamed_for_the_line() {
             let said = spawn_failure_guidance(
                 &too_large_for_this_platform(),
-                &profile,
+                OFF_ARGV,
                 OVERSIZED,
                 OVERSIZED,
             );
 
-            assert_eq!(said.detail, "");
+            assert!(
+                !said.detail.contains("prompt"),
+                "the prompt is not on this line and cannot be its cause: {:?}",
+                said.detail
+            );
+            assert!(
+                said.detail.contains(&format!("{OVERSIZED} bytes")),
+                "what was measured is still worth stating: {:?}",
+                said.detail
+            );
             assert_eq!(said.help, spawn_not_started_help());
+        }
+
+        /// The reviewer's case, and on a total cap the ordinary one: the line is
+        /// over because of a fixed argument the profile carries, not because of
+        /// the prompt. Blaming the prompt would print a byte count beside a
+        /// larger limit and offer a remedy that shortens nothing.
+        #[test]
+        fn an_oversized_argument_that_is_not_the_prompt_leaves_the_prompt_alone() {
+            let line = COMMAND_LINE_LIMIT_BYTES * 2;
+            let said =
+                spawn_failure_guidance(&too_large_for_this_platform(), IN_ARGV, 64, line);
+
+            assert!(
+                !said.detail.contains("prompt"),
+                "a 64-byte prompt did not put this line over the cap: {:?}",
+                said.detail
+            );
+            assert!(
+                said.detail.contains(&format!("{line} bytes")),
+                "the size that was actually over is the one to state: {:?}",
+                said.detail
+            );
+            assert_eq!(
+                said.help,
+                spawn_not_started_help(),
+                "moving this prompt to stdin would leave the line as long as it was"
+            );
         }
 
         /// Windows has only the measurement to go on, so a command line it
@@ -428,12 +463,67 @@ mod error_guidance_tests {
         fn a_command_line_within_the_limit_is_not_blamed_on_its_size() {
             let said = spawn_failure_guidance(
                 &std::io::Error::from(std::io::ErrorKind::PermissionDenied),
-                &argv_agent(),
+                IN_ARGV,
                 64,
                 128,
             );
 
             assert_eq!(said.detail, "");
+            assert_eq!(said.help, spawn_not_started_help());
+        }
+
+        /// The transport is read off the argument vector, not off one profile
+        /// field: Claude Code's live-intervention arm sends the prompt down the
+        /// stdin pipe without declaring `stdin_prompt`, and must not be told its
+        /// prompt was too long for a line it is not on. §FS-rhei-errors.7.2
+        #[test]
+        fn the_stream_json_arm_is_read_as_keeping_its_prompt_off_the_line() {
+            let mut profile = built_in_agents().remove("claude-code").expect("built-in profile");
+            profile.intervene_stdin = true;
+            profile.stdin_prompt = false;
+            let resolved = ResolvedAgent {
+                agent: AgentConfig::from("claude-code"),
+                profile,
+                mode: None,
+                target: None,
+                model: None,
+                model_provider: None,
+                model_name: None,
+                timeout_secs: Some(60),
+                autonomous_args: Vec::new(),
+            };
+            let runtime_dir = tempfile::tempdir().expect("tmpdir");
+            let prompt = "x".repeat(OVERSIZED);
+            let cmd = build_agent_command(
+                &resolved,
+                &prompt,
+                Path::new("/tmp/workspace"),
+                None,
+                None,
+                "task-1",
+                "pending",
+                1,
+                1,
+                &ResolvedTooling::default(),
+                runtime_dir.path(),
+                &[],
+            );
+
+            assert!(
+                !prompt_reached_argv(&cmd, &prompt),
+                "stream-json delivery keeps the prompt off argv even with stdin_prompt unset"
+            );
+            let said = spawn_failure_guidance(
+                &too_large_for_this_platform(),
+                prompt_reached_argv(&cmd, &prompt),
+                prompt.len(),
+                composed_command_line_bytes(&cmd),
+            );
+            assert!(
+                !said.detail.contains("prompt"),
+                "this prompt never reached the command line: {:?}",
+                said.detail
+            );
             assert_eq!(said.help, spawn_not_started_help());
         }
     }

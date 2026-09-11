@@ -227,10 +227,8 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
 
     let mut agents = BTreeMap::new();
 
-    // claude-code: the prompt travels on stdin, so a supervisor brief is not
-    // bounded by what one command-line argument may carry. `-p` stays declared
-    // and is emitted bare: it is `--print`, what puts the agent in
-    // non-interactive mode, not what carries the text.
+    // claude-code: the prompt travels on stdin, so a brief is not bounded by one
+    // argument. `-p` stays declared and bare — it is `--print`, not the text.
     // §FS-rhei-agents.2 §FS-rhei-agents.1.1.2: Built-in claude-code profile.
     agents.insert(
         "claude-code".to_string(),

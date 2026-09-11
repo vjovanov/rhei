@@ -307,13 +307,11 @@ const COMMAND_LINE_LIMIT_BYTES: usize = if cfg!(windows) {
     1_048_576
 };
 
-/// How the prompt sits on the line, for the sentence that explains the failure:
-/// only Linux refuses one argument on its own. §FS-rhei-errors.7.1
-const COMMAND_LINE_LIMIT_SCOPE: &str = if cfg!(target_os = "linux") {
-    "passes it as one command-line argument"
-} else {
-    "passes it on the command line"
-};
+/// Whether that limit is placed on one argument or on the whole line.
+///
+/// It decides both when the prompt is the thing over the cap and how the failure
+/// states the size, so the two can never disagree. §FS-rhei-errors.7.2
+const LIMIT_IS_PER_ARGUMENT: bool = cfg!(target_os = "linux");
 
 /// `E2BIG`, which both Linux and macOS report when a command line is too large
 /// for them. §FS-rhei-errors.7.1
@@ -370,32 +368,111 @@ fn oversized_prompt_help() -> &'static str {
      a custom agent with \"stdin_prompt\": true"
 }
 
+/// What the size of what rhei composed says about a spawn that failed.
+/// §FS-rhei-errors.7.2
+enum SizeVerdict {
+    /// Nothing rhei measured explains the failure, or supports a number.
+    Unexplained,
+    /// The platform refused the line, and the prompt is not what made it long.
+    LineTooLong,
+    /// The prompt is what the platform refused.
+    PromptTooLong,
+}
+
+/// Whether the prompt rhei composed is actually on the command line.
+///
+/// Read from the argument vector rather than from `stdin_prompt`, because that
+/// field is not the only transport that keeps the prompt off `argv`: the Claude
+/// Code stream-json arm does too, and would otherwise be told its prompt was too
+/// long for a line it is not on. §FS-rhei-errors.7.2
+fn prompt_reached_argv(cmd: &std::process::Command, prompt: &str) -> bool {
+    cmd.get_args().any(|arg| arg == std::ffi::OsStr::new(prompt))
+}
+
 /// One question asked at a spawn failure and never before it: could this be the
 /// size of what rhei composed?
 ///
-/// Only an agent carrying its prompt in `argv` can be over the cap because of
-/// the prompt — a stdin transport's prompt is not on the command line at all —
-/// so a profile that already delivers on stdin keeps the remedy it had.
+/// Answered in two parts, because a line over the cap and a prompt over the cap
+/// are different facts. The prompt has to have reached `argv` at all, and it has
+/// to be what the platform is refusing — its own bytes where the cap is on one
+/// argument, and what is left once it comes off the line where the cap is on the
+/// total. Otherwise the size is reported without a cause. §FS-rhei-errors.7.2
+fn size_verdict(
+    err: &std::io::Error,
+    prompt_in_argv: bool,
+    prompt_bytes: usize,
+    command_line_bytes: usize,
+) -> SizeVerdict {
+    // Nothing is claimed that rhei's own measurement does not support, so no
+    // number is ever printed beside a limit larger than it. §FS-rhei-errors.7.2
+    if !size_explains_spawn_failure(err, command_line_bytes)
+        || command_line_bytes <= COMMAND_LINE_LIMIT_BYTES
+    {
+        return SizeVerdict::Unexplained;
+    }
+    let prompt_is_over = if LIMIT_IS_PER_ARGUMENT {
+        prompt_bytes > COMMAND_LINE_LIMIT_BYTES
+    } else {
+        command_line_bytes.saturating_sub(prompt_bytes) <= COMMAND_LINE_LIMIT_BYTES
+    };
+    if prompt_in_argv && prompt_is_over {
+        SizeVerdict::PromptTooLong
+    } else {
+        SizeVerdict::LineTooLong
+    }
+}
+
+/// The sentence that names an oversized prompt, in the terms this platform's
+/// limit is placed on.
+///
+/// Where the cap is per-argument the prompt's own size is past it and says
+/// everything. Where it is a total the prompt's size is below the limit, so the
+/// line's size is named too and the prompt is given as its share — the number
+/// and the limit then agree. §FS-rhei-errors.7.2
+fn oversized_prompt_detail(prompt_bytes: usize, command_line_bytes: usize) -> String {
+    if LIMIT_IS_PER_ARGUMENT {
+        format!(
+            "\nthe composed prompt is {prompt_bytes} bytes and this agent passes it as one \
+             command-line argument, past this platform's {COMMAND_LINE_LIMIT_BYTES}-byte limit"
+        )
+    } else {
+        format!(
+            "\nthe composed command line is {command_line_bytes} bytes, {prompt_bytes} of them \
+             the prompt this agent passes on it, past this platform's \
+             {COMMAND_LINE_LIMIT_BYTES}-byte limit"
+        )
+    }
+}
+
+/// What a spawn failure says once the size question has been answered.
 /// §FS-rhei-errors.7
 fn spawn_failure_guidance(
     err: &std::io::Error,
-    profile: &CustomAgentProfile,
+    prompt_in_argv: bool,
     prompt_bytes: usize,
     command_line_bytes: usize,
 ) -> SpawnFailureGuidance {
-    if profile.stdin_prompt || !size_explains_spawn_failure(err, command_line_bytes) {
-        return SpawnFailureGuidance { detail: String::new(), help: spawn_not_started_help() };
-    }
-    SpawnFailureGuidance {
+    match size_verdict(err, prompt_in_argv, prompt_bytes, command_line_bytes) {
+        SizeVerdict::Unexplained => {
+            SpawnFailureGuidance { detail: String::new(), help: spawn_not_started_help() }
+        }
+        // Taking the prompt off this line would leave it just as long, so the
+        // measurement is stated and the remedy stays the one it had.
+        // §FS-rhei-errors.7.2
+        SizeVerdict::LineTooLong => SpawnFailureGuidance {
+            detail: format!(
+                "\nthe composed command line is {command_line_bytes} bytes, past this \
+                 platform's {COMMAND_LINE_LIMIT_BYTES}-byte limit"
+            ),
+            help: spawn_not_started_help(),
+        },
         // The user cannot see the composed prompt, so the byte count and the
         // platform's limit are what turn "too long" into a decision about which
         // agent to run. §FS-rhei-errors.7
-        detail: format!(
-            "\nthe composed prompt is {prompt_bytes} bytes and this agent \
-             {COMMAND_LINE_LIMIT_SCOPE}, past this platform's \
-             {COMMAND_LINE_LIMIT_BYTES}-byte limit"
-        ),
-        help: oversized_prompt_help(),
+        SizeVerdict::PromptTooLong => SpawnFailureGuidance {
+            detail: oversized_prompt_detail(prompt_bytes, command_line_bytes),
+            help: oversized_prompt_help(),
+        },
     }
 }
 
@@ -408,7 +485,7 @@ fn spawn_failure_report(
 ) -> miette::Report {
     let said = spawn_failure_guidance(
         err,
-        &resolved.profile,
+        prompt_reached_argv(cmd, prompt),
         prompt.len(),
         composed_command_line_bytes(cmd),
     );
