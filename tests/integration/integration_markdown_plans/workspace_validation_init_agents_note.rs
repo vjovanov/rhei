@@ -249,3 +249,129 @@ fn init_prints_no_hint_when_the_enclosing_root_already_carries_a_note() {
         "the host still gets its own note"
     );
 }
+
+/// §FS-rhei-init.4: two begin markers before one end marker leave the *first*
+/// orphaned — it is removed alone, and the user content a merge stranded
+/// between the two stays. Pairing the first begin with the second block's end
+/// reads that content as note material and deletes it silently (#187).
+#[test]
+fn init_pairs_a_begin_marker_with_an_end_only_when_no_second_begin_intervenes() {
+    let dir = unique_temp_dir("init-two-begins");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
+    // A merge left a second begin marker above an intact block, with the
+    // user's own line between the two.
+    fs::write(
+        dir.join("AGENTS.md"),
+        "# House rules\n\n<!-- rhei:begin -->\nKeep the staging secrets out of the repo.\n<!-- rhei:begin -->\n## Rhei\n\nThis directory is a Rhei (Panta) project. Old text.\n<!-- rhei:end -->\n\n## Deployment\n\nAlways deploy on Fridays.\n",
+    )
+    .expect("write mangled agents");
+
+    assert!(
+        rhei_command()
+            .arg("init")
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+            .status
+            .success(),
+        "init should succeed"
+    );
+
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert!(
+        agents.contains("Keep the staging secrets out of the repo."),
+        "user content between the two begin markers must survive: {agents}"
+    );
+    assert!(agents.starts_with("# House rules"), "leading content preserved: {agents}");
+    assert!(
+        agents.contains("## Deployment") && agents.contains("Always deploy on Fridays."),
+        "user content after the block must survive: {agents}"
+    );
+    assert_eq!(agents.matches("<!-- rhei:begin -->").count(), 1, "one begin: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
+    assert_eq!(agents.matches("## Rhei").count(), 1, "one section: {agents}");
+    assert!(!agents.contains("Old text."), "stale note body removed: {agents}");
+}
+
+/// §FS-rhei-init.4: a marker-less `## Rhei` section ends where the note's
+/// prose ends, never at the end of the file — trailing user content under no
+/// heading of its own is the user's and survives (#187).
+#[test]
+fn init_keeps_trailing_user_content_that_carries_no_heading_of_its_own() {
+    let dir = unique_temp_dir("init-mangled-tail");
+    fs::create_dir_all(dir.join(".git")).expect("mark repo root");
+    // A merge split the end delimiter across a line boundary, and the user's
+    // closing paragraph sits under no heading that could bound the section.
+    fs::write(
+        dir.join("AGENTS.md"),
+        "# House rules\n\n<!-- rhei:begin -->\n## Rhei\n\nThis directory is a Rhei (Panta) project. Old text.\n<!-- rhei:en\nd -->\n\nAlways deploy on Fridays.\n",
+    )
+    .expect("write mangled agents");
+
+    assert!(
+        rhei_command()
+            .arg("init")
+            .current_dir(&dir)
+            .output()
+            .expect("init runs")
+            .status
+            .success(),
+        "init should succeed"
+    );
+
+    let agents = fs::read_to_string(dir.join("AGENTS.md")).expect("agents note");
+    assert!(
+        agents.contains("Always deploy on Fridays."),
+        "trailing user content under no heading must survive: {agents}"
+    );
+    assert!(agents.starts_with("# House rules"), "leading content preserved: {agents}");
+    assert!(!agents.contains("Old text."), "stale note body removed: {agents}");
+    assert!(
+        !agents.contains("<!-- rhei:en\n"),
+        "the split delimiter's remains go with the note they belonged to: {agents}"
+    );
+    assert_eq!(agents.matches("<!-- rhei:begin -->").count(), 1, "one begin: {agents}");
+    assert_eq!(agents.matches("<!-- rhei:end -->").count(), 1, "one end: {agents}");
+}
+
+/// The combination the ticket named and no case covered: a host nested inside
+/// a repository it does not own, whose *own* instruction file carries a
+/// malformed block. Healing that file is never a licence to write above the
+/// host — the enclosing root keeps its bytes and gets a hint. §FS-rhei-init.4
+#[test]
+fn init_leaves_the_enclosing_repository_untouched_when_the_host_note_is_mangled() {
+    const ROOT_RULES: &str = "# House rules\n\nBe kind.\n";
+    let repo = unique_temp_dir("init-enclosing-mangled");
+    fs::create_dir_all(repo.join(".git")).expect("mark repo root");
+    fs::write(repo.join("AGENTS.md"), ROOT_RULES).expect("write root agents");
+    fs::write(repo.join("CLAUDE.md"), ROOT_RULES).expect("write root claude");
+    let host = repo.join("scratch").join("host");
+    fs::create_dir_all(&host).expect("create host");
+    fs::write(
+        host.join("AGENTS.md"),
+        "# Host instructions\n\n<!-- rhei:begin -->\nKeep the staging secrets out of the repo.\n<!-- rhei:begin -->\n## Rhei\n\nThe Rhei (Panta) project for this repository lives in `panta/`. Old text.\n<!-- rhei:end -->\n",
+    )
+    .expect("write mangled host agents");
+
+    let output = rhei_command().arg("init").arg(&host).output().expect("init runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "init should succeed: {stdout}");
+    assert_eq!(
+        fs::read_to_string(repo.join("AGENTS.md")).expect("root agents"),
+        ROOT_RULES,
+        "the enclosing repository's AGENTS.md must be left byte-identical"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join("CLAUDE.md")).expect("root claude"),
+        ROOT_RULES,
+        "the enclosing repository's CLAUDE.md must be left byte-identical"
+    );
+    assert!(!repo.join(".gitignore").exists(), "nothing new at the enclosing root");
+    assert!(!repo.join("panta").exists(), "the project belongs under the host");
+    let note = fs::read_to_string(host.join("AGENTS.md")).expect("host agent note");
+    assert!(
+        note.contains("lives in `panta/`") && !note.contains("Old text."),
+        "the healed note belongs in the host: {note}"
+    );
+    assert!(stdout.contains(HINT), "the enclosing root gets a hint, never a write: {stdout}");
+}

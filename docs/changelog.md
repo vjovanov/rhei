@@ -58,6 +58,16 @@
   make the same assertions machine-dependent again. No product code changes.
   (PR #218)
 
+- **A mangled agent note no longer takes user content with it.** `rhei init`
+  paired the first of two begin markers with the *second* block's end marker,
+  so anything a merge had stranded between them was read as note material and
+  deleted without a word; and a marker-less `## Rhei` section ran to the end of
+  the file, swallowing trailing user content that carried no heading of its
+  own. Both boundaries are now written into the agent-note section of the init
+  specification and pinned by tests, including one that combines a nested host
+  with a malformed instruction file — the combination #187 reported and no
+  case covered. (PR #220)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's
