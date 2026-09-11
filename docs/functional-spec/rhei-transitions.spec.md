@@ -815,6 +815,36 @@ The special value `"*"` in the `from` field matches any state with these rules:
 
 Wildcards are optional. When a machine omits wildcards, only explicitly declared transitions are valid. Engines must not synthesize wildcard transitions; if cancellation from a particular state is desired, it must be declared explicitly by that machine.
 
+**A wildcard edge is not always a state's way forward.** A wildcard whose target
+is `final: true` is an escape hatch — the way work is abandoned — rather than
+progress, and `rhei run` never selects one to advance a task. A state whose only
+matching rule is such an edge therefore strands every task that reaches it: the
+work in the state finishes, and no edge the engine will take leads anywhere. Out
+of a `gating: true` state the same edge *is* a way out, because it is a human who
+moves the task, with `rhei transition`, and that command honours every declared
+edge.
+
+So, for the question **can this state be left**:
+
+- for an ordinary state, every `from: <state>` edge counts, and a `from: "*"`
+  edge counts only when its target is **not** `final: true`;
+- for a `gating: true` state, every edge counts, wildcards included.
+
+Two consequences follow from how that is worded. It is written against
+terminality, not against the reserved name `cancelled`
+([§FS-rhei-states.1.4](rhei-states.spec.md#14-reserved-state-names)): a machine
+whose only wildcard reached `completed` strands a task exactly as one whose
+wildcard reaches `cancelled` does. And an **explicit** `from: <state>` edge
+counts whatever its target, including an explicit edge to `cancelled` — the
+engine takes a declared edge for the state it names, so a machine whose author
+means a state to end only in cancellation says so with that edge.
+
+A machine in which some non-final state cannot reach a `final: true` state under
+these rules is rejected when it is loaded
+([§FS-rhei-states.1.3](rhei-states.spec.md#13-validation-rules)), and the same
+question is asked again of each profile's narrowed state set
+([§FS-rhei-states.8.2](rhei-states.spec.md#82-per-profile-validation)).
+
 ### 4.7. Callback Declaration
 
 There are two valid ways to declare callbacks on transitions:

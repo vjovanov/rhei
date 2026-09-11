@@ -35,6 +35,7 @@ mod tests {
     include!("validator/tests_links_tooling.rs");
     include!("validator/tests_links_fences.rs");
     include!("validator/tests_profiles.rs");
+    include!("validator/tests_dead_end_states.rs");
     include!("validator/tests_poll.rs");
     include!("validator/tests_supervision.rs");
     include!("validator/tests_snapshots.rs");

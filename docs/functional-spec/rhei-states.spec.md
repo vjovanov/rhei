@@ -206,6 +206,19 @@ implicit rather than declared: see [Terminal Result](#33-terminal-result).
   re-enter it forever. Visits of such a state are counted regardless, so an
   authored `visitCount` exit works ([§FS-rhei-supervision.4.2](rhei-supervision.spec.md#42-self-loops-on-agent-states)).
 - `state.execute_on`, when present, must be one of `child-terminal`, `child-transition`, `descendant-terminal`, or `descendant-transition`, and the state must be agent-bearing. `execute_on` on a `final: true`, `gating: true`, `program:`, or `poll:` state is a validation error — a state has one trigger, `poll:` (time) or `execute_on:` (its subtree) — as is combining it with `all_targets` or `all_models`. A supervising state must declare a self-loop transition — its release edge. Warnings and the full rule set are in [§FS-rhei-supervision.1.2](rhei-supervision.spec.md#12-validation-rules).
+- Every non-final state must be able to reach some `final: true` state. A state
+  is left by an edge whoever moves the task can take, which is what decides
+  whether an edge counts here: every `from: <state>` edge counts, a `from: "*"`
+  edge counts only when its target is not `final: true`, and out of a
+  `gating: true` state every edge counts, wildcards included
+  ([§FS-rhei-transitions.4.6](rhei-transitions.spec.md#46-wildcard-semantics)).
+  A machine declaring a state that cannot is rejected when it is loaded, so
+  every command that reads the machine refuses it before a task is scheduled
+  rather than stranding one in the state hours later. One error names every such
+  state, says which wildcard target it would not count as progress, and prints
+  the transition line to add. A declared edge counts whether or not its
+  `condition` or `exit_code` can ever hold, because that is not decidable here:
+  the rule under-reports, never over-reports.
 - A state that declares both `poll` and `snapshot.inherit` is a validation
   error in v1. Polling states may still emit snapshots on terminal exit when
   otherwise snapshot-capable. See [Snapshots Specification — Counted Loops, Fanout, and Polling](rhei-snapshots.spec.md#103-counted-loops-fanout-and-polling).
@@ -1190,10 +1203,14 @@ profiles:
 - `initial` must appear in `allowed`.
 - `allowed` must contain at least one state marked `final: true`.
 - Every non-final state in `allowed` must have a path — using only
-  transitions whose `to` is also in `allowed` — to some final state in
-  `allowed`. This reachability check prevents a narrowed `allowed` set from
-  silently producing a policy where a node can enter a state it can never
-  leave.
+  transitions whose `to` is also in `allowed`, and counting an edge as
+  [§FS-rhei-transitions.4.6](rhei-transitions.spec.md#46-wildcard-semantics)
+  counts it — to some final state in `allowed`. This reachability check
+  prevents a narrowed `allowed` set from silently producing a policy where a
+  node can enter a state it can never leave. It asks the machine-wide question
+  of [Validation Rules](#13-validation-rules) again at profile scope, so a
+  profile whose only way out of an allowed state is a wildcard edge to a final
+  state is rejected even when the full graph is sound.
 
 ### Example
 
