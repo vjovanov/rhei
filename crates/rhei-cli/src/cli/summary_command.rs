@@ -160,13 +160,11 @@ fn summary_step_actor(record: &AccountingInvocationRecord) -> String {
 }
 
 /// `ended_at - started_at`, humanized; `None` when either timestamp is
-/// missing or unparseable, because a duration is not worth guessing.
-/// §FS-rhei-summary.2.2
+/// missing or unparseable, because a duration is not worth guessing. The
+/// arithmetic is the one every reading of this archive shares.
+/// §FS-rhei-summary.2.2 §FS-rhei-cost-accounting.3.4.1
 fn summary_step_duration(record: &AccountingInvocationRecord) -> Option<String> {
-    let started = parse_rfc3339_utc(&record.started_at)?;
-    let ended = parse_rfc3339_utc(&record.ended_at)?;
-    let elapsed = ended.duration_since(started).ok()?;
-    Some(format_duration_short(u64::try_from(elapsed.as_millis()).ok()?))
+    invocation_elapsed_ms(record).map(format_duration_short)
 }
 
 /// Humanized `in`/`out` counts, and only the sides the record measured.

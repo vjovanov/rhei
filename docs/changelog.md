@@ -4,6 +4,17 @@
 
 ### Changed
 
+- **A reading reports how long an invocation took, even when the record
+  predates the field.** `rhei cost --json --task` now derives an invocation's
+  elapsed time from `started_at` and `ended_at` when the stored `duration_ms`
+  is absent, so records written before that field existed no longer publish
+  wall-clock time as nothing — a 31-minute invocation read as zero. A record
+  carrying its own duration is published with that number untouched, because it
+  was measured in milliseconds while the agent ran while the endpoints are only
+  accurate to the second. Nothing on disk is rewritten, `duration_ms` stays
+  optional in `rhei.accounting.invocation.v1`, and `rhei summary` now shares
+  the one derivation instead of keeping a second copy of it. (PR #215)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's

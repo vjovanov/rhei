@@ -407,3 +407,13 @@ until = "The tooling-resolution tests move to a fragment of their own beside too
 reason = """
 Over budget before this change; the touch that surfaced it added one line to a claim-context literal. Four unrelated suites share this fragment because none of them has a home yet: tooling resolution is tested here and in tests_settings_tooling.rs with no single owner, plan-watch predicates are tested here while their code lives in the watch commands, the dashboard-gate tests sit nowhere near the dashboard, and only the complete and reset rewrites belong to the file's own name. tests_settings_tooling.rs cannot take the tooling suite either, being 1110 lines with 90 to its own accepted ceiling against a 155-line suite, so the boundary has to exist before the split does.
 """
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/accounting.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 1800, unit = "lines" }
+until = "The cost reading — inspection, selection payload, the published invocations, and the human report — is a module of its own beside accounting_selection.rs, and agent output usage extraction is another, leaving this file the invocation record's writing path."
+reason = """
+Three responsibilities share this file and none of them has a module to move to yet: capturing and extracting an agent's usage from its output, pricing and writing the invocation record, and the reading `rhei cost` publishes. The seams are real, but no single lift retires the finding — taking the cost reading out leaves about 1250 lines, still far over the 500-line budget — so the split is a three-way division of the module and a piece of work of its own, not something to land inside a nine-line behaviour fix that is under review. accounting_records.rs, accounting_selection.rs, and accounting_session.rs are where the first pieces already went; the boundaries the rest needs do not exist.
+"""
