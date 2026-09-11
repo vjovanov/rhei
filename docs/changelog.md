@@ -81,6 +81,17 @@
   with a malformed instruction file — the combination #187 reported and no
   case covered. (PR #220)
 
+- **A large supervisor brief no longer aborts a `claude-code` spawn.** The
+  built-in profile now delivers the prompt on Claude Code's stdin under an
+  explicit bare `-p`, instead of passing it as one command-line argument that
+  Linux rejects above 131072 bytes. The `--` separator every `stdin_prompt`
+  profile emits moved to the end of the command line, so a state's
+  `mcp_servers:` and `skills:` reach the agent rather than landing past the
+  separator where they are read as prompt text and ignored. An agent that still
+  carries its prompt in `argv` and hits the platform's limit now says the
+  composed prompt is too big and how big, instead of telling you to check
+  `PATH` for a binary that is plainly there. (PR #N)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's

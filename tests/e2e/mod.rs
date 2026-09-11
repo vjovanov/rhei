@@ -9,6 +9,7 @@ mod agent_grounds_settings_tests;
 mod agent_grounds_support;
 mod agent_grounds_templates_tests;
 mod agent_prompt_path_tests;
+mod agent_prompt_size_tests;
 mod completions_tests;
 mod cost_accounting_tests;
 mod cost_project_scope_support;

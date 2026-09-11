@@ -321,7 +321,7 @@ Would run: npm run build
   Timeout: 10m
   Log: runtime/logs/task-app.1-build.log
 
-Would spawn: claude -p "<prompt...>" --model claude-sonnet-4-6
+Would spawn: claude --output-format json -p --model claude-sonnet-4-6 --
   Task app.3: Write documentation [draft -> pending]
   Agent: claude-code, Model: impl-fast (anthropic/claude-sonnet-4-6), Timeout: 30m
   Log: runtime/logs/task-app.3-pending.log

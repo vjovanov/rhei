@@ -321,7 +321,11 @@
             1,
             "ordinary Claude command must request JSON exactly once: {args:?}"
         );
-        assert!(args.windows(2).any(|pair| pair == ["-p", "do work"]), "prompt flag: {args:?}");
+        assert!(
+            args.windows(2).any(|pair| pair == ["-p", "--model"]),
+            "the print flag is bare and the prompt is on stdin: {args:?}"
+        );
+        assert!(!args.iter().any(|arg| arg == "do work"), "prompt leaked into argv: {args:?}");
         assert!(!args.iter().any(|arg| arg == "--input-format"), "stream input leaked: {args:?}");
         assert!(!args.iter().any(|arg| arg == "--verbose"), "stream verbose leaked: {args:?}");
     }
@@ -676,9 +680,11 @@
     #[test]
     fn supported_agents_keep_expected_prompt_transports() {
         let agents = built_in_agents();
+        // `-p` stays declared and stops carrying the prompt: it is what puts
+        // Claude Code in print mode. agent-grounds/rhei#179 §FS-rhei-agents.2
         let claude = agents.get("claude-code").expect("claude-code profile");
         assert_eq!(claude.prompt_flag.as_deref(), Some("-p"));
-        assert!(!claude.stdin_prompt);
+        assert!(claude.stdin_prompt);
 
         let codex = agents.get("codex").expect("codex profile");
         assert_eq!(codex.prompt_flag.as_deref(), None);
