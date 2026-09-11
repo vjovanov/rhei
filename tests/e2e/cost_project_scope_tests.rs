@@ -284,3 +284,116 @@ fn a_standalone_workspace_reads_exactly_as_it_did() {
         said(&result)
     );
 }
+
+/// Scenario 9 — A reading is one set, not one set per root. The union is assembled root
+/// by root, so without a sort over the whole of it `rhei summary` numbers its
+/// steps by which root they came from: here the project directory's two records
+/// at 10:10 and 10:11 would lead, ahead of the member's three at 10:00.
+// §FS-rhei-summary.2.2
+#[test]
+fn a_project_summary_numbers_its_steps_by_when_they_started() {
+    let fixture = scope_fixture("summary-scope-order");
+    let project = fixture.project.display().to_string();
+
+    let result = rhei_from(&fixture, &fixture.dir, &["summary", &project, "--details"]);
+    assert_success(&result);
+    let steps: Vec<&str> = result
+        .stdout
+        .lines()
+        .filter(|line| line.starts_with(|c: char| c.is_ascii_digit()))
+        .collect();
+    assert_eq!(
+        steps,
+        vec![
+            "1. `billing.1` draft (visit 1) — claude-code, anthropic/claude-sonnet-4-6 — 30.0s — 800 in / 200 out",
+            "2. `billing.1` draft (visit 1) — claude-code, anthropic/claude-sonnet-4-6 — 30.0s — 1.6k in / 400 out",
+            "3. `billing.2` draft — claude-code, anthropic/claude-sonnet-4-6 — 30.0s — 3.2k in / 800 out",
+            "4. `ledger.1` draft — claude-code, anthropic/claude-opus-5 — 30.0s — 8.0k in / 2.0k out",
+            "5. `spool.1` draft — claude-code, anthropic/claude-opus-5 — 30.0s — 16.0k in / 4.0k out",
+            "6. `basin.1` draft — claude-code, anthropic/claude-opus-5 — 30.0s — 32.0k in / 8.0k out",
+        ],
+        "the member's three records start first and must be numbered first; got:\n{}",
+        said(&result)
+    );
+}
+
+/// Scenario 10 — The ticket's own failure mode, inside the fix. A `--task` the narrowed
+/// scope does not hold has its records in a root the reading never opens, so
+/// answering it would print the `Direct: none` of a ticket that cost nothing.
+/// Both spellings of the narrowing refuse it, and the error says where to look.
+// §FS-rhei-panta.6.5
+#[test]
+fn a_task_outside_the_reading_scope_is_refused_by_either_spelling() {
+    let fixture = scope_fixture("cost-scope-task-outside");
+    let project = fixture.project.display().to_string();
+    let billing = fixture.member("billing").display().to_string();
+
+    let narrowed = rhei_from(
+        &fixture,
+        &fixture.dir,
+        &["cost", &project, "--rhei", "billing", "--task", "ledger.1"],
+    );
+    let named = rhei_from(&fixture, &fixture.dir, &["cost", &billing, "--task", "ledger.1"]);
+    for (label, result) in [("--rhei billing", &narrowed), ("the member's path", &named)] {
+        assert!(
+            !result.status.success(),
+            "{label} must refuse a ticket it cannot read; got:\n{}",
+            said(result)
+        );
+        let message = said(result);
+        assert!(
+            message.contains("task 'ledger.1' is outside the accounting scope"),
+            "{label} should say the ticket is out of scope; got:\n{message}"
+        );
+        assert!(
+            message.contains("(billing)"),
+            "{label} should name the scope it read; got:\n{message}"
+        );
+        assert!(
+            message.contains("rhei 'ledger'"),
+            "{label} should name the rhei that owns the ticket; got:\n{message}"
+        );
+    }
+}
+
+/// Scenario 11 — What the refusal must not swallow. Pointed at the project every ticket
+/// is in scope, so the same `--task` answers; a ticket in scope that holds no
+/// records still answers with none; and an id no rhei holds is still unknown,
+/// which is the one absence the surface already told apart correctly.
+// §FS-rhei-panta.6.5
+#[test]
+fn an_in_scope_task_still_answers_and_an_unheld_id_is_still_unknown() {
+    let fixture = scope_fixture("cost-scope-task-in-scope");
+    let project = fixture.project.display().to_string();
+
+    let whole = rhei_from(&fixture, &fixture.dir, &["cost", &project, "--task", "ledger.1"]);
+    assert_success(&whole);
+    assert!(
+        whole.stdout.contains("Task ledger.1: Post the entries")
+            && whole.stdout.contains("ledger-0"),
+        "an unnarrowed reading holds every ticket and reports this one; got:\n{}",
+        said(&whole)
+    );
+
+    // A ticket in scope that genuinely cost nothing: the answer the refusal
+    // exists to stop being confused with.
+    let zero = rhei_from(&fixture, &fixture.dir, &["cost", &project, "--task", "quiet.1"]);
+    assert_success(&zero);
+    assert!(
+        zero.stdout.contains("Task quiet.1: Say nothing") && zero.stdout.contains("Direct: none"),
+        "a ticket in scope with no records answers with none; got:\n{}",
+        said(&zero)
+    );
+
+    let unknown = rhei_from(
+        &fixture,
+        &fixture.dir,
+        &["cost", &project, "--rhei", "billing", "--task", "nosuch.9"],
+    );
+    assert_success(&unknown);
+    assert!(
+        unknown.stdout.contains("(unknown task)"),
+        "an id no rhei holds is unknown, narrowed or not; got:\n{}",
+        said(&unknown)
+    );
+}

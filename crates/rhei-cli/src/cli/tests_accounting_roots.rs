@@ -311,3 +311,45 @@ fn an_unreadable_root_is_named_and_stops_the_reading_claiming_complete() {
     fs::set_permissions(&blocked_invocations, fs::Permissions::from_mode(0o755))
         .expect("restore permissions so the temporary directory can be removed");
 }
+
+#[test]
+fn the_union_is_ordered_by_started_at_across_the_roots_it_came_from() {
+    // §FS-rhei-summary.2.2: the entries are ordered by `started_at`. Each root
+    // is read in that order, so only a union appended root by root can show the
+    // grouping — here the first root enumerated holds the *later* record.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let later = dir.path().join("later");
+    let earlier = dir.path().join("earlier");
+    let dear = roots_price_book(8_000_000);
+    let cheap = roots_price_book(1_000_000);
+    write_roots_record(&later, &roots_record("later-0", "a.1", "2026-09-01T10:05:00Z"));
+    write_roots_record(&later, &roots_record("later-1", "a.2", "2026-09-01T10:06:00Z"));
+    write_roots_record(&earlier, &roots_record("earlier-0", "b.1", "2026-09-01T10:00:00Z"));
+    write_price_book(&later.join(ACCOUNTING_DIR), &dear).expect("dear book");
+    write_price_book(&earlier.join(ACCOUNTING_DIR), &cheap).expect("cheap book");
+
+    let roots = [roots_entry(&later, &["a"], false), roots_entry(&earlier, &["b"], false)];
+    let inspection = read_cost_inspection_over(&roots, &None);
+    let ids: Vec<&str> =
+        inspection.invocations.iter().map(|held| held.record.invocation_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["earlier-0", "later-0", "later-1"],
+        "the second root's record started first and leads the reading"
+    );
+
+    // The reordering must not move what each root contributed, nor which book
+    // a record is priced by: both are carried on the record, not on its
+    // position. §FS-rhei-cost-accounting.5.2 §FS-rhei-cost-accounting.8.4
+    assert_eq!(inspection.roots[0].invocation_count, 2, "the counts stay with their roots");
+    assert_eq!(inspection.roots[1].invocation_count, 1);
+    let priced = |held: &InspectedRecord| {
+        read_stored_record(&held.record, inspection.books_of(held)).pricing.amount_micro
+    };
+    let by_book = |book: &PriceBook, record: &AccountingInvocationRecord| {
+        price_tokens(book, record.provider.as_deref(), record.model.as_deref(), &record.tokens)
+            .amount_micro
+    };
+    assert_eq!(priced(&inspection.invocations[0]), by_book(&cheap, &inspection.invocations[0].record));
+    assert_eq!(priced(&inspection.invocations[1]), by_book(&dear, &inspection.invocations[1].record));
+}

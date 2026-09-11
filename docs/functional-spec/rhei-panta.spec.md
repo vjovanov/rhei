@@ -436,6 +436,17 @@ One record is counted once, keyed by `invocation_id`. A root that holds no
 accounting directory, or an empty one, contributes nothing and is not an
 error — a member that has never been run is an ordinary member.
 
+`rhei cost --task <id>` is bounded by that same scope, exactly as §6.1 bounds
+`rhei next --task`. A ticket named with `--task` must itself be in scope,
+however the scope was reached — `--rhei`, or the member the positional named —
+and naming one outside it is an **error** that gives the scope and the rhei the
+ticket belongs to, rather than a silent widening or an empty answer. Its
+records sit in a root the reading never opened, so reporting no direct and no
+subtree total would be an empty answer no reader can tell from a ticket that
+genuinely cost nothing — the confusion this point exists to remove. A `--task`
+id **no rhei in the project holds** is not that error: it is unknown, and the
+reading goes on to report it as unknown, which is a different thing to be told.
+
 Neither command writes, and neither widens what it reads beyond the scope it
 resolved. Where the records are *written* is not changed by any of this: a run
 writes each invocation record under the execution root of the rhei that owns

@@ -19,7 +19,11 @@
   line and names the roots it searched beneath it, so an answer of zero is
   distinguishable from a miss, and `--json` carries a `roots` array on every
   reading. `rhei summary`'s task tally narrows with its records and never
-  prints the roots line, because its output is publishable verbatim. Where
+  prints the roots line, because its output is publishable verbatim. A
+  `rhei cost --task <ID>` naming a ticket the narrowed reading does not cover
+  is now refused, naming the scope it read and the rhei the ticket belongs to,
+  rather than answered with the empty totals of a ticket that genuinely cost
+  nothing; an id no rhei holds anywhere is still reported as unknown. Where
   records are written is unchanged. (PR #219)
 
 ### Changed

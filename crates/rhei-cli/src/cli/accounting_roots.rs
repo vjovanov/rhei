@@ -308,6 +308,16 @@ fn read_cost_inspection_over(roots: &[AccountingRoot], scope: &RheiScope) -> Cos
         });
     }
 
+    // Each root is read in `started_at` order, but appending root by root
+    // groups the union by root, and a reading is one set rather than several.
+    // §FS-rhei-summary.2.2
+    invocations.sort_by(|a, b| {
+        a.record
+            .started_at
+            .cmp(&b.record.started_at)
+            .then_with(|| a.record.invocation_id.cmp(&b.record.invocation_id))
+    });
+
     let inspection = CostInspection {
         summary: None,
         invocations,
