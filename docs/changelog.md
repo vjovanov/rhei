@@ -28,6 +28,18 @@
 
 ### Changed
 
+- **A supervisor that steers by appending no longer burns the visit that did
+  it.** A supervising visit which appends an open child and exits 0 without a
+  result was judged against the task graph as the pass found it *before* the
+  spawn, where the subtree still looked closed: `openDescendants < 1` held, the
+  terminal edge was selected, the terminal result was demanded of a visit that
+  never claimed to finish anything, and the run halted and re-spawned instead of
+  releasing. The edge a sequential agent's exit selects is now chosen from the
+  plan re-read after that exit, as the parallel path already did, so the
+  appended child counts as the descendant it is, the release self-loop fires,
+  and the child runs in the same run rather than waiting for a second `rhei
+  run`. (PR #N)
+
 - **A continued snapshot session lands under the rhei that owns the ticket.**
   `rhei snapshot continue` created its agent session directory under the
   project root, so in a Panta project one ticket's live transcript sat beside
