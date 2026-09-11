@@ -319,7 +319,8 @@ fn spawn_and_wait_agent(
     // The agent leads its own process group, so its MCP servers and shell tools
     // are terminated with it, and it never inherits the operator's terminal.
     // §FS-rhei-run.3.2
-    let mut supervised = match Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}")) {
+    let spawned = Supervised::spawn(&mut cmd, &format!("{task_id}@{state_name}"));
+    let mut supervised = match spawned {
         Ok(supervised) => supervised,
         // Interrupted between the scheduler's check and the spawn. Nothing
         // started, so there is no verdict on the ticket and no transition
@@ -343,12 +344,9 @@ fn spawn_and_wait_agent(
                 cli_session: None,
             });
         }
-        Err(e) => {
-            return Err(miette!(
-                help = "the agent command could not start. Check it exists on PATH and is executable: rhei diag",
-                "failed to spawn agent '{}': {e}", resolved.agent.id()
-            ))
-        }
+        // A command line too large to hand over fails here exactly as a missing
+        // binary does, so the size is asked about first. §FS-rhei-errors.7
+        Err(e) => return Err(spawn_failure_report(&e, resolved, prompt, &cmd)),
     };
     let child = &mut supervised.child;
 

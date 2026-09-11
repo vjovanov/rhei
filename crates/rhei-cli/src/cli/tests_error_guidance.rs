@@ -334,4 +334,107 @@ mod error_guidance_tests {
             assert!(help.contains(&shell_quote("/tmp/a b/plan.md")), "got: {help}");
         }
     }
+
+    /// What a spawn failure says when the operating system refused the size of
+    /// the command line rhei composed, and what it says when it did not.
+    ///
+    /// The evidence arm is the platform's — errno on Linux and macOS, a
+    /// measurement on Windows — so each case below asks for the one its own
+    /// platform can answer. The decision they surround is the same everywhere.
+
+    // §FS-rhei-errors.7 §FS-rhei-errors.7.1
+    mod spawn_failure_guidance {
+        use super::*;
+
+        /// Larger than any platform's cap, so the measured arm fires on Windows
+        /// wherever the errno arm fires elsewhere.
+        const OVERSIZED: usize = 2 * 1024 * 1024;
+
+        /// An agent that carries its prompt on the command line: the only kind
+        /// the size of a prompt can stop.
+        fn argv_agent() -> CustomAgentProfile {
+            CustomAgentProfile {
+                command: vec!["argv-agent".to_string()],
+                prompt_flag: Some("--prompt".to_string()),
+                ..Default::default()
+            }
+        }
+
+        /// The failure this platform reports for a command line it will not
+        /// take: `E2BIG` on Linux and macOS, and on Windows something
+        /// indistinct that only the measurement explains.
+        fn too_large_for_this_platform() -> std::io::Error {
+            if cfg!(windows) {
+                std::io::Error::from(std::io::ErrorKind::Other)
+            } else {
+                std::io::Error::from_raw_os_error(7)
+            }
+        }
+
+        #[test]
+        fn an_oversized_prompt_is_named_as_the_cause() {
+            let said =
+                spawn_failure_guidance(&too_large_for_this_platform(), &argv_agent(), OVERSIZED, OVERSIZED);
+
+            assert!(
+                said.detail.contains(&format!("{OVERSIZED} bytes")),
+                "the size the user cannot see is what makes the failure actionable: {:?}",
+                said.detail
+            );
+            assert!(
+                said.help.contains("stdin"),
+                "the remedy is prompt delivery, not PATH: {}",
+                said.help
+            );
+            assert!(
+                !said.help.contains("PATH"),
+                "the binary ran a moment ago; PATH is the wrong next action: {}",
+                said.help
+            );
+        }
+
+        #[test]
+        fn a_missing_binary_keeps_the_path_remedy_it_had() {
+            let said = spawn_failure_guidance(
+                &std::io::Error::from(std::io::ErrorKind::NotFound),
+                &argv_agent(),
+                OVERSIZED,
+                OVERSIZED,
+            );
+
+            assert_eq!(said.detail, "", "nothing is added to a failure size does not explain");
+            assert_eq!(said.help, spawn_not_started_help());
+        }
+
+        /// A stdin transport puts no part of the prompt on the command line, so
+        /// blaming the prompt's size would be untrue whatever the errno says.
+        #[test]
+        fn a_stdin_agent_is_never_told_its_prompt_was_too_large() {
+            let profile = CustomAgentProfile { stdin_prompt: true, ..argv_agent() };
+            let said = spawn_failure_guidance(
+                &too_large_for_this_platform(),
+                &profile,
+                OVERSIZED,
+                OVERSIZED,
+            );
+
+            assert_eq!(said.detail, "");
+            assert_eq!(said.help, spawn_not_started_help());
+        }
+
+        /// Windows has only the measurement to go on, so a command line it
+        /// could have taken is not blamed on the prompt.
+        #[test]
+        fn a_command_line_within_the_limit_is_not_blamed_on_its_size() {
+            let said = spawn_failure_guidance(
+                &std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+                &argv_agent(),
+                64,
+                128,
+            );
+
+            assert_eq!(said.detail, "");
+            assert_eq!(said.help, spawn_not_started_help());
+        }
+    }
 }
