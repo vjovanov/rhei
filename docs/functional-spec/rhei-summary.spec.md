@@ -18,12 +18,15 @@ list. The raw material for all of it is already durable under
 ## 1. Usage
 
 ```bash
-rhei summary [RHEI_PLAN_OR_WORKSPACE] [--details]
+rhei summary [RHEI_PLAN_OR_WORKSPACE] [--details] [--rhei <ID>]
 ```
 
 The positional resolves exactly as `rhei cost`'s does: a plan file, a
 workspace directory, or — omitted — the nearest enclosing project, workspace,
-or lone plan. The command reads the plan and `runtime/accounting/` and writes
+or lone plan. `--rhei <ID>` (repeatable) narrows it the same way too. Scope is
+one thing for both commands, which is why they move together: the accounting
+roots the positional and the flag select are
+[§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary). The command reads the plan and those roots and writes
 Markdown to stdout. It never writes files, never spawns anything, and never
 estimates: a fact that was not recorded is omitted, not guessed.
 
@@ -41,11 +44,14 @@ distinct models, and the task tally:
 ```
 
 - The workflow name is the resolved state machine's `name:`.
-- Agent invocations are the records under `runtime/accounting/invocations/`;
-  the model count is the distinct `model` values among them.
-- The task tally counts the plan's tasks per terminal state, in machine
-  declaration order; when non-terminal tasks exist, `, N in progress` is
-  appended, so a mid-run summary says it is one.
+- Agent invocations are the records under the accounting roots the invocation's
+  scope selects ([§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary)); the model count is the distinct `model`
+  values among them.
+- The task tally counts the tasks **of that same scope** per terminal state, in
+  machine declaration order; when non-terminal tasks exist, `, N in progress` is
+  appended, so a mid-run summary says it is one. One sentence must not describe
+  two scopes: `rhei summary <member>` counting the member's invocations beside
+  the whole project's tasks reads as a summary of neither.
 
 ### 2.2. The steps
 
@@ -105,7 +111,10 @@ renders the Markdown within:
 ## 4. What the summary never contains
 
 1. Local filesystem paths — no log files, workspace directories, or
-   home-relative paths; the output must be publishable verbatim.
+   home-relative paths; the output must be publishable verbatim. This is why
+   `rhei summary` gains `cost`'s scope and its `--rhei` flag but **never** its
+   roots line ([§FS-rhei-cost-accounting.8](rhei-cost-accounting.spec.md#8-cli-inspection)): that line names directories, and
+   this output goes into a pull request body. An empty summary stays §5's.
 2. Task content — no briefs, no export bodies, no result text. Task ids and
    states only.
 3. Estimated numbers — an unmeasured record contributes no token line, and an

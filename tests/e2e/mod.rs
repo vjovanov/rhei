@@ -11,6 +11,8 @@ mod agent_grounds_templates_tests;
 mod agent_prompt_path_tests;
 mod completions_tests;
 mod cost_accounting_tests;
+mod cost_project_scope_support;
+mod cost_project_scope_tests;
 mod cost_selection_tests;
 mod current_dir_target_tests;
 mod diagnostic_wrap_tests;

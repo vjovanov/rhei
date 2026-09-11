@@ -43,7 +43,7 @@ The important rule is: **measure first, price second, roll up last**.
 
 ## 2. Runtime Files
 
-Rhei stores accounting under the workspace:
+An **accounting root** is `runtime/accounting/` under an execution root:
 
 ```text
 runtime/accounting/
@@ -53,6 +53,16 @@ runtime/accounting/
   summary.json
   prices.json
 ```
+
+A standalone plan or workspace has one, and it is both the run root and its
+rhei's. A Panta project has **several**: one per participating rhei execution
+root ([§AR-rhei-panta.5](../architecture/rhei-panta.spec.md#5-execution-root-and-per-rhei-runtime)), plus the run root, and single-file rheis share
+the project directory so two of those can be the same directory. A run writes
+each invocation record to the accounting root of the rhei that owns the ticket
+and its capture streams to the run root's, and §5.1 already requires a price
+book in every participating root. Which roots a *reading* covers is the reading
+command's scope ([§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary)); nothing here says one root holds a
+project's whole history.
 
 `invocations/` is authoritative for completed agent processes. `captures/`
 stores normalized per-turn usage events while an agent is running; invocation
@@ -573,6 +583,14 @@ incomplete in a way no single record's status shows.
 - No aggregate reports `complete` over a set it could not fully see. Where a
   retention boundary bounds what was readable, the aggregate says what it could
   not see rather than summing what is left. [§FS-rhei-run-headless.6](rhei-run-headless.spec.md#6-rhei-runs)
+- An accounting root that **exists but cannot be read** is one of those
+  boundaries. The reading names it and reads the rest, and no aggregate over it
+  reports `complete`. A reading over several roots (§FS-rhei-panta.6.5) is
+  where this bites: with one root an unreadable directory printed
+  `(no accounting records found)` and the emptiness was the report, while with
+  several it would silently shrink a total that still claimed to be whole. A
+  malformed *record* is not this case — it is reported and skipped without
+  demoting anything (§11), because the records around it were read.
 - A record read under an inferred convention (§3.6) is not itself a doubt: the
   inference is exact for the three built-in agents. A record from an agent that
   table does not name is, and no aggregate holding one reports `complete`. A
@@ -629,10 +647,15 @@ accounting records were produced.
 `rhei cost` reads accounting artifacts without changing the plan:
 
 ```bash
-rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json]
+rhei cost <RHEI_PLAN_OR_WORKSPACE> [--task <ID>] [--json] [--rhei <ID>]
           [--run <ID>] [--since <TIME>] [--until <TIME>]
           [--by agent|model|state|node|run|day]
 ```
+
+`--rhei <ID>` (repeatable) narrows the reading to named rheis, exactly as
+`rhei list`'s does. Which accounting roots the positional and the flag between
+them select is [§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary); everything below computes over the records
+those roots hold, as one set.
 
 Default text output shows workspace totals, coverage, and highest-cost nodes by
 subtree cost. `--task <ID>` shows that node's direct and subtree totals plus
@@ -647,11 +670,31 @@ already been read under §3.6's inference. On a record that carries no
 difference only by that field's absence. A consumer summing `invocations` to
 compare the sum against a rollup must apply the inference table first.
 
-When no accounting artifacts exist, `rhei cost` exits 0 and prints:
+When no accounting artifacts exist, `rhei cost` exits 0 and prints the line
+below, **and names the roots it searched underneath it**:
 
 ```text
 (no accounting records found)
+searched <root>
 ```
+
+```text
+(no accounting records found)
+searched 3 accounting roots under <project>:
+  <root>
+  <root>
+  <root>
+```
+
+The first line is unchanged and carries the answer; the tail says where the
+answer came from. An empty reading over a project that holds thousands of
+records reads as "this run cost nothing" unless it says which directories it
+looked in, and that is the one thing the reader needs in order to tell a zero
+from a miss. One root is named inline; several are counted, then listed one per
+line, indented two spaces, in the order the roots were enumerated
+([§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary)). Roots print as the command resolved them, the same path
+text the malformed-artifact warnings use (§11). A reading that found records
+prints no such tail — `--json` carries the roots either way (§8.4).
 
 `rhei summary` reads the same artifacts for the other question — not what the
 run cost but what it did, one numbered line per invocation, as Markdown short
@@ -702,7 +745,15 @@ no records at all. It exits 0 and prints:
 
 ```text
 (no accounting records match the selection)
+searched 3 accounting roots under <project>:
+  <root>
+  <root>
+  <root>
 ```
+
+The tail is the one §8 defines, rendered identically, so the distinction
+between a workspace that holds nothing and a selection that matched nothing
+stays where it already was — in the first line, and only there.
 
 ### 8.3. Grouping
 
@@ -722,14 +773,26 @@ formatted `YYYY-MM-DD`. Every group carries its own coverage (§6.2).
 exit behavior and the same `(no accounting records found)` line. The selection
 surface is additive; the unselected reading does not move.
 
+The roots tail (§8) is the one exception, and it is an addition rather than a
+change: the `(no accounting records found)` line is byte for byte what it was
+and stays the first line of the output, and a line naming the roots follows it.
+A caller matching on that line still matches; a caller matching on the whole of
+stdout sees one more line. Nothing else moves. A reading that **found** records
+prints what it printed before, byte for byte, and over a standalone workspace —
+whose one root is both the run root and its rhei's, so the union is a single
+read — that is every non-empty reading it has.
+
 `--json` gains fields rather than changing existing ones. Whatever flags were
-given, the `rhei.accounting.cost.v1` payload carries `selection` and
-`run_attribution`:
+given, the `rhei.accounting.cost.v1` payload carries `selection`,
+`run_attribution`, and `roots`:
 
 ```json
 {
   "schema": "rhei.accounting.cost.v1",
   "selection": { "run": null, "since": null, "until": null, "invocation_count": 7 },
+  "roots": [
+    { "path": "billing/runtime/accounting", "rheis": ["billing"], "invocation_count": 7 }
+  ],
   "run_attribution": {
     "attributed_invocation_count": 1,
     "unattributed_invocation_count": 6,
@@ -743,6 +806,13 @@ given, the `rhei.accounting.cost.v1` payload carries `selection` and
   "errors": []
 }
 ```
+
+`roots` is one entry per accounting root the reading covered, in enumeration
+order ([§FS-rhei-panta.6.5](rhei-panta.spec.md#65-cost-and-summary)): its `path`, the `rheis` whose execution root it is,
+and the `invocation_count` it contributed. It is present on every reading, not
+only an empty one, so a consumer can tell a total over one root from a total
+over nine without parsing text. Adding it is additive within
+`rhei.accounting.cost.v1` (§8.1) and needs no new schema id.
 
 `run_attribution` counts over the set the run filter was applied to — the
 window's scope, after `--since` and `--until` and before `--run` — and
@@ -844,6 +914,7 @@ Invocation details are served from a separate loopback endpoint such as
 | Missing price | Record measured tokens with `unpriced` or `partial-price`. |
 | Accounting write failure | Warn in the run journal and mark run accounting coverage partial. Do not hide the agent log or transition outcome. |
 | Malformed accounting artifact | `rhei cost` reports the bad path and continues reading other valid records. With `--json`, it returns a structured error. |
+| Unreadable accounting root | Name the root, read every other root in scope, and do not report `complete` (§6.2). With `--json`, a structured error naming the root, and its `roots` entry carries the count it could contribute. |
 | Concurrent writes | Write to a unique staging path, then atomically rename to `<invocation_file_id>.json`. Rollup files may be regenerated after pass writes complete. |
 
 ## Related Specifications
