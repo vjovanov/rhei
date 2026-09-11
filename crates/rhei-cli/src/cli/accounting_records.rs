@@ -139,10 +139,12 @@ struct AccountingPricing {
 
 /// The wall-clock milliseconds between a record's two endpoints.
 ///
-/// `None` when either timestamp is missing or unparseable, because a duration
-/// is not worth guessing. Every surface that reports an invocation's elapsed
-/// time derives it here when the record carries no `duration_ms` of its own,
-/// so the two readers of this archive cannot drift apart again.
+/// `None` when either timestamp is missing or unparseable, and `None` when the
+/// two do not form a forward interval — an `ended_at` before its `started_at`
+/// has no non-negative elapsed time, and a duration is not worth guessing.
+/// Every surface that reports an invocation's elapsed time derives it here when
+/// the record carries no `duration_ms` of its own, so the two readers of this
+/// archive cannot drift apart again.
 /// §FS-rhei-cost-accounting.3.4.1
 fn invocation_elapsed_ms(record: &AccountingInvocationRecord) -> Option<u64> {
     let started = parse_rfc3339_utc(&record.started_at)?;
@@ -159,8 +161,9 @@ fn invocation_elapsed_ms(record: &AccountingInvocationRecord) -> Option<u64> {
 /// record that carries its own `duration_ms` is published with that number
 /// untouched: it was measured in milliseconds while the agent ran, while the
 /// endpoints are RFC 3339 to the second, so recomputing over it would report a
-/// 31 ms invocation as zero. Reporting nothing is left for the one case where
-/// nothing is known — an endpoint missing or unparseable.
+/// 31 ms invocation as zero. Reporting nothing is left for the cases where
+/// nothing is known — an endpoint missing or unparseable, or endpoints that do
+/// not form a forward interval.
 /// §FS-rhei-cost-accounting.3.4.1
 fn published_invocation_json(record: &AccountingInvocationRecord) -> serde_json::Value {
     let mut published = serde_json::json!(record);

@@ -235,7 +235,7 @@ v1 record carries both. A reader holding the two endpoints holds the number.
 | --- | --- |
 | Writing | Every record Rhei writes carries `duration_ms`. A record already on disk without it is never rewritten to add one (§5.1). |
 | Reading | A record with no `duration_ms` parses, and the parsed record still has none. The field is not filled in on the way past. |
-| Reporting | A surface that reports an invocation's elapsed time derives it from `ended_at - started_at` when the stored field is absent, and reports nothing only when an endpoint is missing or unparseable. |
+| Reporting | A surface that reports an invocation's elapsed time derives it from `ended_at - started_at` when the stored field is absent, and reports nothing only when an endpoint is missing or unparseable, or when the two do not form a forward interval. |
 
 The derivation belongs where a reading is published, not on the record it read:
 a reading recomputes what it reports and never rewrites what it read (§5.1),
