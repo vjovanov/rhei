@@ -233,9 +233,11 @@ match = "exact"
 rules = ["source"]
 kind = "deferred"
 max_accepted = { value = 700, unit = "lines" }
-until = "Split by resolution surface (target, all_targets, legacy) when new surfaces are added."
+until = "Split by resolution surface (target, all_targets, legacy): the next edit takes the seam, rather than raising this number again."
 reason = """
-Agent resolution tests share execution-target fixtures.
+Agent resolution tests share execution-target fixtures. The recorded 600 was already fiction
+when agent-grounds/rhei#179 arrived - the file measured 671 source lines at 75f4c9eb62, so every
+edit to it was blocked - and 700 records where it stands rather than granting it room to grow.
 """
 [[exceptions]]
 path = "crates/rhei-cli/src/cli/agent_command.rs"

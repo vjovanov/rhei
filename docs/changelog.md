@@ -90,7 +90,10 @@
   separator where they are read as prompt text and ignored. An agent that still
   carries its prompt in `argv` and hits the platform's limit now says the
   composed prompt is too big and how big, instead of telling you to check
-  `PATH` for a binary that is plainly there. (PR #222)
+  `PATH` for a binary that is plainly there. It says that only when the prompt
+  is what the platform refused: a line put over the cap by something else
+  reports what was measured and keeps the `PATH` remedy, rather than naming a
+  byte count smaller than the limit in the same sentence. (PR #222)
 
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the

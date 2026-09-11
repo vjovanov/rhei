@@ -181,6 +181,10 @@ prompt delivery:
         'codex'), or register a custom agent with "stdin_prompt": true
 ```
 
+The answer is yes only when the prompt is what the platform refused. A line can
+be too long for a reason the prompt had nothing to do with, and §7.2 says what
+the failure states then.
+
 Three things follow from §1.2, and none of them is cosmetic.
 
 The remedy is a change the user can make. A settings entry for a built-in id
@@ -222,6 +226,46 @@ refuse to spawn on a size it has only estimated. A composed length is an
 approximation of what the operating system will actually count, and turning an
 invocation that would have run into a refusal is worse than the failure this
 point is about.
+
+### 7.2. When the Size Is Not the Prompt's
+
+Two things can be true at once: the platform refused the line, and the prompt is
+not what made it too long. A failure that prints the prompt's byte count beside a
+larger limit has then said something false in the same sentence as something
+true, and offered a remedy that would leave the line exactly as long as it was.
+That is the confidently wrong cause §1.2 rules out, arriving by a different door
+than a missing `PATH`.
+
+So the question is asked in two parts. **Did the prompt reach the command line at
+all?** That is read from the argument vector rhei composed, because more than one
+transport keeps the prompt off it: the Claude Code stream-json arm
+([§FS-rhei-agents.1.1.2](rhei-agents.spec.md#112-agents)) sends the
+prompt down the same pipe without declaring `stdin_prompt`, and would otherwise
+be told its prompt was too long for a line it is not on. **And is the prompt what
+is over the cap?** On a per-argument cap that is the prompt's own bytes; on a
+total cap it is whether taking the prompt off the line would bring the rest back
+under. Only when both hold is the prompt named.
+
+On a total cap the sentence carries both numbers — what the whole line measured
+and how much of it was the prompt — since the prompt's own size is below the
+limit there and stating it alone would read as the contradiction this point
+exists to prevent.
+
+When the prompt is not the cause, the failure states what was measured and keeps
+the help it had, because prompt delivery is not the remedy:
+
+```
+  × failed to spawn agent 'argv-agent': Argument list too long (os error 7)
+  │ the composed command line is 200104 bytes, past this platform's
+  │ 131072-byte limit
+  help: the agent command could not start. Check it exists on PATH and is
+        executable: rhei diag
+```
+
+And rhei states no size its own measurement does not support. A composed length
+is an approximation of what the operating system counts (§7.1), so a refusal of a
+line rhei measures as fitting is left to speak for itself: nothing is added, and
+the `PATH` remedy stands alone.
 
 ## Related
 

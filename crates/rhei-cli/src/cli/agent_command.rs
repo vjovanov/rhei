@@ -56,14 +56,20 @@ fn remove_outer_rhei_identity(cmd: &mut std::process::Command) {
 /// Build a `Command` for the resolved agent.
 ///
 /// Flag order:
-/// `<command...> <mode flags...> <autonomous_args...> <prompt_flag> <prompt>?
-///  <model_flag> <model>? <snapshot_args...> <mcp/skill flags...>`
-/// `-- ` is appended after `snapshot_args` when `stdin_prompt` is `true`, to
-/// match `codex exec -- `-style invocations that expect stdin. MCP and skill
-/// flags follow after the `--` so the optional positional stdin separator
-/// stays adjacent to the model flag. `intervene_stdin` also requests a stdin
-/// pipe. For `claude-code`, opting into `intervene_stdin` switches the command
-/// to stream-json stdin so the running process actually consumes interventions.
+/// `<command...> <mode flags...> <autonomous_args...> <accounting flags...>
+///  <prompt_flag> <prompt>? <model_flag> <model>? <snapshot_args...>
+///  <mcp/skill flags...> --?`
+/// `--` is appended last when `stdin_prompt` is `true`, to match
+/// `codex exec --`-style invocations that expect stdin: past a separator a flag
+/// is prompt text, so everything rhei has to say to the agent — the snapshot,
+/// MCP and skill flags included — is emitted before it
+/// (§FS-rhei-agents.2.2). A prompt flag declared alongside
+/// `stdin_prompt` is emitted with no value, because the flag says the agent is
+/// non-interactive and the value is the prompt: two different questions
+/// (§FS-rhei-agents.1.1.2). `intervene_stdin` also
+/// requests a stdin pipe. For `claude-code`, opting into `intervene_stdin`
+/// switches the command to stream-json stdin so the running process actually
+/// consumes interventions.
 ///
 /// `snapshot_args` are the resolved snapshot preload's strategy flags —
 /// `--session-dir <dir>`, `--fork <path>`, `--continue <id>`, or a resume the
