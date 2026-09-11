@@ -826,7 +826,12 @@ decides whether the invocation can be skipped. In a Panta project this root can
 sit below the run-level workspace root that `rhei run` was pointed at; the two
 must not be conflated.
 
-All three are evaluated after the process exits. If the state declares no
+All three are evaluated after the process exits — and condition (3) selects its
+edge against the plan **as re-read after that exit**, not the copy the pass held
+when it spawned, so a child the invocation appended or cancelled counts toward
+the operands that selection reads ([§FS-rhei-supervision.4.1](rhei-supervision.spec.md#41-the-opendescendants-operand)). The skip test
+below asks the same condition before anything has run, where the plan the pass
+holds is already the current one. If the state declares no
 `outputs:`, condition (2) is vacuously true. If the selected transition is
 non-terminal, condition (3) is vacuously true — it is a property of the edge
 being taken, not of the state being left ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). Condition (3) is
