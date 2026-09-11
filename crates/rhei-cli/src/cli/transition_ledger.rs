@@ -155,6 +155,10 @@ fn ensure_result_file(workspace_root: &Path, task_id: &str) -> MietteResult<()> 
 struct TaskAssigneeClaimContext<'a> {
     workspace_root: &'a Path,
     metadata: Option<&'a Metadata>,
+    /// Node kinds the rhei that owns the task file declared, so the re-read
+    /// parses it under the same kinds the scan did. `None` means the caller
+    /// has no declaration to apply. §FS-rhei-next.3.1
+    structure: Option<&'a rhei_core::ast::Structure>,
     state_def: &'a rhei_validator::StateDef,
     settings: &'a RheiSettings,
 }
@@ -171,7 +175,7 @@ fn write_task_assignee(
     let locked = LockedPlanFile::open(task_file)?;
     let raw = locked.read_to_string("failed to read plan file")?;
     let target = parse_task_id(task_id);
-    let task = parse_claim_task_from_raw(&raw, task_file, &target, task_id)?;
+    let task = parse_claim_task_from_raw(&raw, task_file, claim.structure, &target, task_id)?;
     let current_state = normalized_state_name(task.state.as_str(), machine);
     if current_state != expected_state {
         locked.release();
@@ -238,19 +242,50 @@ fn write_task_assignee(
     Ok(())
 }
 
+/// Read the node kinds declared by the rhei that owns `route`'s task file.
+///
+/// The kinds are the owning rhei's own, never the merged project graph's: a
+/// project unions every rhei's declaration, which would let a claim parse a
+/// keyword the owning rhei never declared. A rhei whose metadata lives in the
+/// task file itself declares them in that file's frontmatter, so there is
+/// nothing to thread. §FS-rhei-next.3.1 §FS-rhei-panta.6.1
+fn claim_node_kinds(route: &TaskRoute) -> MietteResult<Option<rhei_core::ast::Structure>> {
+    if route.metadata_file == route.task_file {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&route.metadata_file)
+        .map_err(|err| file_io_report(&route.metadata_file, "failed to read plan file", err))?;
+    Ok(Some(parse_metadata_manifest(&route.metadata_file, &raw)?.structure))
+}
+
+/// Find the task being claimed in the raw markdown just read under the lock.
+///
+/// `workspace_structure` carries the node kinds the owning rhei's index
+/// declared; a task file declares none of its own, so without them the parse
+/// would accept `Task` alone and lose a task the scan had already selected.
+/// §FS-rhei-next.3.1
 fn parse_claim_task_from_raw(
     raw: &str,
     task_file: &Path,
+    workspace_structure: Option<&rhei_core::ast::Structure>,
     target: &TaskId,
     task_id: &str,
 ) -> MietteResult<rhei_core::ast::Task> {
+    // A single-file rhei is its own metadata file, so its frontmatter reaches
+    // the parser here and this branch already honours the declared kinds.
     if let Ok(rhei) = rhei_core::parse(raw) {
         if let Some(task) = find_task_by_id(&rhei.tasks, target) {
             return Ok(task.clone());
         }
     }
 
-    if let Ok(tasks) = rhei_core::parser::parse_workspace_tasks(raw) {
+    // A caller with no declaration keeps the `Task`-only default, which is what
+    // a plan that declared nothing means. §FS-rhei-plan-language.3.7
+    let workspace_tasks = match workspace_structure {
+        Some(structure) => rhei_core::parser::parse_workspace_tasks_with_structure(raw, structure),
+        None => rhei_core::parser::parse_workspace_tasks(raw),
+    };
+    if let Ok(tasks) = workspace_tasks {
         if let Some(task) = find_task_by_id(&tasks, target) {
             return Ok(task.clone());
         }

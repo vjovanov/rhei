@@ -395,6 +395,9 @@ fn next_command(
                 help = internal_error_help(),
                 "state '{}' missing from loaded machine", final_state
             ))?;
+        // The re-read under the lock parses the task file under the kinds its
+        // own rhei declared, as the scan did. §FS-rhei-next.3.1
+        let claim_structure = claim_node_kinds(&route)?;
         write_task_assignee(
             &route.task_file,
             &route.local_id,
@@ -404,6 +407,7 @@ fn next_command(
             TaskAssigneeClaimContext {
                 workspace_root: &task_workspace_root,
                 metadata: loaded.rhei.metadata.as_ref(),
+                structure: claim_structure.as_ref(),
                 state_def: final_state_def,
                 settings: &settings,
             },

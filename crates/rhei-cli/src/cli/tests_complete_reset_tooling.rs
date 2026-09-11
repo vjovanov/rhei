@@ -803,6 +803,7 @@ transitions:
             TaskAssigneeClaimContext {
                 workspace_root: dir.path(),
                 metadata: None,
+                structure: None,
                 state_def,
                 settings: &settings,
             },
