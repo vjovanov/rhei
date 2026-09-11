@@ -13,6 +13,7 @@ mod completions_tests;
 mod cost_accounting_tests;
 mod cost_selection_tests;
 mod current_dir_target_tests;
+mod diagnostic_wrap_tests;
 mod error_guidance_tests;
 mod examples_tests;
 mod handoff_tests;
@@ -100,7 +101,7 @@ pub use rhei_core::platform::shell_quote;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
@@ -324,6 +325,31 @@ pub fn rhei_command(home: impl AsRef<Path>) -> Command {
     cmd.env("HOME", home);
     cmd.env("XDG_STATE_HOME", home.join("state"));
     cmd
+}
+
+/// Captured stdout, as the process wrote it. Nothing renders stdout, so there
+/// is nothing between the bytes and the assertion.
+pub fn stdout(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// Captured stderr exactly as the process wrote it — miette's gutter, its soft
+/// wrap and all.
+///
+/// Only a test whose subject is the *rendering* wants this. A test asserting
+/// what the binary said reads `stderr`, because where a line happened to break
+/// is a property of the terminal width, not of the message. §FS-rhei-errors.2
+pub fn raw_stderr(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// Captured stderr as an assertion should read it.
+//
+// Today this is still the raw text, which is the defect `diagnostic_wrap_tests`
+// pins: a phrase miette soft-wrapped is invisible to `contains`, on whichever
+// machine the wrap column happens to land inside it.
+pub fn stderr(out: &Output) -> String {
+    raw_stderr(out)
 }
 
 /// Run an arbitrary rhei subcommand.

@@ -18,7 +18,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::headless_support::{parse_records, stderr, stdout, Workspace};
+use super::headless_support::{parse_records, Workspace};
+use super::{stderr, stdout};
 
 /// The lock file a liveness probe opens. Making *this* unreadable — rather than
 /// the whole `.rhei` directory — leaves `runtime/run.json` readable, which is

@@ -12,8 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use super::headless_support::{stderr, stdout, Workspace};
-use super::python_command;
+use super::headless_support::Workspace;
+use super::{python_command, raw_stderr, stderr, stdout};
 
 struct ChildGuard(Child);
 
@@ -105,6 +105,68 @@ fn stop_refuses_a_descriptor_pid_that_does_not_own_the_contended_lock() {
     assert!(victim.is_running(), "the victim should still be running");
     assert!(holder.is_running(), "the separate lock holder should still be running");
 }
+
+/// Sixteen characters, chosen rather than found.
+///
+/// The refusal interpolates the run id as well as the pid, so the id is the
+/// lever a test has over where miette's 80-column wrap falls. Measured against
+/// miette 7.6.0, the wrap lands inside the closing sentence for every run id
+/// and pid that together occupy up to 35 characters, and past it beyond that;
+/// at 16 the window holds for any pid from one to nineteen digits. This test
+/// therefore reaches the split on a four-digit-pid CI runner as surely as on
+/// the seven-digit developer machine that reported it, which is the whole
+/// difference between pinning the defect and waiting for it.
+const WRAPPING_RUN_ID: &str = "wrap-boundary-01";
+
+/// The refusal must be readable by a test whatever width the renderer chose.
+///
+/// miette breaks only at spaces (§FS-rhei-errors.2), so the sentence arrives
+/// whole and the binary is right; what must not happen is an assertion whose
+/// outcome turns on which space it broke at. Kept apart from the ownership
+/// proof above so that this failure says "the harness cannot read stderr"
+/// rather than "stopping is broken". §FS-rhei-run-headless.7
+#[test]
+fn the_stop_refusal_reads_the_same_however_the_renderer_wrapped_it() {
+    let ws = Workspace::new("stop-wrapped-refusal", 30);
+    let lock = ws.root.join(".rhei/run.lock");
+    fs::create_dir_all(lock.parent().expect("lock directory")).expect("lock directory");
+    fs::write(&lock, []).expect("lock file");
+
+    let lock_arg = lock.to_string_lossy().into_owned();
+    let _holder = spawn_ready_python(
+        "import fcntl,sys,time\nf=open(sys.argv[1], 'r+')\nfcntl.flock(f, fcntl.LOCK_EX)\nprint('READY', flush=True)\ntime.sleep(60)",
+        &[&lock_arg],
+    );
+    let mut innocent = spawn_ready_python(
+        "import time\nprint('READY', flush=True)\nwhile True: time.sleep(1)",
+        &[],
+    );
+    publish_running_descriptor(&ws, WRAPPING_RUN_ID, innocent.0.id());
+
+    let out = ws.rhei(&["stop", WRAPPING_RUN_ID]);
+    thread::sleep(Duration::from_millis(200));
+
+    assert!(!out.status.success(), "an unowned pid is not a successful stop");
+    let rendered = raw_stderr(&out);
+    assert!(
+        rendered.contains("refusing to stop run"),
+        "the refusal was not reached at all, so this test proves nothing: {rendered}"
+    );
+    assert!(
+        !rendered.contains(REFUSAL),
+        "the wrap no longer falls inside the phrase, so this test has gone \
+         vacuous: re-measure the window and pick a new run id. Rendered:\n{rendered}"
+    );
+    assert!(
+        stderr(&out).contains(REFUSAL),
+        "the refusal is one sentence and must read as one: {}",
+        stderr(&out)
+    );
+    assert!(innocent.is_running(), "the innocent pid should still be running");
+}
+
+/// What the ownership proof says, and what the harness has to be able to see.
+const REFUSAL: &str = "does not own its recorded run lock";
 
 /// The same proof accepts the real process after its held inode is renamed and
 /// an unlocked replacement takes the pathname. §FS-rhei-run-headless.7

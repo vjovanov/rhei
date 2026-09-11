@@ -16,7 +16,8 @@ use std::fs;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use super::headless_support::{stdout, wait_until, Workspace};
+use super::headless_support::{wait_until, Workspace};
+use super::stdout;
 
 /// `kill -<signal> <pid>`, through the tool rather than a libc binding: what is
 /// under test is the run's response, not the delivery.

@@ -11,7 +11,9 @@ use std::process::{Command, Output};
 #[cfg(unix)]
 use std::time::{Duration, Instant};
 
-use super::{fixture_command, rhei_binary, unique_temp_dir, write_python_agent, TestDir};
+use super::{
+    fixture_command, rhei_binary, stderr, stdout, unique_temp_dir, write_python_agent, TestDir,
+};
 
 /// A state machine whose only work is a program, so a run does real work with
 /// no agent binary in sight. The command is absolute because a test workspace
@@ -180,14 +182,6 @@ impl Drop for Workspace {
     fn drop(&mut self) {
         self.stop_quietly();
     }
-}
-
-pub fn stdout(out: &Output) -> String {
-    String::from_utf8_lossy(&out.stdout).into_owned()
-}
-
-pub fn stderr(out: &Output) -> String {
-    String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
 /// Parse a JSONL stream, failing loudly on the first line that is not a record.

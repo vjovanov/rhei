@@ -15,6 +15,18 @@
   optional in `rhei.accounting.invocation.v1`, and `rhei summary` now shares
   the one derivation instead of keeping a second copy of it. (PR #215)
 
+- **An end-to-end assertion no longer depends on where miette wrapped.**
+  Captured stderr is not a tty, so every diagnostic is rendered wrapped at
+  eighty columns, and a `contains` on a phrase that straddles the break fails
+  on whichever machine pushes it over — a developer's, never CI's. The e2e
+  harness now undoes the soft wrap at one seam, `stderr(&output)`, and every
+  assertion reads stderr through it; the private normalizer in `next_tests.rs`
+  and the whitespace-collapsing match in `assert_stderr_contains` are gone with
+  it. Rejoining inserts the single space the wrap removed and never merges two
+  rendered blocks, so a token broken mid-word and a phrase stitched out of a
+  message and its help both stay visible as the faults they are. No product
+  code changes. (PR #N)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's
