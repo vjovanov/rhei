@@ -38,7 +38,7 @@
   plan re-read after that exit, as the parallel path already did, so the
   appended child counts as the descendant it is, the release self-loop fires,
   and the child runs in the same run rather than waiting for a second `rhei
-  run`. (PR #N)
+  run`. (PR #224)
 
 - **A continued snapshot session lands under the rhei that owns the ticket.**
   `rhei snapshot continue` created its agent session directory under the
