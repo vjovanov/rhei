@@ -438,3 +438,13 @@ issue = "agent-grounds/rhei#179"
 reason = """
 Three subjects share this declaration: what an agent profile is, what rhei composes when it spawns one, and what the run loop does around it. The split is real and is not this change's to make. What is edited here is one ticket's specification point — the claude-code prompt transport, the flag order that follows from it, and a dry-run illustration that stopped being true — and splitting the document in the same commit would move every section citation alongside a behaviour change, which is precisely what a spec-first commit must not hide.
 """
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/agent_spawn.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 600, unit = "lines" }
+until = "The agent's stream capture — the log writer, the reader threads and their drain — is a module of its own, so what spawns the child and waits on it is the only thing left here."
+reason = """
+Over budget before this change; the touch that surfaced it replaced the spawn failure's hard-coded help with a call that asks whether the command line's size explains it, and left the file two lines shorter than it was. The stream-capture helpers above the spawn are the seam, and they are not taken here because §AR-source-file-size.3 names the CLI's module list and a new module belongs in the same commit as that edit, not in a behaviour fix.
+"""

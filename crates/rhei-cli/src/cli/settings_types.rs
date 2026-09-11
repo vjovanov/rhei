@@ -227,13 +227,18 @@ fn built_in_agents() -> BTreeMap<String, CustomAgentProfile> {
 
     let mut agents = BTreeMap::new();
 
+    // claude-code: the prompt travels on stdin, so a supervisor brief is not
+    // bounded by what one command-line argument may carry. `-p` stays declared
+    // and is emitted bare: it is `--print`, what puts the agent in
+    // non-interactive mode, not what carries the text.
+    // §FS-rhei-agents.2 §FS-rhei-agents.1.1.2: Built-in claude-code profile.
     agents.insert(
         "claude-code".to_string(),
         CustomAgentProfile {
             command: flags(&["claude"]),
             prompt_flag: Some("-p".to_string()),
             model_flag: Some("--model".to_string()),
-            stdin_prompt: false,
+            stdin_prompt: true,
             mcp_config_flag: Some("--mcp-config".to_string()),
             skill_flag: Some("--skill".to_string()),
             modes: modes_yolo_only(flags(&["--permission-mode", "bypassPermissions"])),

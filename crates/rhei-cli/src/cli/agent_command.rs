@@ -140,8 +140,14 @@ fn build_agent_command(
         cmd.arg("--input-format").arg("stream-json");
         cmd.arg("--output-format").arg("stream-json");
         cmd.arg("--verbose");
-    } else if let (false, Some(flag)) = (profile.stdin_prompt, &profile.prompt_flag) {
-        cmd.arg(flag).arg(prompt);
+    } else if let Some(flag) = &profile.prompt_flag {
+        // The flag says the agent is non-interactive and the value is the
+        // prompt: two different questions, so stdin delivery drops the value
+        // and keeps the flag rather than discarding both. §FS-rhei-agents.1.1.2
+        cmd.arg(flag);
+        if !profile.stdin_prompt {
+            cmd.arg(prompt);
+        }
     }
 
     // Use the concrete provider model name from the `models` registry when
@@ -152,15 +158,11 @@ fn build_agent_command(
         cmd.arg(flag).arg(model);
     }
 
-    // After the mode, prompt and model flags and before the separator: past a
-    // `--` an argument is prompt text, so a resume that lands there is read as
-    // part of the prompt and does nothing. §FS-rhei-snapshots.10.1
+    // One slot: after the mode, prompt and model flags, ahead of the tooling
+    // flags, and so ahead of the separator a resume would read as prompt text.
+    // §FS-rhei-snapshots.10.1
     for arg in snapshot_args {
         cmd.arg(arg);
-    }
-
-    if profile.stdin_prompt {
-        cmd.arg("--");
     }
 
     // Append MCP and skill flags. Only entries whose definition resolved
@@ -189,6 +191,13 @@ fn build_agent_command(
                 cmd.arg(flag).arg(&entry.id);
             }
         }
+    }
+
+    // Last, after everything rhei has to say to the agent: past a separator a
+    // flag is prompt text, which the agent neither applies nor complains about.
+    // §FS-rhei-agents.2.2
+    if profile.stdin_prompt {
+        cmd.arg("--");
     }
 
     cmd.env("RHEI_CHECKOUT_ROOT", checkout_root)

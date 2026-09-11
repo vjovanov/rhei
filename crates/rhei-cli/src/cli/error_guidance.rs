@@ -292,3 +292,130 @@ fn handoff_empty_artifact_help() -> &'static str {
      does not satisfy a handoff — check that state's agent log under runtime/logs/, \
      then re-run the producing task."
 }
+
+/// What this platform refuses, and at what size.
+///
+/// Linux rejects any single argument above `MAX_ARG_STRLEN` whatever `ARG_MAX`
+/// says; macOS has no per-argument cap and fails on the total instead; Windows
+/// caps the whole command line at what `CreateProcessW` accepts.
+/// §FS-rhei-errors.7.1
+const COMMAND_LINE_LIMIT_BYTES: usize = if cfg!(windows) {
+    32_767
+} else if cfg!(target_os = "linux") {
+    131_072
+} else {
+    1_048_576
+};
+
+/// How the prompt sits on the line, for the sentence that explains the failure:
+/// only Linux refuses one argument on its own. §FS-rhei-errors.7.1
+const COMMAND_LINE_LIMIT_SCOPE: &str = if cfg!(target_os = "linux") {
+    "passes it as one command-line argument"
+} else {
+    "passes it on the command line"
+};
+
+/// `E2BIG`, which both Linux and macOS report when a command line is too large
+/// for them. §FS-rhei-errors.7.1
+const E2BIG: i32 = 7;
+
+/// The command line as the operating system will count it: every argument, and
+/// the space between them.
+///
+/// An approximation of what is actually measured, which is why it only ever
+/// explains a failure that already happened. §FS-rhei-errors.7.1
+fn composed_command_line_bytes(cmd: &std::process::Command) -> usize {
+    cmd.get_program().len() + cmd.get_args().map(|arg| arg.len() + 1).sum::<usize>()
+}
+
+/// Whether the size of what rhei composed explains the operating system's
+/// refusal to start the process.
+///
+/// Linux and macOS answer for themselves: both report `E2BIG`, each at its own
+/// cap. Windows reports nothing distinct enough to read this from, and the Rust
+/// error kind that would name it portably is newer than this workspace's
+/// minimum supported Rust, so there rhei measures instead. The measurement
+/// explains a failure; it never causes one. §FS-rhei-errors.7.1
+fn size_explains_spawn_failure(err: &std::io::Error, command_line_bytes: usize) -> bool {
+    if cfg!(windows) {
+        command_line_bytes > COMMAND_LINE_LIMIT_BYTES
+    } else {
+        err.raw_os_error() == Some(E2BIG)
+    }
+}
+
+/// What a failed spawn says beyond the operating system's own words.
+struct SpawnFailureGuidance {
+    /// Appended to the message. Empty unless the size is what explains it.
+    detail: String,
+    help: &'static str,
+}
+
+/// Help for a spawn that failed for any reason the command line's size does not
+/// explain — a missing binary above all, which is what this reads like.
+// §FS-rhei-errors.6: every failure names the next action.
+fn spawn_not_started_help() -> &'static str {
+    "the agent command could not start. Check it exists on PATH and is executable: rhei diag"
+}
+
+/// Help for a spawn the composed prompt's size explains.
+///
+/// It names the agents that already deliver on stdin and the shape of a custom
+/// entry that does, rather than saying to set `stdin_prompt` on the agent that
+/// failed: a settings entry for a built-in id replaces that profile wholesale
+/// (§FS-rhei-agents.1.3), so that advice would paste back as a different
+/// failure, which §FS-rhei-errors.1.2 rules out.
+fn oversized_prompt_help() -> &'static str {
+    "use an agent that delivers the prompt on stdin ('claude-code', 'codex'), or register \
+     a custom agent with \"stdin_prompt\": true"
+}
+
+/// One question asked at a spawn failure and never before it: could this be the
+/// size of what rhei composed?
+///
+/// Only an agent carrying its prompt in `argv` can be over the cap because of
+/// the prompt — a stdin transport's prompt is not on the command line at all —
+/// so a profile that already delivers on stdin keeps the remedy it had.
+/// §FS-rhei-errors.7
+fn spawn_failure_guidance(
+    err: &std::io::Error,
+    profile: &CustomAgentProfile,
+    prompt_bytes: usize,
+    command_line_bytes: usize,
+) -> SpawnFailureGuidance {
+    if profile.stdin_prompt || !size_explains_spawn_failure(err, command_line_bytes) {
+        return SpawnFailureGuidance { detail: String::new(), help: spawn_not_started_help() };
+    }
+    SpawnFailureGuidance {
+        // The user cannot see the composed prompt, so the byte count and the
+        // platform's limit are what turn "too long" into a decision about which
+        // agent to run. §FS-rhei-errors.7
+        detail: format!(
+            "\nthe composed prompt is {prompt_bytes} bytes and this agent \
+             {COMMAND_LINE_LIMIT_SCOPE}, past this platform's \
+             {COMMAND_LINE_LIMIT_BYTES}-byte limit"
+        ),
+        help: oversized_prompt_help(),
+    }
+}
+
+/// The diagnostic for an agent process that never started. §FS-rhei-errors.7
+fn spawn_failure_report(
+    err: &std::io::Error,
+    resolved: &ResolvedAgent,
+    prompt: &str,
+    cmd: &std::process::Command,
+) -> miette::Report {
+    let said = spawn_failure_guidance(
+        err,
+        &resolved.profile,
+        prompt.len(),
+        composed_command_line_bytes(cmd),
+    );
+    miette!(
+        help = said.help,
+        "failed to spawn agent '{}': {err}{}",
+        resolved.agent.id(),
+        said.detail
+    )
+}
