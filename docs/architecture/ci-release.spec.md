@@ -43,6 +43,19 @@ first subprocess use in each harness process. A pre-existing profile binary is
 not evidence of freshness; successful verification may be shared by later uses
 in that process.
 
+The check and the rebuild must name one directory: the profile directory the
+harness will execute the binary from, which it reads off the running test
+binary's own location. The rebuild is directed at that directory explicitly
+rather than left to what a child process happens to inherit, because
+`--target-dir` on the outer invocation reaches no child and an inherited
+`CARGO_TARGET_DIR` can name a third place — so a run given a target directory of
+its own rebuilds where the harness is looking instead of into the checkout's
+default `target/`. Directing the rebuild must not drop what the profile
+directory already told the harness, the release profile included. When a build
+that succeeded leaves no binary where the harness looks, the harness reports the
+path it checked and the build it ran to produce it, because a message naming
+only the path sends a reader hunting in a checkout that built correctly.
+
 **`lint`** runs on Linux only. It runs `grund config validate` and
 `grund check .`, then the repository `.pre-commit-config.yaml` against all
 files with the cargo hooks skipped — `test` has just run them on three
