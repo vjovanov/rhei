@@ -13,7 +13,7 @@
 use std::process::{ExitStatus, Output};
 
 use super::{assert_stderr_contains, raw_stderr, repo_root, rhei_command, stderr, unique_temp_dir};
-use super::{CliRun, TestDir};
+use super::{setup_single_file, CliRun, TestDir, LINEAR_PLAN};
 
 /// Captured output carrying `text` on stderr, so a rule about the reading can
 /// be stated against the exact bytes it is a rule about.
@@ -108,6 +108,83 @@ fn undoing_the_wrap_leaves_a_token_broken_mid_word_broken() {
     );
 }
 
+/// A newline the message carried itself is joined when the text before it
+/// happens to fill the column. **This is a known limit, not a property anyone
+/// wants**, and it is recorded here so it is a fact rather than folklore.
+///
+/// miette hands the whole message to `textwrap::fill`, which splits at the
+/// newlines already in it before wrapping each piece. A piece ending within one
+/// word of the column is byte-for-byte what a greedy wrap would have produced,
+/// so nothing in the rendered text tells the two apart. Guessing from the
+/// preceding character would decide these two cases and be wrong somewhere
+/// nobody is watching. Removing the ambiguity means changing what the binary
+/// prints, and what it prints is right: §FS-rhei-errors.2 asks for that layout,
+/// and a test suite has no standing to move a user-visible contract for its own
+/// convenience. So the join stays, and the two shipped diagnostics that meet it
+/// are run here rather than described.
+///
+/// A change that ends the join should **delete this test**, not satisfy it.
+#[test]
+fn a_message_newline_at_the_column_is_joined_which_is_a_known_limit() {
+    // `rhei next` refusing a parent whose descendant is still open, in
+    // `next_command.rs`: the `Open descendants:` line follows a `\n`.
+    let (dir, plan, machine) =
+        setup_single_file("wrap-limit-next", super::next_tests::PARENT_WITH_ONE_OPEN_CHILD);
+    let next = rhei_command(dir.join(".home"))
+        .arg("--state-machine")
+        .arg(&machine)
+        .arg("next")
+        .arg(&plan)
+        .args(["--no-callbacks", "--task", "1"])
+        .output()
+        .expect("rhei next should run");
+
+    // `rhei complete` refusing a task whose prior is unsatisfied, in
+    // `complete_reset_commands.rs`: `Blocking priors:` follows a `\n`, and
+    // `Complete them first` follows a second one that does *not* fill the line.
+    let (dir2, plan2, machine2) = setup_single_file("wrap-limit-complete", LINEAR_PLAN);
+    let complete = rhei_command(dir2.join(".home"))
+        .arg("--state-machine")
+        .arg(&machine2)
+        .arg("complete")
+        .arg(&plan2)
+        .args(["--no-callbacks", "--task", "2", "--result", "done"])
+        .output()
+        .expect("rhei complete should run");
+
+    for (what, out, printed, joined) in [
+        ("rhei next", &next, "still open.\n  \u{2502} Open", "still open. Open descendants:"),
+        (
+            "rhei complete",
+            &complete,
+            "unsatisfied.\n  \u{2502} Blocking",
+            "unsatisfied. Blocking priors:",
+        ),
+    ] {
+        assert!(
+            raw_stderr(out).contains(printed),
+            "{what} no longer prints its own newline where the line fills the column, \
+             so this test pins nothing: check whether the limit is gone, and delete \
+             this test if it is. Rendered:\n{}",
+            raw_stderr(out)
+        );
+        assert!(
+            stderr(out).contains(joined),
+            "the harness no longer joins {what}'s own newline into the line before \
+             it. That is better than what this test records: delete the test rather \
+             than restore the join.\n{}",
+            stderr(out)
+        );
+    }
+
+    assert!(
+        stderr(&complete).contains("(draft)\n  \u{2502} Complete them first"),
+        "the limit is meant to be narrow: a message newline that stops short of the \
+         column stays where the binary put it, and that has stopped holding:\n{}",
+        stderr(&complete)
+    );
+}
+
 /// Only a wrapped diagnostic is unwrapped. Everything else on stderr — a
 /// program's own output, a log line, a Python traceback — is two lines because
 /// it was written as two lines, and joining those would invent a sentence.
@@ -155,10 +232,16 @@ fn the_stderr_assertion_refuses_a_phrase_the_binary_never_printed() {
 /// else, so it is missed for months. Turning captured stderr into text is
 /// therefore the harness's job at one seam; a file that does it itself has
 /// opted out without meaning to.
+///
+/// Captured stderr arrives by two doors, and a rule that guards one of them is
+/// weaker than it reads: a test may hold the bytes a pipe gave it, or read the
+/// file a `rhei run` redirected its stderr into. `run.err` carries rendered
+/// diagnostics at the same column as a pipe does, so both doors are named
+/// here.
 #[test]
 fn every_end_to_end_file_reads_stderr_through_the_harness() {
     // Spelled in halves so this file is not its own first finding.
-    let conversion = concat!("from_", "utf8");
+    let probes = [concat!("from_", "utf8"), concat!("read_to_", "string")];
     let e2e = repo_root().join("tests").join("e2e");
 
     let mut opted_out = Vec::new();
@@ -173,20 +256,28 @@ fn every_end_to_end_file_reads_stderr_through_the_harness() {
 
     for path in files {
         let text = std::fs::read_to_string(&path).expect("an end-to-end source should be readable");
-        for (index, _) in text.match_indices(conversion) {
-            if !text[index..].chars().take(60).collect::<String>().contains("stderr") {
-                continue;
+        for probe in probes {
+            for (index, _) in text.match_indices(probe) {
+                // A read is captured stderr when what it names says so: the
+                // word itself, or a path literal ending in the extension a
+                // redirected stderr file carries.
+                let window: String = text[index..].chars().take(60).collect();
+                if !window.contains("stderr") && !window.contains(".err\"") {
+                    continue;
+                }
+                let line = text[..index].lines().count();
+                let name = path.file_name().expect("file name").to_string_lossy().into_owned();
+                opted_out.push(format!("{name}:{line}"));
             }
-            let line = text[..index].lines().count();
-            let name = path.file_name().expect("file name").to_string_lossy().into_owned();
-            opted_out.push(format!("{name}:{line}"));
         }
     }
+    opted_out.sort();
 
     assert!(
         opted_out.is_empty(),
-        "these read captured stderr themselves instead of through `stderr(&out)`, so \
-         miette's wrap decides whether their assertions match:\n  {}",
+        "these read captured stderr themselves instead of through `stderr(&out)` or \
+         `stderr_from_file(path)`, so miette's wrap decides whether their assertions \
+         match:\n  {}",
         opted_out.join("\n  ")
     );
 }

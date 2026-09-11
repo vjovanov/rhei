@@ -297,9 +297,11 @@ fn read_only_agent_log(workspace: &Path) -> String {
     fs::read_to_string(&logs[0]).expect("read agent log")
 }
 
+/// The stderr `rhei run` was redirected into, through the harness's one seam:
+/// a diagnostic lands in this file wrapped exactly as it lands in a pipe.
 #[cfg(unix)]
 fn read_run_stderr(dir: &Path) -> String {
-    fs::read_to_string(dir.join("run.err")).unwrap_or_default()
+    super::stderr_from_file(dir.join("run.err"))
 }
 
 #[cfg(unix)]

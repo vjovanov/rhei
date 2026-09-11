@@ -24,8 +24,15 @@
   and the whitespace-collapsing match in `assert_stderr_contains` are gone with
   it. Rejoining inserts the single space the wrap removed and never merges two
   rendered blocks, so a token broken mid-word and a phrase stitched out of a
-  message and its help both stay visible as the faults they are. No product
-  code changes. (PR #218)
+  message and its help both stay visible as the faults they are. The inverse is
+  close but not exact: a newline a message carries itself, falling where the
+  line was already full, renders identically to a wrap and is joined, because
+  miette splits a message at its own newlines before wrapping each piece. A
+  test runs the two shipped diagnostics that meet this and records it as a
+  known limit. The harness also clears `FORCE_COLOR` and `CLICOLOR_FORCE`
+  before every spawn, so an ANSI gutter forced by the operator's shell cannot
+  make the same assertions machine-dependent again. No product code changes.
+  (PR #218)
 
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the

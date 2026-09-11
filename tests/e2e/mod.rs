@@ -333,9 +333,31 @@ pub fn copy_workspace_fixture(prefix: &str, fixture_name: &str) -> (TestDir, Pat
 pub fn rhei_command(home: impl AsRef<Path>) -> Command {
     let home = home.as_ref();
     let _ = fs::create_dir_all(home.join("state"));
-    let mut cmd = Command::new(rhei_binary());
+    let mut cmd = rhei_process();
     cmd.env("HOME", home);
     cmd.env("XDG_STATE_HOME", home.join("state"));
+    cmd
+}
+
+/// Every spawn of the built binary, with what decides how a diagnostic is
+/// *rendered* taken out of the operator's hands.
+///
+/// miette asks `supports-color` before it asks whether stderr is a tty, and
+/// `FORCE_COLOR` or `CLICOLOR_FORCE` answers yes for a pipe as well. On a
+/// machine that sets either, every gutter arrives wrapped in ANSI escapes, no
+/// block matches, `undo_soft_wrap` hands the text back untouched, and every
+/// assertion this suite unwraps for fails there and nowhere else — the
+/// machine-dependent failure the unwrapping exists to remove, wearing a
+/// different variable. §FS-rhei-errors.2
+pub fn rhei_process() -> Command {
+    rhei_process_at(rhei_binary())
+}
+
+/// [`rhei_process`] for a test that runs a *copy* of the binary from elsewhere.
+pub fn rhei_process_at(bin: impl AsRef<Path>) -> Command {
+    let mut cmd = Command::new(bin.as_ref());
+    cmd.env_remove("FORCE_COLOR");
+    cmd.env_remove("CLICOLOR_FORCE");
     cmd
 }
 
@@ -365,6 +387,17 @@ pub fn raw_stderr(out: &Output) -> String {
 /// §FS-rhei-errors.2
 pub fn stderr(out: &Output) -> String {
     rendered_stderr::undo_soft_wrap(&raw_stderr(out))
+}
+
+/// Captured stderr a run redirected into a file, read the way an assertion
+/// should read it.
+///
+/// A `rhei run` under test writes its own stderr to a file rather than to a
+/// pipe, and miette lays a diagnostic out to the same column there, so the
+/// seam has to reach that door too. Empty when the file is not there yet,
+/// because the callers poll for the run to write one. §FS-rhei-errors.2
+pub fn stderr_from_file(path: impl AsRef<Path>) -> String {
+    rendered_stderr::undo_soft_wrap(&fs::read_to_string(path).unwrap_or_default())
 }
 
 /// Run an arbitrary rhei subcommand.
