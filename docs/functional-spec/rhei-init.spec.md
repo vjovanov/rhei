@@ -196,7 +196,16 @@ section still carrying the note body — so init is idempotent even after a
 third-party merge mangled the markers, and removal is one block deletion.
 Stripping only ever removes the note's own material: an orphaned begin
 marker (its end marker lost) is removed alone, never together with the user
-content that follows it.
+content that follows it. Two boundaries make that exact, because a strip that
+guesses wide deletes from a file init was only asked to append to. A begin
+marker pairs with an end marker only when no second begin marker stands
+between them, so two begin markers before one end leave the first orphaned and
+the lines between the two — user content a merge stranded there — are kept
+rather than read as the inside of one long region. And a marker-less `## Rhei`
+section ends where the note's prose ends: at the blank line closing the
+paragraph that carries the note's own sentence, or at the next `## ` heading
+or begin marker if one comes first, never at the end of the file — so trailing
+user content under no heading of its own survives.
 Richer per-agent integration (skills for Claude Code, Cursor, …) stays with
 `rhei install-skills` ([§FS-rhei-install-skills](rhei-install-skills.spec.md#fs-rhei-install-skills-rhei-install-skills)); init's final output points
 at it rather than duplicating it.
