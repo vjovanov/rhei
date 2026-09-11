@@ -357,6 +357,22 @@ fn report_host_changes(changed: &[String], here: bool) {
     }
 }
 
+/// How far the block opened by a begin marker reaches, as an offset into the
+/// lines that follow it — `None` when that begin marker is orphaned.
+///
+/// The search stops at whichever marker comes first, and only an end marker
+/// closes the region: a second begin marker before any end means the first is
+/// orphaned, because the end that eventually arrives belongs to the second.
+/// Scanning past it would pair the outermost begin with the innermost end and
+/// delete the user content a merge stranded in between. §FS-rhei-init.4
+fn closing_end_marker(after_begin: &[&str]) -> Option<usize> {
+    let at = after_begin.iter().position(|line| {
+        let trimmed = line.trim();
+        trimmed == AGENTS_NOTE_END || trimmed == AGENTS_NOTE_BEGIN
+    })?;
+    (after_begin[at].trim() == AGENTS_NOTE_END).then_some(at)
+}
+
 /// Remove every trace of a previously written agent note: marker-delimited
 /// regions, orphaned markers, and a marker-less `## Rhei` section that still
 /// carries the note body (a merge may have eaten the markers). §FS-rhei-init.4
@@ -370,7 +386,7 @@ fn strip_rhei_note(existing: &str) -> String {
         if trimmed == AGENTS_NOTE_BEGIN {
             // §FS-rhei-init.4: an orphaned begin marker (end marker lost) is
             // removed alone — the lines after it are user content, not the note.
-            match lines[i + 1..].iter().position(|line| line.trim() == AGENTS_NOTE_END) {
+            match closing_end_marker(&lines[i + 1..]) {
                 Some(end) => i += end + 2, // past the block and its end marker
                 None => i += 1,
             }
@@ -387,6 +403,12 @@ fn strip_rhei_note(existing: &str) -> String {
                 && !lines[j].starts_with("## ")
                 && lines[j].trim() != AGENTS_NOTE_BEGIN
             {
+                // §FS-rhei-init.4: the note's prose is one paragraph, so the
+                // blank line closing it ends the section — running on to the
+                // end of the file would take the user's own tail with it.
+                if has_sentinel && lines[j].trim().is_empty() {
+                    break;
+                }
                 has_sentinel |= lines[j].contains(SENTINEL);
                 j += 1;
             }
