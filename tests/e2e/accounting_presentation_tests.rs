@@ -103,12 +103,14 @@ fn run_in_tty(dir: &Path, plan: &Path, machine: &Path) -> CliRun {
         stdout.extend_from_slice(&chunk[..count]);
     }
     let status = child.wait().expect("wait for rhei run");
-    let stderr = stderr_reader.join().expect("join stderr reader");
-    CliRun {
+    let captured = std::process::Output {
         status,
-        stdout: String::from_utf8_lossy(&stdout).replace('\r', ""),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
-    }
+        stdout,
+        stderr: stderr_reader.join().expect("join stderr reader"),
+    };
+    // The pty puts a carriage return before every newline it echoes, and
+    // these assertions are about the table rather than the line discipline.
+    CliRun { stdout: super::stdout(&captured).replace('\r', ""), ..CliRun::from(&captured) }
 }
 
 #[cfg(unix)]

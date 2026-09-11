@@ -466,13 +466,8 @@ states:
         result.stdout,
         result.stderr
     );
-    let normalized_stderr = result.stderr.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        normalized_stderr.contains("Task plan.1 declares a task execution override")
-            && normalized_stderr.contains("fanout state"),
-        "expected fanout validation error; got:\n{}",
-        result.stderr
-    );
+    assert_stderr_contains(&result, "Task plan.1 declares a task execution override");
+    assert_stderr_contains(&result, "fanout state");
 }
 
 #[test]

@@ -115,8 +115,8 @@ fn committed_examples_match_template_instantiation() {
         assert!(
             result.status.success(),
             "instantiate {template_name} failed:\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&result.stdout),
-            String::from_utf8_lossy(&result.stderr)
+            stdout(&result),
+            stderr(&result)
         );
 
         // Same set of rendered files (the template README is excluded; the

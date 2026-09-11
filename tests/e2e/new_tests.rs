@@ -11,11 +11,7 @@ pub fn new_run(args: &[&str], cwd: &std::path::Path) -> CliRun {
         .args(args)
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Run `rhei` with something on standard input. `--description-file -` is the
@@ -40,11 +36,7 @@ fn new_run_with_stdin(args: &[&str], cwd: &std::path::Path, stdin: &str) -> CliR
         .write_all(stdin.as_bytes())
         .expect("description should be written to stdin");
     let output = child.wait_with_output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// A project directory with `index.panta.md` and nothing else.

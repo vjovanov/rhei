@@ -8,11 +8,7 @@ fn run_completions(shell: &str) -> CliRun {
         .args(["completions", shell])
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn run_completions_with_home(home: &Path, args: &[&str]) -> CliRun {
@@ -23,11 +19,7 @@ fn run_completions_with_home(home: &Path, args: &[&str]) -> CliRun {
         .env_remove("XDG_DATA_HOME")
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn run_completions_with_xdg(
@@ -56,11 +48,7 @@ fn run_completions_with_xdg(
     }
 
     let output = command.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn run_completions_in_dir(current_dir: &Path, home: &Path, args: &[&str]) -> CliRun {
@@ -72,11 +60,7 @@ fn run_completions_in_dir(current_dir: &Path, home: &Path, args: &[&str]) -> Cli
         .env_remove("XDG_DATA_HOME")
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn run_dynamic_completion(current_dir: &Path, home: &Path, shell: &str, args: &[&str]) -> CliRun {
@@ -88,11 +72,7 @@ fn run_dynamic_completion(current_dir: &Path, home: &Path, shell: &str, args: &[
         .env_remove("XDG_DATA_HOME")
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn write_project_template(project: &Path, name: &str, description: &str) {

@@ -209,8 +209,8 @@ transitions:
         .args(["--no-tui", "--no-callbacks"])
         .output()
         .expect("outer rhei run");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = stdout(&output);
+    let stderr = stderr(&output);
     assert!(output.status.success(), "outer run failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
 
     let prompt = fs::read_to_string(dir.join("runtime/prompt-evidence.md"))

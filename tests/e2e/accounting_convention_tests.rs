@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use super::accounting_support::{accounting_workspace, invocation_records, TERMINAL_PLAN};
 use super::{
-    assert_success, fixture_command, fixture_path, run_cli, unique_temp_dir, write_fixture_file,
-    write_python_agent, TestDir,
+    assert_success, fixture_command, fixture_path, run_cli, stderr, unique_temp_dir,
+    write_fixture_file, write_python_agent, TestDir,
 };
 
 /// One task per agent, so one run writes one record of each shape.
@@ -256,7 +256,7 @@ fn a_fresh_record_states_the_convention_it_follows() {
         .args(["schema", "rhei.accounting.invocation.v1"])
         .output()
         .expect("schema command runs");
-    assert!(published.status.success(), "{}", String::from_utf8_lossy(&published.stderr));
+    assert!(published.status.success(), "{}", stderr(&published));
     let schema: serde_json::Value =
         serde_json::from_slice(&published.stdout).expect("published schema JSON");
     assert!(

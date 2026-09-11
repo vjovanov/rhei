@@ -53,11 +53,7 @@ fn runs(home: &Path, args: &[&str]) -> CliRun {
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei runs should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// A run list that only ever shows what is live cannot name the runs a window

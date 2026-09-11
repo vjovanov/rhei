@@ -403,8 +403,8 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
     assert!(
         instantiate.status.success(),
         "instantiate failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&instantiate.stdout),
-        String::from_utf8_lossy(&instantiate.stderr)
+        stdout(&instantiate),
+        stderr(&instantiate)
     );
 
     let run = rhei_command(&home)
@@ -412,8 +412,8 @@ fn bundled_ui_fixture_instantiates_and_runs_to_its_human_gate() {
         .args(["run", "ws", "--no-tui", "--parallel", "4"])
         .output()
         .expect("rhei run should run");
-    let stdout = String::from_utf8_lossy(&run.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
+    let stdout = stdout(&run);
+    let stderr = stderr(&run);
     assert!(
         run.status.success(),
         "the fixture must run to its human gate:\nstdout:\n{stdout}\nstderr:\n{stderr}"

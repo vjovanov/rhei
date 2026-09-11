@@ -135,8 +135,8 @@ transitions:
         .args(["run", "ws", "--no-tui", "--no-callbacks"])
         .output()
         .expect("run the workspace from its parent directory");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stdout = stdout(&output);
+    let stderr = stderr(&output);
     let evidence = fs::read_to_string(workspace.join("runtime/prompt-ws.1.md")).unwrap_or_default();
 
     let findings = workspace.join("runtime/findings/ws.1.md");
@@ -276,8 +276,8 @@ transitions:
         .args(["run", &given.display().to_string(), "--no-tui", "--no-callbacks"])
         .output()
         .expect("run the workspace through the symlink");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stdout = stdout(&output);
+    let stderr = stderr(&output);
     let prompt = fs::read_to_string(workspace.join("runtime/prompt.md")).unwrap_or_default();
     assert!(
         output.status.success() && !prompt.is_empty(),

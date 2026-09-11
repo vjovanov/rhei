@@ -26,11 +26,7 @@ fn instantiate(dir: &Path, args: &[&str]) -> (PathBuf, CliRun) {
     }
     cmd.arg("--output").arg(&out);
     let output = cmd.output().expect("rhei instantiate should run");
-    let run = CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    };
+    let run = CliRun::from(&output);
     (out, run)
 }
 

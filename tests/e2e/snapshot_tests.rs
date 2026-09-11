@@ -10,11 +10,7 @@ fn run_snapshot_command(plan_path: &Path, machine_path: &Path, args: &[&str]) ->
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei snapshot command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn write_fake_snapshot_agent(dir: &Path) -> PathBuf {

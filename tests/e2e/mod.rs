@@ -35,6 +35,7 @@ mod new_write_tests;
 mod next_node_kinds_tests;
 mod next_tests;
 mod parallel_target_override_tests;
+mod rendered_stderr;
 mod run_lock_wait_tests;
 mod run_shell_program_tests;
 mod run_signals_tests;
@@ -212,6 +213,17 @@ pub struct CliRun {
     pub stderr: String,
 }
 
+/// A finished process read the way an assertion should read it.
+///
+/// Every test that spawns its own command builds its `CliRun` here rather than
+/// decoding the captured bytes itself, so the reading of stderr stays one
+/// decision instead of sixty. §FS-rhei-errors.2
+impl From<&Output> for CliRun {
+    fn from(out: &Output) -> Self {
+        CliRun { status: out.status, stdout: stdout(out), stderr: stderr(out) }
+    }
+}
+
 pub fn unique_temp_dir(prefix: &str) -> TestDir {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -343,13 +355,16 @@ pub fn raw_stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
-/// Captured stderr as an assertion should read it.
-//
-// Today this is still the raw text, which is the defect `diagnostic_wrap_tests`
-// pins: a phrase miette soft-wrapped is invisible to `contains`, on whichever
-// machine the wrap column happens to land inside it.
+/// Captured stderr as an assertion should read it: the sentences the binary
+/// printed, with the renderer's soft wrap undone and nothing else changed.
+///
+/// This is the one seam between captured stderr bytes and a test's `contains`,
+/// so that no assertion's outcome turns on which space the wrap fell at — a
+/// column that moves with a pid, a temporary path or a run id, and so decides
+/// on one machine what it decides differently on the next.
+/// §FS-rhei-errors.2
 pub fn stderr(out: &Output) -> String {
-    raw_stderr(out)
+    rendered_stderr::undo_soft_wrap(&raw_stderr(out))
 }
 
 /// Run an arbitrary rhei subcommand.
@@ -365,11 +380,7 @@ pub fn run_cli(
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Run an arbitrary rhei subcommand without passing `--state-machine`.
@@ -380,11 +391,7 @@ pub fn run_cli_without_machine(subcommand: &str, plan_path: &Path, extra_args: &
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn isolated_home_for(plan_path: &Path) -> PathBuf {
@@ -465,15 +472,18 @@ pub fn assert_task_state(plan_path: &Path, machine_path: &Path, task_id: &str, e
     assert_eq!(state, expected, "Task {} should be '{}', got '{}'", task_id, expected, state);
 }
 
-/// Assert that stderr contains `expected`, ignoring miette line wrapping and
-/// decoration. Both sides are collapsed to their ASCII-graphic characters so
-/// wraps inside hyphenated words (e.g. `human-review`) cannot break matches.
+/// Assert that stderr contains `expected`, exactly as the binary printed it.
+///
+/// `CliRun.stderr` already has the renderer's wrap undone, so there is nothing
+/// left here for the assertion to forgive. It used to collapse both sides to
+/// their ASCII-graphic characters, which defeats the wrap by defeating every
+/// space — and so also matched a phrase spanning a message and its `help:`
+/// block, and healed a token the renderer broke mid-word. Both are phrases
+/// nobody printed, and a false pass costs more than the false failure it
+/// replaces. §FS-rhei-errors.2
 pub fn assert_stderr_contains(result: &CliRun, expected: &str) {
-    fn collapse(text: &str) -> String {
-        text.chars().filter(|c| c.is_ascii_graphic()).collect()
-    }
     assert!(
-        collapse(&result.stderr).contains(&collapse(expected)),
+        result.stderr.contains(expected),
         "expected stderr to contain {:?}; got:\n{}",
         expected,
         result.stderr
