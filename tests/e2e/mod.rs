@@ -1,5 +1,6 @@
 mod accounting_contract_tests;
 mod accounting_convention_tests;
+mod accounting_duration_tests;
 mod accounting_presentation_tests;
 mod accounting_prices_tests;
 mod accounting_support;

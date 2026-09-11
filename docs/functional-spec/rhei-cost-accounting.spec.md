@@ -211,7 +211,8 @@ does not expose finer-grained usage.
 
 `duration_ms` is the elapsed wall-clock time between `started_at` and
 `ended_at`, rounded down to whole milliseconds. New records always carry it;
-readers must accept older v1 records where it is absent.
+readers must accept older v1 records where it is absent, and §3.4.1 says what
+they report about one.
 
 When structured agent output exposes a native session identity, the invocation
 record carries `cli_session.id`. Built-in extractors recognize Claude Code's
@@ -222,6 +223,30 @@ Rhei can derive the native transcript path confidently. The whole
 `store_path` is serialized as `null`. Session capture is independent of the
 usage-event capture lifecycle, including replacement of cumulative Claude Code
 usage events.
+
+#### 3.4.1. Deriving the Elapsed Time on Read
+
+`duration_ms` is **optional** and stays optional (§8.1), so a record written
+before the field existed carries none. That elapsed time is not unknown: it is
+defined above as the difference between `started_at` and `ended_at`, and every
+v1 record carries both. A reader holding the two endpoints holds the number.
+
+| Where | Required behavior |
+| --- | --- |
+| Writing | Every record Rhei writes carries `duration_ms`. A record already on disk without it is never rewritten to add one (§5.1). |
+| Reading | A record with no `duration_ms` parses, and the parsed record still has none. The field is not filled in on the way past. |
+| Reporting | A surface that reports an invocation's elapsed time derives it from `ended_at - started_at` when the stored field is absent, and reports nothing only when an endpoint is missing or unparseable. |
+
+The derivation belongs where a reading is published, not on the record it read:
+a reading recomputes what it reports and never rewrites what it read (§5.1),
+the same way a restated token count is (§5.2).
+
+This is already what `rhei summary` does with these records
+([§FS-rhei-summary.2.2](rhei-summary.spec.md#22-the-steps)), and what the
+`invocations` array of `rhei cost --json --task` publishes (§8). Reporting
+nothing instead is not reporting an unknown: a consumer reading no elapsed time
+counts the invocation as instantaneous, so a surface that omits it hands back a
+zero that was never true.
 
 ### 3.5. Run Attribution
 
