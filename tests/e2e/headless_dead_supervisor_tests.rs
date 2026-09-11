@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::headless_support::{stderr, stdout, Workspace};
+use super::headless_support::Workspace;
 use super::python_command;
+use super::{stderr, stdout};
 
 struct RetainedRunLock {
     holder_pid: u32,

@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use super::headless_support::wait_until;
-use super::headless_support::{parse_records, stderr, stdout, Workspace};
+use super::headless_support::{parse_records, Workspace};
+use super::{stderr, stdout};
 
 /// A run reference's registry entry, read straight from the isolated state
 /// directory the workspace pins.

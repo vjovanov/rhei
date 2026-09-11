@@ -13,7 +13,8 @@ use std::time::Duration;
 
 #[cfg(unix)]
 use super::headless_support::wait_until;
-use super::headless_support::{kinds, parse_records, stderr, stdout, Workspace};
+use super::headless_support::{kinds, parse_records, Workspace};
+use super::{stderr, stdout};
 
 // ---------------------------------------------------------------------------
 // §FS-rhei-run-json: the record stream

@@ -29,6 +29,30 @@ running `rhei` against them. It is test-input data, not a citable or scanned
 document, so `[scan] exclude` keeps it out of the host scan the same way
 `templates/` is excluded.
 
+## Reading stderr
+
+Captured stderr is never a tty, so miette renders every diagnostic wrapped at
+eighty columns. It breaks only at spaces, which is exactly what
+[§FS-rhei-errors.2](../../docs/functional-spec/rhei-errors.spec.md#2-copy-paste-safety)
+asks of it, so the sentence arrives whole and the binary is right. But a
+`contains` reads a rendered line rather than the sentence, and a phrase that
+straddles the break is invisible to it. Where that break lands moves with a
+pid, a temporary path, a run id — so the same assertion passes on one machine
+and fails on the next, which is the worst shape a test failure can take.
+
+**No assertion here may depend on where the renderer wrapped.** Turning
+captured stderr into text is the harness's job and happens at one seam,
+`stderr(&output)` in `mod.rs`, which undoes the soft wrap. Do not convert
+`output.stderr` in a test file: `diagnostic_wrap_tests.rs` fails and names the
+file that did. `raw_stderr` is there for the one kind of test that is *about*
+the rendering.
+
+Undoing a wrap is not repairing one. A continuation is rejoined with the single
+space the wrap removed and never with nothing, so a token broken mid-word stays
+broken and the suite can still catch it. Rendered blocks are never merged: a
+message and its `help:` stay apart, because a phrase matched across the two was
+never printed. A false pass costs more than the false failure it replaces.
+
 ## Rust
 
 `cargo test --workspace --all-targets` builds and runs these; `cargo test -p
