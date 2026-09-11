@@ -44,6 +44,7 @@ fn roots_record(invocation_id: &str, task_id: &str, started_at: &str) -> Account
     record.pricing.status = "priced".to_string();
     record.pricing.amount_micro = Some(1);
     record.pricing.priced_amount_micro = Some(1);
+    record.pricing.price_book_id = Some("roots-fixture".to_string());
     record
 }
 

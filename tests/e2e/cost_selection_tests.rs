@@ -229,7 +229,8 @@ fn cost_since_and_until_bound_the_window() {
 }
 
 /// The promise to everyone already calling this: with none of the new flags,
-/// nothing moves.
+/// nothing moves — save the one addition §8.4 now states, a line naming the
+/// roots the empty answer searched, which a standalone workspace gets too.
 // §FS-rhei-cost-accounting.8.4
 #[test]
 fn cost_with_no_new_flag_prints_what_it_printed_before() {
@@ -238,8 +239,12 @@ fn cost_with_no_new_flag_prints_what_it_printed_before() {
     let empty = cost(&empty_plan, &empty_machine, &[]);
     assert_success(&empty);
     assert_eq!(
-        empty.stdout, "(no accounting records found)\n",
-        "a workspace with no records still says exactly this"
+        empty.stdout,
+        format!(
+            "(no accounting records found)\nsearched {}\n",
+            empty_dir.join("runtime/accounting").display()
+        ),
+        "the first line is byte for byte what it was, and one root is named inline"
     );
     drop(empty_dir);
 
