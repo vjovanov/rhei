@@ -136,3 +136,37 @@ struct AccountingPricing {
     #[serde(skip_serializing_if = "Option::is_none")]
     price_book_id: Option<String>,
 }
+
+/// The wall-clock milliseconds between a record's two endpoints.
+///
+/// `None` when either timestamp is missing or unparseable, because a duration
+/// is not worth guessing. Every surface that reports an invocation's elapsed
+/// time derives it here when the record carries no `duration_ms` of its own,
+/// so the two readers of this archive cannot drift apart again.
+/// §FS-rhei-cost-accounting.3.4.1
+fn invocation_elapsed_ms(record: &AccountingInvocationRecord) -> Option<u64> {
+    let started = parse_rfc3339_utc(&record.started_at)?;
+    let ended = parse_rfc3339_utc(&record.ended_at)?;
+    u64::try_from(ended.duration_since(started).ok()?.as_millis()).ok()
+}
+
+/// One invocation as a reading publishes it: the record as stored, and the
+/// elapsed time between its endpoints where the record itself carries none.
+///
+/// The derivation happens here, on the way out, and never on the record that
+/// was parsed — a reading recomputes what it reports and never rewrites what
+/// it read (§FS-rhei-cost-accounting.5.1), and nothing on disk is touched. A
+/// record that carries its own `duration_ms` is published with that number
+/// untouched: it was measured in milliseconds while the agent ran, while the
+/// endpoints are RFC 3339 to the second, so recomputing over it would report a
+/// 31 ms invocation as zero. Reporting nothing is left for the one case where
+/// nothing is known — an endpoint missing or unparseable.
+/// §FS-rhei-cost-accounting.3.4.1
+fn published_invocation_json(record: &AccountingInvocationRecord) -> serde_json::Value {
+    let mut published = serde_json::json!(record);
+    let derived = if record.duration_ms.is_none() { invocation_elapsed_ms(record) } else { None };
+    if let (Some(object), Some(elapsed)) = (published.as_object_mut(), derived) {
+        object.insert("duration_ms".to_string(), serde_json::json!(elapsed));
+    }
+    published
+}

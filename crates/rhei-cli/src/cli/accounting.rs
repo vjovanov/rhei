@@ -514,9 +514,11 @@ fn task_cost_json(
         "title": title,
         "direct": summarize_records(direct_records(records, task_id), books),
         "subtree": summarize_records(subtree_records(records, task_id), books),
-        // The records themselves, as stored: a reading recomputes what it
-        // reports, and never rewrites what it read. §FS-rhei-cost-accounting.5.1
-        "invocations": subtree_records(records, task_id).collect::<Vec<_>>(),
+        // The records themselves as stored, and the elapsed time of any that
+        // stored none. §FS-rhei-cost-accounting.3.4.1
+        "invocations": subtree_records(records, task_id)
+            .map(published_invocation_json)
+            .collect::<Vec<_>>(),
     })
 }
 
