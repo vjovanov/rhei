@@ -94,8 +94,18 @@ fn handle_sequential_agent_completion(
             // §FS-rhei-agents.3.2: the completion condition is exit 0 +
             // declared outputs + the terminal result when the edge this
             // exit selects lands on a `final: true` state.
-            let selected_to =
-                selected_forward_transition(&loaded.rhei, machine, task);
+            let reloaded = load_plan(input)?;
+            let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
+            // Condition (3) selects that edge against the plan as re-read here,
+            // so a child this invocation appended is an open descendant of it.
+            // §FS-rhei-agents.3.2 §FS-rhei-supervision.4.1
+            let selected_to = selected_forward_transition(
+                &reloaded.rhei,
+                machine,
+                // A ticket the invocation deleted has no post-exit shape to
+                // judge; fall back rather than invent one. §FS-rhei-agents.3.2
+                task_after.unwrap_or(task),
+            );
             let outputs_ok = status.success()
                 && state_outputs_exist_for_resolved_invocation(
                     &task_workspace_root,
@@ -179,8 +189,6 @@ fn handle_sequential_agent_completion(
                     }
                 }
             }
-            let reloaded = load_plan(input)?;
-            let task_after = find_task_by_id(&reloaded.rhei.tasks, &target_id);
             let state_after = task_after.map(|t| t.state.as_str()).unwrap_or("unknown");
             let state_before = current_state.as_str();
 
@@ -384,8 +392,9 @@ fn handle_sequential_agent_completion(
                                     task,
                                     task_id_str,
                                     state_before,
-                                    selected_forward_transition(&loaded.rhei, machine, task)
-                                        .as_deref(),
+                                    // The same post-exit edge the completion
+                                    // condition read. §FS-rhei-agents.3.2
+                                    selected_to.as_deref(),
                                     retry_outlook,
                                     sink,
                                 ),
