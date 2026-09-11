@@ -360,7 +360,10 @@ transitions:
 /// it. The project root and the rhei execution root are different directories,
 /// which is the whole point: everything a single-file layout conflates is split
 /// here. Returns the temp tree, which has to stay bound, and the project root.
-fn run_panta_snapshot_project(prefix: &str, extra_args: &[&str]) -> (TestDir, PathBuf, CliRun) {
+pub(super) fn run_panta_snapshot_project(
+    prefix: &str,
+    extra_args: &[&str],
+) -> (TestDir, PathBuf, CliRun) {
     let dir = unique_temp_dir(prefix);
     let fake_agent = write_fake_snapshot_agent(&dir);
     let project = dir.join("proj");

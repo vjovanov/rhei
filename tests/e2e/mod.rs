@@ -44,6 +44,7 @@ mod run_signals_tests;
 mod run_tests;
 mod runs_history_tests;
 mod snapshot_codex_session_tests;
+mod snapshot_continue_root_tests;
 mod snapshot_tests;
 mod summary_tests;
 mod supervised_delivery_tests;
