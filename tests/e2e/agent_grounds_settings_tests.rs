@@ -366,11 +366,7 @@ fn run_with_complete(dir: &Path, home: &Path, complete: &str, args: &[&str]) -> 
         .env("COMPLETE", complete)
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// §FS-rhei-templates.1.3: a completion request is answered by a fresh process

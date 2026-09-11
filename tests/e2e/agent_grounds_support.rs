@@ -14,11 +14,7 @@ pub const DEPRECATED: &str = ".agents/rhei";
 pub fn run_in(args: &[&str], cwd: &Path, home: &Path) -> CliRun {
     let output =
         rhei_command(home).current_dir(cwd).args(args).output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Separators differ per platform and macOS resolves `/tmp` through a symlink,

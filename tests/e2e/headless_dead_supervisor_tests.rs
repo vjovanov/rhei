@@ -77,11 +77,7 @@ os._exit(0)
         .expect("spawn recorded lock owner");
     let recorded_pid = runner.id();
     let output = runner.wait_with_output().expect("wait for recorded process to exit");
-    assert!(
-        output.status.success(),
-        "recorded process fixture failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "recorded process fixture failed: {}", stderr(&output));
     let holder_pid = fs::read_to_string(&holder_file)
         .expect("retained holder pid")
         .parse()

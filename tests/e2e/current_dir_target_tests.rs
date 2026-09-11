@@ -20,11 +20,7 @@ fn run_from(cwd: &Path, home: &Path, machine: &Path, subcommand: &str, target: &
     cmd.current_dir(cwd);
     cmd.arg("--state-machine").arg(machine).arg(subcommand).arg(target);
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Every spelling of the workspace that only exists relative to a cwd lists the

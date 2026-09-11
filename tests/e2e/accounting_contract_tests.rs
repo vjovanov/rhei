@@ -43,11 +43,7 @@ const ACCOUNTING_PLAN: &str = r#"# Rhei: Accounting Contract
 fn schema_output(home: &Path, schema_id: &str) -> CliRun {
     let output =
         rhei_command(home).args(["schema", schema_id]).output().expect("schema command runs");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn first_file(directory: &Path, extension: &str) -> PathBuf {
@@ -297,15 +293,15 @@ fn schema_command_lists_and_prints_every_published_contract() {
     let dir = unique_temp_dir("accounting-schema-command");
     let bare =
         rhei_command(dir.join("home")).arg("schema").output().expect("bare schema list runs");
-    assert!(bare.status.success(), "{}", String::from_utf8_lossy(&bare.stderr));
-    assert_eq!(String::from_utf8_lossy(&bare.stdout), SCHEMA_IDS.join("\n") + "\n");
+    assert!(bare.status.success(), "{}", stderr(&bare));
+    assert_eq!(stdout(&bare), SCHEMA_IDS.join("\n") + "\n");
 
     let output = rhei_command(dir.join("home"))
         .args(["schema", "--list"])
         .output()
         .expect("schema list runs");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout), SCHEMA_IDS.join("\n") + "\n");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(stdout(&output), SCHEMA_IDS.join("\n") + "\n");
 
     for schema_id in SCHEMA_IDS {
         let result = schema_output(&dir.join("home"), schema_id);

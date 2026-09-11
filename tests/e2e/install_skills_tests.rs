@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::{rhei_binary, unique_temp_dir, CliRun};
+use super::{rhei_binary, stderr, unique_temp_dir, CliRun};
 
 /// Run `rhei install-skills` with a fake HOME and optional extra args.
 fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
@@ -12,11 +12,7 @@ fn run_install_skills(home: &Path, extra_args: &[&str]) -> CliRun {
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Run `rhei install-skills` from a specific working directory (for --local).
@@ -28,11 +24,7 @@ fn run_install_skills_in_dir(home: &Path, cwd: &Path, extra_args: &[&str]) -> Cl
         cmd.arg(arg);
     }
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Run a specific `rhei` binary from a specific working directory.
@@ -61,11 +53,7 @@ fn run_install_skills_with(home: &Path, bin: &Path, cwd: &Path, extra_args: &[&s
             Err(err) => panic!("rhei command should run (attempt {attempt}): {err}"),
         }
     };
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// Copy the built binary somewhere with no checkout above it and no packaged
@@ -384,7 +372,7 @@ fn a_refused_install_prints_its_help_and_not_only_its_message() {
     cmd.env_remove("HOME");
     cmd.args(["install-skills", "--agent", "kilocode", "--link"]);
     let output = cmd.output().expect("rhei command should run");
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stderr = stderr(&output);
 
     assert!(
         stderr.contains("HOME environment variable not set"),

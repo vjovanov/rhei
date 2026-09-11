@@ -9,11 +9,7 @@ pub fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
         .args(args)
         .output()
         .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// §FS-rhei-templates.6.2: a standalone workspace inside a git repository gets
@@ -952,11 +948,7 @@ fn templates_ships_a_builtin_library_with_the_binary() {
             .args(args)
             .output()
             .expect("rhei command should run");
-        CliRun {
-            status: output.status,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        }
+        CliRun::from(&output)
     };
 
     let listing = run(&["templates"]);

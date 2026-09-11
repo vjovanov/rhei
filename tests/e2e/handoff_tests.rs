@@ -82,11 +82,7 @@ fn run_run(plan_path: &Path, machine_path: &Path, extra_args: &[&str]) -> CliRun
         cmd.arg(arg);
     }
     let output = cmd.output().expect("run command should execute");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 /// A fake agent that writes its handoff in `implement` and records the prompt

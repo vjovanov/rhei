@@ -25,7 +25,7 @@
   it. Rejoining inserts the single space the wrap removed and never merges two
   rendered blocks, so a token broken mid-word and a phrase stitched out of a
   message and its help both stay visible as the faults they are. No product
-  code changes. (PR #N)
+  code changes. (PR #218)
 
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the

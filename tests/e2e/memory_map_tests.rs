@@ -51,11 +51,11 @@ fn rhei_next_renders_every_memory_path_absolute() {
     cmd.arg("--state-machine").arg(&machine_path).arg("next").arg(&dir);
     cmd.args(["--task", "alpha.1", "--peek"]);
     let output = cmd.output().expect("rhei next should run");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stdout = stdout(&output);
     assert!(
         output.status.success(),
         "next should succeed\nstdout:\n{stdout}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
+        stderr(&output)
     );
 
     let map = stdout.split("### Reading the rhei").nth(1).expect("the map is printed");
@@ -105,11 +105,11 @@ fn a_bare_relative_plan_name_still_has_a_root_on_rhei_next() {
     cmd.current_dir(&dir);
     cmd.args(["--state-machine", "states.yaml", "next", "plan.rhei.md", "--task", "1", "--peek"]);
     let output = cmd.output().expect("rhei next should run");
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stdout = stdout(&output);
     assert!(
         output.status.success(),
         "next should succeed\nstdout:\n{stdout}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
+        stderr(&output)
     );
 
     let map = stdout.split("### Reading the rhei").nth(1).expect("the map is printed");
@@ -148,8 +148,8 @@ fn a_bare_relative_plan_name_exports_a_root_to_the_agent() {
     assert!(
         output.status.success(),
         "run should succeed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        stdout(&output),
+        stderr(&output)
     );
 
     let log = fs::read_to_string(dir.join("runtime/logs/task-plan.1-pending.log"))
@@ -220,8 +220,8 @@ fn the_map_names_the_log_directory_the_run_writes() {
     assert!(
         output.status.success(),
         "run should succeed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        stdout(&output),
+        stderr(&output)
     );
 
     // The results sit under the member's execution root …

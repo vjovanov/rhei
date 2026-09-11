@@ -6,16 +6,17 @@ use std::fs;
 use super::*;
 
 fn run_raw(args: &[&str], cwd: &std::path::Path) -> CliRun {
-    let output = super::rhei_command(cwd.join(".home"))
+    CliRun::from(&capture(args, cwd))
+}
+
+/// The finished process itself, for the one test below whose subject is where
+/// the renderer broke a line rather than what the binary said.
+fn capture(args: &[&str], cwd: &std::path::Path) -> std::process::Output {
+    super::rhei_command(cwd.join(".home"))
         .current_dir(cwd)
         .args(args)
         .output()
-        .expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+        .expect("rhei command should run")
 }
 
 /// A template with two required inputs and one execution-target input, named
@@ -394,14 +395,14 @@ fn suggested_commands_are_never_wrapped_mid_command() {
     let dir = unique_temp_dir("errors-no-wrap");
     write_agent_template(&dir);
 
-    let result = run_raw(&["instantiate", "guided", "--dry-run"], &dir);
-    assert!(!result.status.success(), "instantiate should fail: {}", result.stdout);
+    let out = capture(&["instantiate", "guided", "--dry-run"], &dir);
+    assert!(!out.status.success(), "instantiate should fail: {}", stdout(&out));
     // §FS-rhei-errors.2: the renderer must not break `--list-inputs` across
-    // lines, however narrow the terminal is reported to be.
+    // lines. Read raw: where the break fell is the claim, not what was said.
+    let rendered = raw_stderr(&out);
     assert!(
-        !result.stderr.contains("--list-\ninputs"),
-        "the suggested command was wrapped; got:\n{}",
-        result.stderr
+        !rendered.contains("--list-\ninputs"),
+        "the suggested command was wrapped; got:\n{rendered}"
     );
 }
 

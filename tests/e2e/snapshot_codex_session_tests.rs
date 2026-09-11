@@ -110,16 +110,9 @@ fn index_of(argv: &[String], needle: &str) -> usize {
 /// so it cannot go through [`run_cli`], which passes one positionally.
 fn run_snapshot_cli(plan_path: &Path, machine_path: &Path, args: &[&str]) -> CliRun {
     let mut cmd = rhei_command(plan_path.parent().expect("plan parent").join(".home"));
-    cmd.arg("--state-machine").arg(machine_path).arg("snapshot");
-    for arg in args {
-        cmd.arg(arg);
-    }
+    cmd.arg("--state-machine").arg(machine_path).arg("snapshot").args(args);
     let output = cmd.output().expect("rhei snapshot command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn write_settings(root: &Path, body: &str) {

@@ -2,13 +2,6 @@ use std::fs;
 
 use super::*;
 
-fn normalize_miette_stderr(text: &str) -> String {
-    text.lines()
-        .map(|line| line.trim_start().trim_start_matches('×').trim_start_matches('│').trim())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 #[test]
 fn next_auto_discovers_sibling_state_machine_from_states_declaration() {
     let plan = r#"# Rhei: Auto-discovered Machine
@@ -498,7 +491,7 @@ fn next_no_claimable_mid_workflow_lists_transition_commands() {
     let (_dir, plan_path, machine_path) = setup_single_file("next-mid-workflow", plan);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
-    let stderr = normalize_miette_stderr(&result.stderr);
+    let stderr = &result.stderr;
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
         stderr.contains("Task plan.1 is mid-workflow in state 'pending'"),
@@ -549,7 +542,7 @@ transitions:
     let machine_path = write_fixture_file(&dir, "custom states.yaml", machine);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
-    let stderr = normalize_miette_stderr(&result.stderr);
+    let stderr = &result.stderr;
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
         stderr.contains("Task plan.1 is mid-workflow in state 'in progress'"),
@@ -612,7 +605,7 @@ transitions:
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
-    let stderr = normalize_miette_stderr(&result.stderr);
+    let stderr = &result.stderr;
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
         stderr.contains("--task plan.1 --from=fix --to=fix"),
@@ -653,7 +646,7 @@ transitions:
     let machine_path = write_fixture_file(&dir, "states.yaml", machine);
 
     let result = run_cli("next", &plan_path, &machine_path, &["--no-callbacks", "--peek"]);
-    let stderr = normalize_miette_stderr(&result.stderr);
+    let stderr = &result.stderr;
     assert!(!result.status.success(), "mid-workflow task should require explicit transition");
     assert!(
         stderr.contains("--from=--fix --to=--done"),
