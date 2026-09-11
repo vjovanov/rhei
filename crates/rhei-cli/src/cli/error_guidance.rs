@@ -326,17 +326,27 @@ fn composed_command_line_bytes(cmd: &std::process::Command) -> usize {
     cmd.get_program().len() + cmd.get_args().map(|arg| arg.len() + 1).sum::<usize>()
 }
 
+/// Whether the failure names its own cause, whatever the command line measures.
+///
+/// These two every platform reports distinctly, Windows included: the binary is
+/// not there, or this user may not run it. §FS-rhei-errors.7.1
+fn err_names_its_own_cause(err: &std::io::Error) -> bool {
+    matches!(err.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied)
+}
+
 /// Whether the size of what rhei composed explains the operating system's
 /// refusal to start the process.
 ///
 /// Linux and macOS answer for themselves: both report `E2BIG`, each at its own
-/// cap. Windows reports nothing distinct enough to read this from, and the Rust
-/// error kind that would name it portably is newer than this workspace's
-/// minimum supported Rust, so there rhei measures instead. The measurement
-/// explains a failure; it never causes one. §FS-rhei-errors.7.1
+/// cap. Windows reports nothing distinct enough to read a size refusal from, and
+/// the Rust error kind that would name it portably is newer than this
+/// workspace's minimum supported Rust, so there rhei measures instead — but only
+/// once the failure has declined to say what it was. The measurement is the
+/// fallback for an indistinct failure, not an override of a distinct one, and it
+/// explains a failure without ever causing one. §FS-rhei-errors.7.1
 fn size_explains_spawn_failure(err: &std::io::Error, command_line_bytes: usize) -> bool {
     if cfg!(windows) {
-        command_line_bytes > COMMAND_LINE_LIMIT_BYTES
+        !err_names_its_own_cause(err) && command_line_bytes > COMMAND_LINE_LIMIT_BYTES
     } else {
         err.raw_os_error() == Some(E2BIG)
     }
@@ -411,7 +421,10 @@ fn size_verdict(
         return SizeVerdict::Unexplained;
     }
     let prompt_is_over = if LIMIT_IS_PER_ARGUMENT {
-        prompt_bytes > COMMAND_LINE_LIMIT_BYTES
+        // The cap is on the argument as the kernel stores it, terminating NUL
+        // and all, so an argument of exactly the limit is already one too long.
+        // §FS-rhei-errors.7.1
+        prompt_bytes >= COMMAND_LINE_LIMIT_BYTES
     } else {
         command_line_bytes.saturating_sub(prompt_bytes) <= COMMAND_LINE_LIMIT_BYTES
     };
