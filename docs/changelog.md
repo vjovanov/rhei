@@ -35,7 +35,9 @@
   omitted-`structure` default of `Task` alone. A directory workspace whose
   kinds omit `task` selected its root and then failed to claim it with
   `task '<id>' not found in <task-file>`, which left the manual workflow
-  usable only through `rhei run`. (PR #214)
+  usable only through `rhei run`. A basin ticket, which has no index of its
+  own, was broken the same way and is fixed the same way: its kinds now come
+  from the project manifest. (PR #214)
 
 ## 2. [0.4.1] - 2026-09-07
 
