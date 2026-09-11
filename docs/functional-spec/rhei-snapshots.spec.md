@@ -491,6 +491,24 @@ artifacts ([§FS-rhei-panta.6.4](rhei-panta.spec.md#64-reset-validate-list-viz))
 The cache is shared and the session is per-rhei; the two roots coincide only in
 a single-file layout.
 
+That is a property of the artifact and not of the command, so it binds
+`rhei snapshot continue` ([§FS-rhei-snapshot-operations.1.5](rhei-snapshot-operations.spec.md#15-rhei-snapshot-continue-ref))
+exactly as it binds `rhei run`. A continuation therefore resolves **two**
+roots, and one value cannot stand for both:
+
+- the **session directory** a `session_dir_flag` profile is redirected into
+  resolves against the execution root of the rhei that owns the ticket the
+  snapshot was taken on, whichever rhei the operator's command named — the
+  project root the command was given is where the cache lives, not the
+  session;
+- the fixed-location `dir_template` and the locator that reads it back
+  (§9.1, §10.1) resolve against the directory the continuation's own agent
+  process runs in, which is the project root the command was given.
+  `{cwd_dashed}` names the directory that child observes and the locator
+  confirms a candidate's recorded working directory against that same
+  directory, so an execution root the agent never ran in would send the
+  capture looking for a transcript nothing wrote.
+
 The cache root is gitignored by default. Plans may opt to commit selected
 snapshots; this is a workspace-level decision outside the scope of `rhei run`.
 
