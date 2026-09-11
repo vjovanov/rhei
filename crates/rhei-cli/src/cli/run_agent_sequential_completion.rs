@@ -99,12 +99,16 @@ fn handle_sequential_agent_completion(
             // Condition (3) selects that edge against the plan as re-read here,
             // so a child this invocation appended is an open descendant of it.
             // §FS-rhei-agents.3.2 §FS-rhei-supervision.4.1
-            let selected_to = selected_forward_transition(
+            let selected_to = selected_forward_transition_from(
                 &reloaded.rhei,
                 machine,
                 // A ticket the invocation deleted has no post-exit shape to
                 // judge; fall back rather than invent one. §FS-rhei-agents.3.2
                 task_after.unwrap_or(task),
+                // The re-read plan supplies the operands, never the from-state:
+                // this exit leaves the state the invocation ran in, whatever the
+                // invocation moved its own ticket to. §FS-rhei-agents.3.2
+                task.state.as_str(),
             );
             let outputs_ok = status.success()
                 && state_outputs_exist_for_resolved_invocation(

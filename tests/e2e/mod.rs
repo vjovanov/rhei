@@ -44,6 +44,7 @@ mod run_shell_program_tests;
 mod run_signals_tests;
 mod run_tests;
 mod runs_history_tests;
+mod self_advancing_agent_tests;
 mod snapshot_codex_session_tests;
 mod snapshot_continue_root_tests;
 mod snapshot_tests;

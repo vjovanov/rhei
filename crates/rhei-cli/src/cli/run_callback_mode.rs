@@ -593,7 +593,7 @@ fn selected_forward_transition(
     machine: &rhei_validator::StateMachine,
     task: &rhei_core::ast::Task,
 ) -> Option<String> {
-    find_next_transition(task, rhei, machine).ok().flatten()
+    selected_forward_transition_from(rhei, machine, task, task.state.as_str())
 }
 
 /// The ticket's terminal result, rendered as the missing required output it is.
