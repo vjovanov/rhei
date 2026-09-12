@@ -20,6 +20,8 @@ transitions:
     on_leave: {callback}
   - from: pending
     to: rejected
+  - from: in-progress
+    to: rejected
 "#,
         callback = python_callback_yaml(
             "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'rejected'}))"
@@ -91,6 +93,8 @@ transitions:
   - from: pending
     to: in-progress
     on_leave: {callback}
+  - from: in-progress
+    to: elsewhere
 "#,
         callback = python_callback_yaml(
             "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'elsewhere'}))"

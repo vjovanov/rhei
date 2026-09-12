@@ -1677,6 +1677,8 @@ states:
 transitions:
   - from: pending
     to: done
+  - {{from: source, to: done}}
+  - {{from: review, to: done}}
 "#
             ),
         )
