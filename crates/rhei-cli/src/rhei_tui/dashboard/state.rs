@@ -221,8 +221,9 @@ impl DashboardState {
                 }
                 self.push_recent("info", format!("{label}: {url}"));
             }
-            RunEvent::UsageReported { slot, task, invocation_id, usage } => {
+            RunEvent::UsageReported { slot, task, invocation_id, usage, .. } => {
                 // §FS-rhei-cost-accounting.7: Usage updates task, slot, and run totals.
+                // Keyed by invocation id, so both reports upsert the same row.
                 let record = DashboardUsageRecord {
                     slot: *slot,
                     task: task.clone(),

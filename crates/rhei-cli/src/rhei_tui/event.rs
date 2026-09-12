@@ -133,6 +133,27 @@ pub struct UsageSummary {
     pub pricing_status: PricingStatus,
 }
 
+/// Which of an invocation's usage reports an event carries.
+///
+/// One invocation emits several: one `Streamed` running total per turn a
+/// streaming extractor measures, then one `Final` after its durable record is
+/// written. A frontend that keys a view by invocation id upserts both; one that
+/// appends lines prints the `Final` only, because a written line cannot be
+/// revised into the next running total. §FS-rhei-cost-accounting.7.1
+///
+/// An enum rather than a `bool` because `final` is a Rust keyword and because
+/// the JSON record contract names both values (§FS-rhei-run-json.2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UsageReport {
+    /// A running total for an invocation still in progress, re-summed from its
+    /// whole capture stream, so it reads low until the last turn is in.
+    Streamed,
+    /// The one report that follows the invocation's durable record and carries
+    /// what that record says it cost.
+    Final,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AccountingRunSummary {
     pub total: DimensionSummary,
@@ -383,12 +404,16 @@ pub enum RunEvent {
         line: String,
         wall_clock: SystemTime,
     },
-    /// Accounting event emitted after the durable invocation record is written.
-    /// §FS-rhei-cost-accounting.7
+    /// Accounting event emitted once per measured turn while the agent runs,
+    /// and once more after the durable invocation record is written. `report`
+    /// says which of the two this is, and only `Final` carries the
+    /// invocation's settled cost.
+    /// §FS-rhei-cost-accounting.7 §FS-rhei-cost-accounting.7.1
     UsageReported {
         slot: Option<Slot>,
         task: String,
         invocation_id: String,
+        report: UsageReport,
         usage: UsageSummary,
     },
     /// A worker exited `0` and left required artifacts unwritten, so the ticket

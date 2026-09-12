@@ -16,7 +16,7 @@ pub use dashboard::{DashboardSink, GateTransitionSink, InterveneSink, PlanLoader
 pub use event::{
     summarize_usage_summaries, AccountingRunSummary, AgentStream, DimensionStatus,
     DimensionSummary, EventSink, MessageLevel, NullSink, PricingStatus, RunEvent, RunSummary, Slot,
-    TaskOutcome, Tee, UsageCoverage, UsageStatus, UsageSummary,
+    TaskOutcome, Tee, UsageCoverage, UsageReport, UsageStatus, UsageSummary,
 };
 pub use event_json::{
     decode as decode_event, encode as encode_event, format_rfc3339, parse_rfc3339, SCHEMA_VERSION,

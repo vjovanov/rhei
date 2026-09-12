@@ -13,7 +13,7 @@ use super::{leave_finished_screen, message_goes_to_stderr};
 use crate::rhei_tui::dashboard::InterveneSink;
 use crate::rhei_tui::event::{
     AgentStream, DimensionStatus, DimensionSummary, MessageLevel, PricingStatus, RunEvent, Slot,
-    TaskOutcome, UsageCoverage, UsageStatus, UsageSummary,
+    TaskOutcome, UsageCoverage, UsageReport, UsageStatus, UsageSummary,
 };
 
 fn machine_state(name: &str, gating: bool, transitions: Vec<&str>) -> MachineState {
@@ -539,6 +539,7 @@ fn renders_every_view_and_overlay_without_panic() {
         slot: Some(0),
         task: "1".into(),
         invocation_id: "inv-1".into(),
+        report: UsageReport::Final,
         usage: demo_usage(),
     });
     state.apply(&RunEvent::RunLink {
