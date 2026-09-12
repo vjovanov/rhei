@@ -134,7 +134,7 @@ rhei new "Null-cache panic in the avatar loader" --under basin \
   --description "Seen while working plan.3; reproduces on an empty cache."
 ```
 
-`--under basin` is the project's unfiled inbox: it takes a ticket that has no rhei chosen yet, creates the basin on demand, and files nothing into your plan. When the work clearly belongs to a rhei that exists, name it instead (`--under auth`), and add `--prior <id>` when it genuinely cannot start before something else. `rhei new` allocates the id under a lock, validates the result, and rolls the write back if it broke anything, so capturing is safe mid-task.
+`--under basin` is the project's unfiled inbox: it takes a ticket that has no rhei chosen yet, creates the basin on demand, and files nothing into your plan. It needs a Panta project around that plan, though: the basin exists only inside one ([§FS-rhei-new.3.5](../../../../docs/functional-spec/rhei-new.spec.md#35-the-basin-needs-a-project)). Against a lone `.rhei.md` the command refuses and points at `rhei init`, which is not yours to run — report the capture in your result instead, with the title and the description you would have filed, and carry on with the ticket you claimed. When the work clearly belongs to a rhei that exists, name it instead (`--under auth`), and add `--prior <id>` when it genuinely cannot start before something else. `rhei new` allocates the id under a lock, validates the result, and rolls the write back if it broke anything, so capturing is safe mid-task.
 
 Capture is the only creation a worker does. Creating a *rhei*, and running an orchestrator, are the human's call. This is also not a way to move work off the ticket you were handed: capture what is genuinely out of scope, and finish what you claimed.
 
