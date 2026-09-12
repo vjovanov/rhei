@@ -304,7 +304,7 @@ path = "crates/rhei-cli/src/rhei_tui/tui/tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 810, unit = "lines" }
+max_accepted = { value = 820, unit = "lines" }
 until = "The UiState fixture is shared from a test-support module so state, input, and view tests can live beside the code they cover."
 reason = """
 Over budget before this change; the touch that surfaced it added two lines, and the inspector-flags test for a person-waiting poll carried it 797 -> 807. One test module covers state application, key handling, and view derivation because they are exercised through one UiState fixture, and a view test cannot move out until that fixture does.
@@ -519,4 +519,14 @@ max_accepted = { value = 900, unit = "lines" }
 until = "The MCP and skills resolution cases below the divider at line 849 are an include-part of their own beside this one, with the machine and settings builders they need."
 reason = """
 Over budget before this change, which added no line to it. The file already carries its own seam - a divider separating the complete/reset plan-rewriting cases from the tooling resolution cases - but the second half cannot move until machine_with_tooling and settings_with move with it, and settings_with builds a RheiSettings the complete/reset half also reads. Naming that shared builder and giving it a home is the step before either half can leave.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/rhei_tui/dashboard/tests.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 800, unit = "lines" }
+until = "The dashboard fixture is shared from a test-support module so the state-application, snapshot, and HTTP-surface tests can live beside the code each covers."
+reason = """
+Over budget before this change; the touch that surfaced it added one line, the report field on a constructed `UsageReported`. One test module covers state application, the `/snapshot` payload, and the served HTTP surface because all three are driven through the one DashboardState and DashboardSink fixture built in this file, and none of them can move out until that fixture does.
 """

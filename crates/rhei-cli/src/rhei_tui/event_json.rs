@@ -19,7 +19,7 @@ use serde_json::{json, Map, Value};
 
 use crate::rhei_tui::event::{
     AccountingRunSummary, AgentStream, MessageLevel, RunEvent, RunSummary, TaskOutcome,
-    UsageSummary,
+    UsageReport, UsageSummary,
 };
 
 /// Wire version of the record contract. Moves only when a documented field is
@@ -112,11 +112,13 @@ fn payload(event: &RunEvent, workspace: Option<&Path>) -> Map<String, Value> {
             put("state", json!(state));
             put("entries", json!(entries));
         }
-        RunEvent::UsageReported { slot, task, invocation_id, usage } => {
+        RunEvent::UsageReported { slot, task, invocation_id, report, usage } => {
             put("event", json!("usage_reported"));
             put("slot", json!(slot));
             put("task", json!(task));
             put("invocation_id", json!(invocation_id));
+            // §FS-rhei-run-json.2.1: the record names which report it carries.
+            put("report", json!(report_name(*report)));
             put("usage", serde_json::to_value(usage).unwrap_or(Value::Null));
         }
         RunEvent::Message { level, text } => {
@@ -204,6 +206,14 @@ fn level_name(level: MessageLevel) -> &'static str {
         MessageLevel::Info => "info",
         MessageLevel::Warn => "warn",
         MessageLevel::Error => "error",
+    }
+}
+
+// §FS-rhei-cost-accounting.7.1: the two reports, on the wire.
+fn report_name(report: UsageReport) -> &'static str {
+    match report {
+        UsageReport::Streamed => "streamed",
+        UsageReport::Final => "final",
     }
 }
 
@@ -338,6 +348,12 @@ fn decode_event(kind: &str, v: &Value, wall_clock: SystemTime) -> Option<RunEven
             slot: v.get("slot").and_then(Value::as_u64).map(|s| s as u16),
             task: text("task"),
             invocation_id: text("invocation_id"),
+            // §FS-rhei-run-json.2.1: a record written before the field existed
+            // decodes as `final`, the report a reader of one record expects.
+            report: match v.get("report").and_then(Value::as_str) {
+                Some("streamed") => UsageReport::Streamed,
+                _ => UsageReport::Final,
+            },
             usage: serde_json::from_value::<UsageSummary>(v.get("usage")?.clone()).ok()?,
         },
         "message" => RunEvent::Message {

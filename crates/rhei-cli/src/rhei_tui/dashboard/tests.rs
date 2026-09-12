@@ -1,7 +1,7 @@
 use super::*;
 use crate::rhei_tui::event::{
     DimensionStatus, DimensionSummary, PricingStatus, RunSummary, TaskOutcome, UsageCoverage,
-    UsageStatus, UsageSummary,
+    UsageReport, UsageStatus, UsageSummary,
 };
 use crate::rhei_viz_model::{Machine, TaskRow, TemplateContext, VizModel};
 use std::fs;
@@ -736,6 +736,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
         slot: None,
         task: "1".to_string(),
         invocation_id: "priced".to_string(),
+        report: UsageReport::Final,
         usage: dashboard_usage(
             "priced",
             UsageCoverage::Complete,
@@ -748,6 +749,7 @@ fn dashboard_mixed_priced_and_unpriced_rollup_is_partial() {
         slot: None,
         task: "2".to_string(),
         invocation_id: "unpriced".to_string(),
+        report: UsageReport::Final,
         usage: dashboard_usage(
             "unpriced",
             UsageCoverage::Unpriced,
@@ -783,6 +785,7 @@ fn snapshot_task_runtime_carries_accounting_rollups() {
         slot: Some(0),
         task: "1.1".to_string(),
         invocation_id: "i1".to_string(),
+        report: UsageReport::Final,
         usage: dashboard_usage(
             "i1",
             UsageCoverage::Complete,

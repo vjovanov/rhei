@@ -214,10 +214,12 @@ fn record_agent_accounting_invocation(
     let usage =
         usage_summary_from_record(&record, &ReachablePriceBooks::with_selected(invocation.price_book));
     // §FS-rhei-cost-accounting.7: Emit UsageReported after durable write.
+    // §FS-rhei-cost-accounting.7.1: that one report is the invocation's `Final`.
     invocation.sink.emit(rhei_tui::RunEvent::UsageReported {
         slot: invocation.slot,
         task: invocation.task.id.to_string(),
         invocation_id,
+        report: rhei_tui::UsageReport::Final,
         usage: usage.clone(),
     });
     Ok(Some(usage))
@@ -623,10 +625,13 @@ fn capture_agent_output_usage(
             aggregate,
             &capture.price_book,
         );
+        // §FS-rhei-cost-accounting.7.1: a running total re-summed from the whole
+        // capture while the agent still runs, so it is `Streamed`, not the cost.
         sink.emit(rhei_tui::RunEvent::UsageReported {
             slot: Some(capture.slot),
             task: capture.task_id.clone(),
             invocation_id: capture.invocation_id.clone(),
+            report: rhei_tui::UsageReport::Streamed,
             usage,
         });
     }

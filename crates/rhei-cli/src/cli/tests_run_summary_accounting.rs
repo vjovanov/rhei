@@ -202,6 +202,7 @@
             slot,
             task: task.to_string(),
             invocation_id: usage.invocation_id.clone(),
+            report: rhei_tui::UsageReport::Final,
             usage,
         });
     }
