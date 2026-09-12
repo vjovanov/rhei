@@ -63,6 +63,111 @@ mod templates_render_tests {
             assert!(hidden.starts_with("{{ '#' }}"), "an interpolation was rewritten: {hidden:?}");
             assert!(hidden.ends_with(" and \u{91}\n"), "the text-level `{{#` survived: {hidden:?}");
         }
+
+        /// A real opener is stepped over whole, so a `{#` inside one is part of
+        /// an expression rather than text and reaches the parser as written.
+        #[test]
+        fn leaves_a_hash_brace_inside_a_construct_alone() {
+            for source in [
+                "{% if marker == \"{#\" %}YES{% endif %}\n",
+                "{{ \"pre{#post\" }}\n",
+                "{% if a %}{{ \"{#\" }}{% endif %}\n",
+            ] {
+                assert_eq!(hide_non_syntax_openers(source), source, "a construct was rewritten");
+            }
+            // ... and a text-level one after a construct is still hidden.
+            assert_eq!(hide_non_syntax_openers("{{ a }} and {#\n"), "{{ a }} and \u{91}\n");
+        }
+
+        /// Everything after an opener whose delimiter never closes is inside
+        /// that opener, so none of it is text and none of it is rewritten.
+        #[test]
+        fn leaves_everything_after_an_opener_that_never_closes() {
+            for source in ["{{ foo and {# more\n", "{% if foo and {# more\n"] {
+                assert_eq!(hide_non_syntax_openers(source), source, "text inside an opener moved");
+            }
+        }
+    }
+
+    /// §FS-rhei-templates.5.4: the round trip keeps a few code points for
+    /// itself, so a template's own text may not carry one — and is told which
+    /// file and which code point rather than being quietly rewritten.
+    mod reserved_code_points {
+        use super::*;
+
+        #[test]
+        fn refuses_a_template_carrying_one_by_name() {
+            for (raw, named) in [
+                ("head\n\u{91} tail\n", "U+0091"),
+                ("head\n\u{e001} tail\n", "U+E001"),
+                ("head\n\u{e002} tail\n", "U+E002"),
+            ] {
+                let refusal = reject_reserved_code_points(raw, Path::new("/t/carries.md"))
+                    .expect_err("a reserved code point is refused")
+                    .to_string();
+                assert!(refusal.contains("/t/carries.md"), "the file is named: {refusal}");
+                assert!(refusal.contains(named), "the code point is named: {refusal}");
+            }
+        }
+
+        #[test]
+        fn allows_the_text_this_ticket_is_about() {
+            let script = "#!/usr/bin/env bash\nIR=(a b)\necho \"${#IR[@]}\"\n";
+            assert!(reject_reserved_code_points(script, Path::new("/t/bad.sh")).is_ok());
+        }
+    }
+
+    /// §FS-rhei-templates.5.1: an input value is resolved into the output as
+    /// the value it is. The code points §FS-rhei-templates.5.4 reserves are
+    /// reserved against a template's text, not against what is put into it.
+    mod value_round_trip {
+        use super::*;
+
+        fn render(source: &str, value: &str) -> String {
+            let values = BTreeMap::from([("title".to_string(), serde_json::Value::from(value))]);
+            render_template_text(source, &values, Path::new("/t/notes.md"), "t")
+                .expect("the template renders")
+        }
+
+        #[test]
+        fn hands_back_a_value_that_carries_a_reserved_code_point() {
+            for carried in ["C\u{91}D", "C\u{e001}D", "C\u{e002}D", "C\u{e002}\u{91}D"] {
+                assert_eq!(
+                    render("note: {{ title }}\n", carried),
+                    format!("note: {carried}\n"),
+                    "a value was rewritten on its way out"
+                );
+            }
+        }
+
+        /// The other half: what the preprocessor hid is still put back, and a
+        /// value beside it is untouched.
+        #[test]
+        fn still_emits_a_text_level_hash_brace_verbatim() {
+            assert_eq!(render("${#A[@]} {{ title }}\n", "x"), "${#A[@]} x\n");
+        }
+
+        /// §FS-rhei-templates.5: a `{#` inside an expression is the `{#` the
+        /// author wrote, so it compares as one.
+        #[test]
+        fn compares_a_hash_brace_in_a_string_literal_as_written() {
+            let source = "{% if title == \"{#\" %}YES{% else %}NO{% endif %}\n";
+            assert_eq!(render(source, "{#"), "YES\n");
+            assert_eq!(render(source, "other"), "NO\n");
+        }
+
+        /// The strict undefined check rides on MiniJinja's default formatter,
+        /// which the escaping one replaces; an undeclared input is still an
+        /// error naming itself. §FS-rhei-templates.5.3
+        #[test]
+        fn still_fails_on_an_input_the_manifest_does_not_declare() {
+            let values = BTreeMap::new();
+            let source = "run: {{ github.sha }}\n";
+            let failure = render_template_text(source, &values, Path::new("/t/ci.yml"), "t")
+                .expect_err("an undeclared input is a failure")
+                .to_string();
+            assert!(failure.contains("github"), "the expression is named: {failure}");
+        }
     }
 
     /// §FS-rhei-templates.5.3: which opener a parse failure is anchored on.

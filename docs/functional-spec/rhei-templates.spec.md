@@ -409,6 +409,18 @@ text is now emitted verbatim (§5). The warning is not a failure: instantiation
 proceeds and the exit code is unchanged, so `--dry-run` is the way to ask which
 files a template has that earlier versions silently cut.
 
+### 5.4. Reserved Code Points
+
+Emitting `{#` and `\{{` as written (§5, §5.2) costs a handful of code points:
+rendering stands them in for that text while the parser is looking at it and
+puts the text back afterwards. They are a C1 control and two private-use
+scalars, which no plan, script, or configuration file is authored with. They are
+reserved against a template's own **text** only: an input value that carries one
+is resolved into the output as the value it is. A template file whose text
+carries one is refused before it is rendered, by an error naming that file and
+the code point, rather than having the code point quietly rewritten into
+something the author did not write.
+
 ## 6. CLI Commands
 
 ### 6.1. `rhei instantiate`

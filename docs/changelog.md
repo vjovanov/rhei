@@ -49,7 +49,10 @@
   which the parser ran out of input, and the parser's own words are quoted
   instead of contradicted. A render failure names the failing expression and its
   line, and an undeclared input is named in the remedy along with the
-  `{% raw %}` route and `--list-inputs`. (PR #226)
+  `{% raw %}` route and `--list-inputs`. Hiding that text costs a handful of
+  reserved code points; a template file whose own text carries one is refused by
+  an error naming the file and the code point, while an input value that carries
+  one is resolved into the output as the value it is. (PR #226)
 
 ### Changed
 
