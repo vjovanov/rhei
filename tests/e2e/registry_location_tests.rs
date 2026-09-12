@@ -39,6 +39,22 @@ transitions:
     to: completed
 "#;
 
+/// A machine carrying no target, so the agent under test comes from the flags
+/// rather than from a selector `validate` would refuse before the run starts.
+const UNTARGETED_MACHINE: &str = r#"name: mode-location-flag
+version: 1
+states:
+  pending:
+    initial: true
+    description: Work the task
+  completed:
+    final: true
+    description: Done
+transitions:
+  - from: pending
+    to: completed
+"#;
+
 fn settings_path(home: &str) -> String {
     format!("{home}/settings.json")
 }
@@ -145,5 +161,46 @@ fn a_refused_mode_names_the_deprecated_home_when_that_is_what_was_read() {
     assert!(
         !output.contains(&location_clause("agents.codex.modes", &settings_path(GROUNDS))),
         "naming the write path here shadows the registry just listed; output was:\n{output}"
+    );
+}
+
+/// `validate` is not the only surface that refuses a mode against the registry.
+/// A mode named on the command line is refused as the run starts, and
+/// §FS-rhei-errors.6 asks the category to have one wording wherever it is
+/// reached — so this refusal owes the same clause as the selector above, and
+/// owes it in the branch that lists what the agent does declare rather than
+/// only when it declares nothing. §FS-rhei-errors.1.4
+#[test]
+fn a_mode_refused_as_the_run_starts_names_the_key_and_both_settings_files() {
+    let dir = unique_temp_dir("registry-location-flag");
+    let plan = write_fixture_file(&dir, "plan.rhei.md", PLAN);
+    let machine = write_fixture_file(&dir, "states.yaml", UNTARGETED_MACHINE);
+    let settings_dir = dir.join(GROUNDS);
+    fs::create_dir_all(&settings_dir).expect("create settings directory");
+    write_fixture_file(
+        &settings_dir,
+        "settings.json",
+        r#"{ "agents": { "fake": { "command": ["/bin/true"], "modes": { "safe": [] } } } }"#,
+    );
+
+    let result = run_cli(
+        "run",
+        &plan,
+        &machine,
+        &["--agent", "fake", "--agent-mode", "bogus", "--no-dashboard"],
+    );
+    let output = flattened(&result);
+
+    assert!(
+        output.contains("agent 'fake' has no mode 'bogus'"),
+        "the undeclared mode must still be refused; output was:\n{output}"
+    );
+    assert!(
+        output.contains("safe"),
+        "the refusal must still list what the agent declares; output was:\n{output}"
+    );
+    assert!(
+        output.contains(&location_clause("agents.fake.modes", &settings_path(GROUNDS))),
+        "the refusal must name where a mode is declared; output was:\n{output}"
     );
 }

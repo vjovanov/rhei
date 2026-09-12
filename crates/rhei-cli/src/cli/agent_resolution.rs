@@ -16,15 +16,16 @@ fn resolve_target_agent(
 
     if let Some(mode) = target.mode.as_deref() {
         if !profile.modes.contains_key(mode) {
+            // §FS-rhei-errors.1.4: the same refusal `validate` makes about the
+            // same selector, so both say where the mode would be declared.
             let modes = profile.modes.keys().cloned().collect::<Vec<_>>();
             return Err(miette!(
-                help = match did_you_mean(mode, &modes) {
-                    Some(hint) => hint,
-                    None => format!(
-                        "agent '{}' declares no modes; drop the brackets from the selector.",
-                        agent.id()
-                    ),
-                },
+                help = unknown_mode_help(
+                    agent.id(),
+                    mode,
+                    &modes,
+                    settings.project_settings_file.relative_path()
+                ),
                 "agent '{}' has no mode '{}'",
                 agent.id(),
                 mode
@@ -165,15 +166,17 @@ fn resolve_legacy_agent_with_model(
 
     if let Some(name) = &mode {
         if !profile.modes.is_empty() && !profile.modes.contains_key(name) {
+            // §FS-rhei-errors.1.4: a mode from `--agent-mode`, a state or
+            // `defaults` is refused against the same registry, so it earns the
+            // same clause as one written into a target selector.
             let modes = profile.modes.keys().cloned().collect::<Vec<_>>();
             return Err(miette!(
-                help = match did_you_mean(name, &modes) {
-                    Some(hint) => hint,
-                    None => format!(
-                        "agent '{}' declares no modes; drop the brackets from the selector.",
-                        agent.id()
-                    ),
-                },
+                help = unknown_mode_help(
+                    agent.id(),
+                    name,
+                    &modes,
+                    settings.project_settings_file.relative_path()
+                ),
                 "agent '{}' has no mode '{}'",
                 agent.id(),
                 name

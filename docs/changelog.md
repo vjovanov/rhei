@@ -196,14 +196,16 @@
 
 - **A refused agent or mode now says where the name is declared.** `rhei
   validate` listed the agents or the modes a registry already knows and stopped
-  there, leaving the author to find the settings tree by grepping for the name
-  they wanted. Each refusal now also names the key the entry is written under —
+  there, and a mode refused as a run started listed them and stopped there too,
+  leaving the author to find the settings tree by grepping for the name they
+  wanted. Each refusal now also names the key the entry is written under —
   `agents.<id>` for an agent, `agents.<id>.modes` for a mode — and the two files
   it may be written in: the project settings file rhei actually read, which is
   the deprecated `.agents/rhei/settings.json` when that is what the project has,
-  and `~/.config/rhei/settings.json`. An agent that declares no modes is offered
-  the same two ways out spawn time gives it, dropping the brackets or declaring
-  the mode. (PR #231)
+  and `~/.config/rhei/settings.json`. The wording is one wording per category,
+  so `validate` and a run say the same thing about the same mistake, and an
+  agent that declares no modes is still offered both ways out, dropping the
+  brackets or declaring the mode. (PR #231)
 
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
