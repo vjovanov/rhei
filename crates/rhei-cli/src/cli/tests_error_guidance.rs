@@ -250,6 +250,98 @@ mod error_guidance_tests {
         assert!(help.contains("agents.<id>"), "got: {help}");
     }
 
+    /// A registry refusal names the key its entry is written under and the
+    /// files it may be written in, at every site that makes one.
+    /// §FS-rhei-errors.1.4
+    mod settings_location {
+        use super::*;
+
+        /// The clause, keyed to whichever registry entry is missing.
+        fn clause(key: &str, project_settings: &str) -> String {
+            format!("`{key}` in {project_settings} or ~/.config/rhei/settings.json")
+        }
+
+        /// The refusal one target selector earns from `validate`.
+        fn refusal(settings: &RheiSettings, selector: &str) -> String {
+            let machine = super::super::machine_with_states(&format!(
+                "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: {selector}\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n"
+            ));
+            let errs = validate_machine_settings_references(&machine, settings);
+            errs.iter()
+                .find(|e| e.contains(selector))
+                .unwrap_or_else(|| panic!("'{selector}' must be refused: {errs:?}"))
+                .clone()
+        }
+
+        /// The spawn-time agent help is where this wording already exists, so
+        /// it is the wording every other refusal owes — one clause, not a
+        /// second one beside it. Nothing here is new behaviour: it is the
+        /// byte-for-byte guard on the site that must not move while the clause
+        /// is factored out for the sites that lack it. §FS-rhei-errors.6
+        #[test]
+        fn the_spawn_time_agent_help_is_the_shared_wording() {
+            for file in [ProjectSettingsFile::Current, ProjectSettingsFile::Deprecated] {
+                let help = unknown_agent_help("nope", &[], file.relative_path());
+                assert_eq!(
+                    help,
+                    format!("Define it under {}.", clause("agents.<id>", file.relative_path())),
+                    "the spawn-time help is the clause every registry refusal shares"
+                );
+            }
+        }
+
+        /// An agent that declares no modes: the brackets are the mistake, and
+        /// declaring the mode is the other way out, so both remedies are given.
+        #[test]
+        fn a_modeless_agent_is_offered_both_remedies() {
+            let mut settings = super::super::default_settings();
+            settings.agents.insert(
+                "noop".to_string(),
+                CustomAgentProfile { command: vec!["noop".to_string()], ..Default::default() },
+            );
+            let message = refusal(&settings, "noop[review]:openai:gpt");
+            assert!(message.contains("it declares no modes"), "got: {message}");
+            assert!(message.contains("drop the brackets"), "got: {message}");
+            assert!(
+                message.contains(&clause(
+                    "agents.noop.modes",
+                    ProjectSettingsFile::default().relative_path()
+                )),
+                "got: {message}"
+            );
+        }
+
+        /// An agent that declares modes: the list says what exists, the clause
+        /// says where to write what does not. This is the reported case.
+        #[test]
+        fn a_listed_mode_registry_still_says_where_to_add_one() {
+            let message =
+                refusal(&super::super::default_settings(), "codex[review]:openai:gpt");
+            assert!(message.contains("known modes: yolo"), "got: {message}");
+            assert!(
+                message.contains(&clause(
+                    "agents.codex.modes",
+                    ProjectSettingsFile::default().relative_path()
+                )),
+                "got: {message}"
+            );
+        }
+
+        /// No agents at all: the agent is what is missing, so the entry is the
+        /// key, and the one message that already named a file gains the other.
+        #[test]
+        fn an_empty_registry_names_the_entry_and_both_files() {
+            let message = refusal(&RheiSettings::default(), "noop[review]:openai:gpt");
+            assert!(message.contains("no agents are configured"), "got: {message}");
+            assert!(
+                message.contains(
+                    &clause("agents.<id>", ProjectSettingsFile::default().relative_path())
+                ),
+                "got: {message}"
+            );
+        }
+    }
+
     /// Every diagnostic carries a next action, guarded here rather than left
     /// to review because coverage is a property of the whole crate rather than
     /// of any one call site. §FS-rhei-errors.6
