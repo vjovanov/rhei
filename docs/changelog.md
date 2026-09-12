@@ -71,7 +71,10 @@
   [the environment variable's own contract already required](functional-spec/rhei-programs.spec.md#2-environment-variables);
   one that does not leaves the ticket in its state and is reported with `result`
   among its missing outputs, rather than advancing on a sentence the engine
-  wrote for it. (PR #229)
+  wrote for it. The run report's row for such a halt now names the code that
+  worker really exited with — `worker exited 3 without result (…)` — where it
+  always said `worker exited 0`, which contradicted the same report's own
+  Transition Ledger two sections below it. (PR #229)
 
 - **A state machine with a state nothing can leave is now refused when it
   loads.** Every command that reads the machine — `validate`, `run`, `next`,

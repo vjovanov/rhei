@@ -431,9 +431,10 @@ pub enum RunEvent {
         report: UsageReport,
         usage: UsageSummary,
     },
-    /// A worker exited `0` and left required artifacts unwritten, so the ticket
-    /// did not advance. `entries` are already rendered as `name (path)`, the
-    /// ticket's terminal result included under the name `result`.
+    /// A worker exited `0`, or took a declared route out of a non-zero exit,
+    /// and left required artifacts unwritten, so the ticket did not advance.
+    /// `entries` are already rendered as `name (path)`, the ticket's terminal
+    /// result included under the name `result`.
     ///
     /// The human-readable warning still arrives as a [`RunEvent::Message`]; this
     /// carries the same facts in a form the run report can classify with,

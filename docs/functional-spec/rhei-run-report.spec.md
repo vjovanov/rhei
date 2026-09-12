@@ -305,13 +305,19 @@ the summary prints five stacked groups:
    prior for a dependency.
 
    A ticket the run actually spawned work for is a different kind of halt: its
-   problem is the work, not the scheduling. When that work exited `0` and the
-   run knows *which* required artifacts were missing — including the ticket's
-   terminal result, reported under the artifact name `result` like any other
-   ([§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics)) — the row names them: `worker exited 0 without
-   <name> (<path>), …`, and the next action is to write those files, or to
-   record the outcome by hand with `rhei transition <id> --from … --to …
-   --result …`. That is the whole difference between a report an operator can
+   problem is the work, not the scheduling. When that work stopped without
+   writing required artifacts the run knows the names of — including the
+   ticket's terminal result, reported under the artifact name `result` like any
+   other ([§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics)) — the row names them: `worker exited
+   <code> without <name> (<path>), …`, and the next action is to write those
+   files, or to record the outcome by hand with `rhei transition <id> --from …
+   --to … --result …`. `<code>` is the code that worker actually exited with,
+   which is not always `0`: a program that took a declared route
+   ([§FS-rhei-programs.3.2](rhei-programs.spec.md#32-evaluation-order)) out of a non-zero exit owes the ticket's result
+   the same way, and a row reading `0` would contradict the same report's own
+   Transition Ledger (§4) two sections below it and send the operator looking
+   for an exit that never happened. A row whose exit the run has no code for —
+   a worker a signal ended — names none, and reads `worker exited without …`. That is the whole difference between a report an operator can
    act on and one that says the task "stalled" and suggests reading logs that
    name nothing the operator did not already know. A ticket that ran and left
    nothing identifiable behind keeps the generic stalled reading; a ticket the
