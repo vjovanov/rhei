@@ -1,7 +1,6 @@
-// The two sites that emit `UsageReported`, and which report each of them names.
-// These are what a line-oriented frontend tells apart, so the naming is pinned
-// at the emitters rather than only end to end.
-// §FS-rhei-cost-accounting.7.1
+// The two sites that emit `UsageReported`, and which report each of them names. These are
+// what a line-oriented frontend tells apart, so the naming is pinned at the emitters rather
+// than only end to end. §FS-rhei-cost-accounting.7.1
 
 /// Every report the streaming emitter puts on the sink is `Streamed`: it fires
 /// once per turn the extractor measures, and each one is re-summed from the
