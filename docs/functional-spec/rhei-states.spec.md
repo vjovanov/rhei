@@ -237,7 +237,7 @@ budget. The same scoping rule applies to `all_models`.
 
 A machine names its own states, with one exception: **`cancelled` is reserved**.
 It is the one state name the engine reads as *the work was abandoned* rather
-than as a state like any other, and four rules key on it:
+than as a state like any other, and five rules key on it:
 
 - a `**Prior:**` in it does **not** satisfy a dependency, so a cancelled ticket
   never unblocks downstream work ([§FS-rhei-plan-language.3](rhei-plan-language.spec.md#3-semantic-constraints));
@@ -246,10 +246,14 @@ than as a state like any other, and four rules key on it:
 - a transition **into** it waives the *source* state's declared `outputs:` —
   cancellation abandons the work, so that contract is moot
   ([§FS-rhei-transitions.4.5](rhei-transitions.spec.md#45-artifact-enforcement)). The terminal-result obligation still stands.
+- a supervising state's `openDescendants` exit does not count reaching it as
+  finishing: a supervisor whose every such path ends here is warned about, and
+  the run halts on it, exactly as one with no exit at all
+  ([§FS-rhei-supervision.1.2](rhei-supervision.spec.md#12-validation-rules)).
 
 `canceled` is accepted as the same name; the two spellings are one reserved
 name, not two states. Any other name — `dropped`, `abandoned`, `wontfix` — is an
-ordinary terminal state and gets none of the four rules. A machine that wants
+ordinary terminal state and gets none of the five rules. A machine that wants
 cancellation semantics must spell the state `cancelled`; the outputs refusal on
 a transition into a `final: true` state says so, because that is where the
 mistake shows up.

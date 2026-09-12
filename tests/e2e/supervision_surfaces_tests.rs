@@ -289,8 +289,8 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
     // `rhei validate`.
     assert!(
         result.stderr.contains(
-            "warning: state 'supervising' declares 'execute_on' but no transition from it \
-             reaches a final state on `openDescendants`"
+            "warning: state 'supervising' declares 'execute_on' but no `openDescendants` \
+             transition from it reaches a final state by any path"
         ),
         "got stderr:\n{}",
         result.stderr
@@ -298,7 +298,8 @@ fn a_supervisor_with_no_open_descendants_edge_is_told_which_line_is_missing() {
     // And the halt names the line to add, wherever the halt is reported.
     let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
     assert!(
-        report.contains("no transition out of 'supervising' is eligible on `openDescendants`"),
+        report
+            .contains("no `openDescendants` transition out of 'supervising' reaches a final state"),
         "got:\n{report}"
     );
     assert!(

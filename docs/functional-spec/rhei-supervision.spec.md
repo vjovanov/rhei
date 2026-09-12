@@ -144,14 +144,38 @@ in it is worked once, after its whole subtree is terminal
   (`from: <state>, to: <state>`). The self-loop is the *release* edge (§3.1);
   without it the supervisor would run once and never wait for its subtree.
   This mirrors the self-loop rule for polling states ([§FS-rhei-states.1.3](rhei-states.spec.md#13-validation-rules)).
-- `rhei validate` warns when no transition from a supervising state uses
-  `openDescendants` (§4.1) to reach a terminal state: the supervisor would
-  have no way to finish. `rhei run` prints that warning at start
-  ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)), and if the run reaches the state the warning describes — a
-  supervisor with a closed subtree and no eligible edge out — the halt names
-  the missing line: `add - {from: <s>, to: <final>, condition: openDescendants
-  < 1}`. Running the whole subtree and then reporting "stalled in non-terminal
-  state" is the one outcome this machine must not produce.
+- `rhei validate` warns when no transition from a supervising state that uses
+  `openDescendants` (§4.1) leads to a final state the supervisor can finish in:
+  the supervisor would have no way to finish. *Leads to* is a path, not a
+  single edge. The walk starts at the target of the `openDescendants` edge and
+  follows the edges that count as a way out of a state
+  ([§FS-rhei-transitions.4.6](rhei-transitions.spec.md#46-wildcard-semantics)),
+  so an edge onto a human gate that itself reaches `completed` is a way to
+  finish and is not warned about, while an edge into a pocket that reaches no
+  final state still is. A supervising state that declares no `openDescendants`
+  transition, or only one back to itself, has no walk to start and is warned
+  about as it is today.
+
+  A final state the supervisor can finish in is any `final: true` state except
+  the reserved cancellation terminal
+  ([§FS-rhei-states.1.4](rhei-states.spec.md#14-reserved-state-names)). This is
+  the one place the question parts company with the one asked by
+  [§FS-rhei-transitions.4.6](rhei-transitions.spec.md#46-wildcard-semantics),
+  which is deliberately written against terminality rather than against the
+  reserved name. "Can this state be left" asks whether the engine has anywhere
+  to take the task, and abandonment is somewhere; "can this supervisor finish"
+  asks whether the work it supervises can ever be declared done, and
+  abandonment is not. So an `openDescendants` edge whose every path ends only
+  in `cancelled`, the direct edge included, is warned about, where today it is
+  silent.
+
+  `rhei run` prints that warning at start
+  ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)), and if the run reaches
+  the state the warning describes, the halt names the repair: an
+  `openDescendants` edge that reaches a final state, whether it points at one
+  directly or at a state that leads to one. Running the whole subtree and then
+  reporting "stalled in non-terminal state" is still the one outcome this
+  machine must not produce.
 - `visits` on a supervising state is allowed and budgets the number of
   supervisor visits; the usual exhaustion rules apply
   ([§FS-rhei-transitions.4.3](rhei-transitions.spec.md#43-counted-loops)). `rhei validate` warns when a supervising state
@@ -567,6 +591,30 @@ transitions:
 Transitions are tried in declaration order ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)), so the
 exhaustion edge comes first, the terminal edge second, and the unconditional
 self-loop last.
+
+A supervisor may also finish *through* a gate. Here the `openDescendants` edge
+selects a `gating: true` state and a human takes the last hop with
+`rhei transition`:
+
+```yaml
+transitions:
+  - from: moderating
+    to: human-judgment
+    description: Every child is terminal; a human rules on the verdict
+    condition: openDescendants < 1
+  - from: moderating
+    to: moderating
+    description: Released the subtree; wait for the next checkpoint
+  - from: human-judgment
+    to: completed
+    description: The ruling is recorded
+```
+
+This shape finishes, so §1.2 does not warn about it: the walk from
+`human-judgment`, the target of the `openDescendants` edge, reaches
+`completed`. The three shapes above are one-hop only because they are the
+simplest, not because a supervisor's finishing edge must point at a final
+state.
 
 ### 4.2. Self-Loops on Agent States
 
