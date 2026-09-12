@@ -100,13 +100,21 @@ impl StateMachine {
                 )));
             }
 
+            // The machine-wide question of §FS-rhei-states.1.3 asked again of
+            // this profile's narrowed set, counting edges the same way.
+            // §FS-rhei-states.8.2
+            let allowed_states: HashSet<&str> =
+                profile.allowed.iter().map(String::as_str).collect();
             for allowed in &profile.allowed {
                 if self.states.get(allowed).is_some_and(|def| def.terminal) {
                     continue;
                 }
-                if !profile_state_can_reach_final(self, profile, allowed) {
-                    return Err(StateMachineLoadError::Invalid(format!(
-                        "profile '{profile_name}' allows non-final state '{allowed}', but no path using only allowed states reaches a final state"
+                if !state_can_reach_final(self, allowed, Some(&allowed_states)) {
+                    return Err(StateMachineLoadError::Invalid(profile_dead_end_message(
+                        self,
+                        profile_name,
+                        allowed,
+                        &allowed_states,
                     )));
                 }
             }
