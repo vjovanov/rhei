@@ -54,6 +54,26 @@
   an error naming the file and the code point, while an input value that carries
   one is resolved into the output as the value it is. (PR #226)
 
+- **A supervisor that finishes through a gate is no longer told it cannot
+  finish.** The warning asked whether one `openDescendants` transition pointed
+  straight at a final state, so a machine whose edge lands on a human gate that
+  itself reaches `completed` — the shape of the shared `agora` machine — was
+  told "the supervisor has no way to finish" by `rhei validate`, by
+  `rhei instantiate`, and at the start of every `rhei run` on the workspace,
+  while its recorded runs finished through the gate exactly as designed. The
+  rule is now reachability: the walk starts at the target of the
+  `openDescendants` edge and follows the edges that count as a way out of a
+  state, so a gated supervisor is silent and one whose edge lands in a pocket
+  that reaches nothing final is still warned about. One machine that validated
+  clean starts warning — one whose only `openDescendants` exit is `cancelled`,
+  because abandonment is not the supervised work being declared done. The
+  run-time halt moved with the warning: it says no `openDescendants` transition
+  reaches a final state, and offers pointing an existing edge at a state that
+  reaches one beside the literal line it already named, which is unchanged.
+  Neither surface now suggests the one repair that would delete a deliberate
+  human gate. No exit code changes; warnings never fail `rhei validate`.
+  (PR #N)
+
 ### Changed
 
 - **A program's declared exit route is no longer recorded as a subprocess

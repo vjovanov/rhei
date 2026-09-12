@@ -839,6 +839,13 @@ counts whatever its target, including an explicit edge to `cancelled` — the
 engine takes a declared edge for the state it names, so a machine whose author
 means a state to end only in cancellation says so with that edge.
 
+Exactly one question reverses the first of those and keys on the reserved name:
+whether a supervising state can *finish*, which reaching `cancelled` does not
+answer, because abandonment is not the work being declared done
+([§FS-rhei-supervision.1.2](rhei-supervision.spec.md#12-validation-rules)). It
+borrows the edge rule above unchanged and narrows only which final states count
+as arriving.
+
 A machine in which some non-final state cannot reach a `final: true` state under
 these rules is rejected when it is loaded
 ([§FS-rhei-states.1.3](rhei-states.spec.md#13-validation-rules)), and the same

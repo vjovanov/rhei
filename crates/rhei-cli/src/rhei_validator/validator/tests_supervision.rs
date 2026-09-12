@@ -262,3 +262,81 @@ node_policy:
             "the canonical supervisor is warning-free; got: {warnings:?}"
         );
     }
+
+    /// An `openDescendants` edge that leads only to `cancelled` is not a way to
+    /// finish.
+    ///
+    /// Abandonment is somewhere for the engine to take the task, which is why
+    /// §FS-rhei-transitions.4.6 counts it, and it is not the supervised work
+    /// being declared done, which is why this rule does not.
+    // §FS-rhei-supervision.1.2 §FS-rhei-states.1.4
+    #[test]
+    fn warns_when_the_only_open_descendants_exit_is_cancellation() {
+        let transitions = canonical_transitions().replace(
+            "  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }",
+            "  - { from: supervising, to: cancelled, description: Subtree closed, condition: openDescendants < 1 }",
+        );
+        let warnings = supervision_warnings_for(&supervising_machine(canonical_states(), &transitions));
+        assert!(
+            warnings.iter().any(|w| w.contains("no way to finish")),
+            "an `openDescendants` edge straight at 'cancelled' abandons the subtree rather than \
+             finishing it; got: {warnings:?}"
+        );
+    }
+
+    /// A supervisor whose `openDescendants` edge lands in a pocket of gating
+    /// states that reaches no final state but `cancelled`.
+    ///
+    /// This is what pins the destination test. `gate-a` is `gating: true`, so
+    /// the ordinary `from: "*"` cancel edge counts as a way out of it
+    /// (§FS-rhei-transitions.4.6): a walk that asks only whether *some*
+    /// `final: true` state is reachable answers yes here and goes silent, and
+    /// the supervisor still cannot finish.
+    // §FS-rhei-supervision.1.2 §FS-rhei-states.1.4
+    fn pocketed_supervisor() -> &'static str {
+        r#"
+name: pocketed-supervisor
+version: 1.0
+states:
+  supervising:
+    description: Supervise the subtree
+    execute_on: descendant-terminal
+    agent: pi
+    visits: 12
+  gate-a:
+    description: A gate that only leads to gate-b
+    gating: true
+  gate-b:
+    description: A gate that only leads back to gate-a
+    gating: true
+  completed:
+    description: Done
+    final: true
+  cancelled:
+    description: Dropped
+    final: true
+transitions:
+  - { from: supervising, to: gate-a, description: Subtree closed, condition: openDescendants < 1 }
+  - { from: supervising, to: supervising, description: Released }
+  - { from: gate-a, to: gate-b, description: Onward }
+  - { from: gate-b, to: gate-a, description: Back }
+  - { from: "*", to: cancelled, description: Dropped }
+profiles:
+  default:
+    initial: supervising
+    allowed: [supervising, gate-a, gate-b, completed, cancelled]
+node_policy:
+  root: default
+  default: default
+"#
+    }
+
+    #[test]
+    fn warns_when_the_open_descendants_edge_reaches_no_final_state() {
+        let warnings = supervision_warnings_for(pocketed_supervisor());
+        assert!(
+            warnings.iter().any(|w| w.contains("no way to finish")),
+            "'gate-a' and 'gate-b' reach nothing final but 'cancelled', so the supervisor \
+             cannot finish; got: {warnings:?}"
+        );
+    }
