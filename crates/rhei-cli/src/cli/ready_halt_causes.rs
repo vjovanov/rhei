@@ -73,8 +73,8 @@ enum HaltCause {
     /// the run killed had no chance to write what it owed.
     // §FS-rhei-run-report.3.1 §FS-rhei-run.3.2
     Interrupted,
-    /// A worker ran, exited `0`, and left required artifacts unwritten, so the
-    /// completion condition refused to advance the ticket. `entries` are the
+    /// A worker ran and left required artifacts unwritten, so the completion
+    /// condition refused to advance the ticket. `entries` are the
     /// `name (path)` renderings the run already produced — the ticket's terminal
     /// result appears among them under the name `result`.
     ///
@@ -82,11 +82,17 @@ enum HaltCause {
     /// files, or record the outcome by hand. "Inspect logs or mark the task
     /// cancelled" is advice for a halt nobody can name, and this one is named.
     ///
+    /// `exit_code` is what that worker exited with, `None` when the run has no
+    /// code for it. Usually `0`, but a program that took a declared route out
+    /// of a non-zero exit owes the result the same way, and a row saying `0`
+    /// would contradict the ledger two sections below it.
+    /// §FS-rhei-programs.3.2
+    ///
     /// `plan` is the plan argument as the operator would type it, carried here
     /// so the suggested `rhei transition` runs from wherever they are reading
     /// the report rather than only from the plan's own directory.
     // §FS-rhei-run-report.3.1 §FS-rhei-agents.3.2.1 §FS-rhei-errors.2
-    MissingOutputs { entries: Vec<String>, plan: String },
+    MissingOutputs { entries: Vec<String>, exit_code: Option<i32>, plan: String },
     /// A required `inputs:` artifact of the ticket's current state is not on
     /// disk, so readiness refused to schedule it. `entries` are the
     /// `name (path)` renderings of the files that were looked for.
@@ -211,8 +217,11 @@ impl HaltCause {
             // Name the files. The whole point of this cause is that the operator
             // does not have to go read a log to learn which one is missing.
             // §FS-rhei-run-report.3.1
-            HaltCause::MissingOutputs { entries, plan } => (
-                format!("worker exited 0 without {}", entries.join(", ")),
+            HaltCause::MissingOutputs { entries, exit_code, plan } => (
+                match exit_code {
+                    Some(code) => format!("worker exited {code} without {}", entries.join(", ")),
+                    None => format!("worker exited without {}", entries.join(", ")),
+                },
                 format!(
                     "write the file(s) above and rerun, or record the outcome with \
                      `rhei transition{} --task {id} --from {state} --to <state> --result …`",
@@ -279,11 +288,25 @@ fn suggested_final_state(machine: &rhei_validator::StateMachine, state: &str) ->
         .unwrap_or_else(|| "completed".to_string())
 }
 
+/// What a ticket's last worker left unwritten, and the code it exited with.
+///
+/// The two travel together because the halt row names both, and the exit is
+/// not always `0`: a program that took a declared route out of a non-zero exit
+/// owes the ticket's result the same way. `exit_code` is `None` when the run
+/// has no code for the worker at all.
+// §FS-rhei-run-report.3.1 §FS-rhei-programs.3.2
+#[derive(Debug, Clone)]
+struct UnwrittenOutputs {
+    entries: Vec<String>,
+    exit_code: Option<i32>,
+}
+
 /// Classify why a non-terminal ticket did not advance. `worked` marks a ticket
 /// the run actually spawned work for, whose failure is the ordinary stalled
 /// case rather than a scheduling one; `missing` carries the required artifacts
-/// its last exit-0 worker left unwritten, when the run recorded any;
-/// `interrupted` marks one whose last invocation the run's shutdown ended.
+/// its last worker left unwritten and the code it exited with, when the run
+/// recorded any; `interrupted` marks one whose last invocation the run's
+/// shutdown ended.
 ///
 /// `roots` are the artifact roots the ready-set scan resolves against, so a
 /// ticket refused for a file that is not there is explained by the file rather
@@ -300,7 +323,7 @@ fn classify_halt(
     state_map: &std::collections::HashMap<&TaskId, String>,
     scope: &RheiScope,
     worked: bool,
-    missing: Option<Vec<String>>,
+    missing: Option<UnwrittenOutputs>,
     interrupted: bool,
     plan_arg: &str,
     roots: &ReadySetRoots<'_>,
@@ -389,9 +412,11 @@ fn classify_halt(
         // The run knows exactly what the worker did not write; say so instead
         // of pointing at logs. §FS-rhei-run-report.3.1
         return match missing {
-            Some(entries) if !entries.is_empty() => {
-                HaltCause::MissingOutputs { entries, plan: plan_arg.to_string() }
-            }
+            Some(unwritten) if !unwritten.entries.is_empty() => HaltCause::MissingOutputs {
+                entries: unwritten.entries,
+                exit_code: unwritten.exit_code,
+                plan: plan_arg.to_string(),
+            },
             _ => HaltCause::Stalled,
         };
     }
@@ -430,7 +455,7 @@ fn classify_halted_tasks<'a>(
     machines: &rhei_validator::MachineSet,
     scope: &RheiScope,
     worked: &dyn Fn(&str) -> bool,
-    missing: &dyn Fn(&str, &str) -> Option<Vec<String>>,
+    missing: &dyn Fn(&str, &str) -> Option<UnwrittenOutputs>,
     interrupted: &dyn Fn(&str) -> bool,
     plan_arg: &str,
     roots: &ReadySetRoots<'_>,

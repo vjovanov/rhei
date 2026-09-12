@@ -20,12 +20,18 @@ struct TaskActivity {
     last_duration_ms: u64,
     /// Direct accounting for usage reported against this task during the run.
     accounting: Option<rhei_tui::AccountingRunSummary>,
-    /// Required artifacts the last exit-0 worker left unwritten, rendered as
+    /// Required artifacts the last worker left unwritten, rendered as
     /// `name (path)`, paired with the state it left them in. The halt
     /// classification uses them only while the ticket is still in that state,
     /// and a fresh spawn clears them, so an old stall never explains a new one.
     // §FS-rhei-run-report.3.1
     missing_outputs: Option<(String, Vec<String>)>,
+    /// The code the task's last released invocation exited with, `None` before
+    /// one has been released or when the run has no code for it. Paired with
+    /// `missing_outputs` by the same spawn, which clears both, so a halt row
+    /// never names one attempt's artifacts beside another's exit.
+    // §FS-rhei-run-report.3.1 §FS-rhei-programs.3.2
+    last_exit_code: Option<i32>,
 }
 
 /// One spawned transition from the run event stream, rendered into the report's
@@ -152,9 +158,11 @@ impl rhei_tui::EventSink for SummarySink {
             rhei_tui::RunEvent::SlotAssigned { slot, task, agent, .. } => {
                 let driver = if agent.is_some() { "agent" } else { "program" };
                 state.inflight.insert(slot, driver);
-                // A fresh attempt supersedes what the last one left unwritten.
-                // §FS-rhei-run-report.3.1
-                state.tasks.entry(task).or_default().missing_outputs = None;
+                // A fresh attempt supersedes what the last one left unwritten,
+                // and the exit that went with it. §FS-rhei-run-report.3.1
+                let entry = state.tasks.entry(task).or_default();
+                entry.missing_outputs = None;
+                entry.last_exit_code = None;
             }
             rhei_tui::RunEvent::SlotReleased {
                 slot,
@@ -172,6 +180,10 @@ impl rhei_tui::EventSink for SummarySink {
                 entry.driver = Some(driver);
                 entry.invocations += 1;
                 entry.last_duration_ms = duration_ms;
+                // The release is the only event carrying the code, and it
+                // follows the missing-artifact event of the same attempt.
+                // §FS-rhei-run-report.3.1
+                entry.last_exit_code = exit_code;
                 let outcome = match outcome {
                     rhei_tui::TaskOutcome::Completed => LedgerOutcome::Completed,
                     rhei_tui::TaskOutcome::Failed(msg) => LedgerOutcome::Failed(msg),
@@ -723,15 +735,21 @@ impl RunSummaryReport {
             machines,
             &None,
             &|id| activity.contains_key(id),
-            // §FS-rhei-run-report.3.1: what the ticket's last exit-0 worker
-            // left unwritten, captured live rather than re-read from prose, and
-            // only while the ticket still sits in the state it stalled in.
+            // §FS-rhei-run-report.3.1: what the ticket's last worker left
+            // unwritten and the code it exited with, captured live rather than
+            // re-read from prose, and only while the ticket still sits in the
+            // state it stalled in.
             &|id, state| {
-                activity
-                    .get(id)
-                    .and_then(|entry| entry.missing_outputs.as_ref())
-                    .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
-                    .map(|(_, entries)| entries.clone())
+                activity.get(id).and_then(|entry| {
+                    entry
+                        .missing_outputs
+                        .as_ref()
+                        .filter(|(stalled_in, entries)| stalled_in == state && !entries.is_empty())
+                        .map(|(_, entries)| UnwrittenOutputs {
+                            entries: entries.clone(),
+                            exit_code: entry.last_exit_code,
+                        })
+                })
             },
             // Only the ticket's *last* invocation explains where it is, and
             // only for a run the operator stopped: a failing run ends its

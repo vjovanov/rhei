@@ -215,3 +215,39 @@ fn the_worker_pool_agrees_that_a_declared_route_records_nothing() {
         );
     }
 }
+
+/// The other half of the contract, and where it becomes visible in a durable
+/// artifact: a declared route into a `final: true` state leaves the result to
+/// the program, so one that writes nothing stalls — and the run report names
+/// the code that program actually exited with. A row reading `worker exited 0`
+/// would contradict the same report's own ledger, which is the ticket's
+/// complaint in another artifact.
+// §FS-rhei-run-report.3.1 §FS-rhei-states.3.3
+#[test]
+fn a_routed_exit_that_owes_the_result_is_reported_with_its_own_exit_code() {
+    let dir = unique_temp_dir("declared-route-stall-report");
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", ROUTE_PLAN);
+    let program = write_python_agent(&dir, "route.py", "sys.exit(3)\n");
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        &route_machine(
+            &fixture_command(&program),
+            "  - from: route\n    to: completed\n    exit_code: 3\n",
+        ),
+    );
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(!result.status.success(), "the ticket owes a result it never wrote, so the run halts");
+    assert_task_state(&plan_path, &machine_path, "1", "route");
+
+    let report = fs::read_to_string(dir.join("runtime/run-report.md")).expect("run report");
+    assert!(
+        report.contains("worker exited 3 without result ("),
+        "the halt names the exit the worker really had; got:\n{report}"
+    );
+    assert!(
+        !report.contains("worker exited 0 without"),
+        "and never an exit that did not happen; got:\n{report}"
+    );
+}
