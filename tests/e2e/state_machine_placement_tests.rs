@@ -137,8 +137,8 @@ fn a_project_default_and_a_rheis_own_machine_are_both_found() {
 }
 
 /// A rhei whose `**States:**` restates the project default's name runs the
-/// default's file, and the `states.yaml` at its own root is never read: `billing`
-/// declares `alpha` beside a file of that name with other states, and its ticket
+/// default's file, and its own root gets no precedence: `billing` declares
+/// `alpha` beside a file of that name with other states, and its ticket
 /// validates on a state only the project root's `alpha` has.
 /// §FS-rhei-state-machine-writer.5 §DA-per-rhei-state-machines
 #[test]
@@ -166,6 +166,39 @@ fn a_rhei_restating_the_default_runs_the_defaults_file() {
         states.stdout.lines().any(|line| line == default_source)
             && !states.stdout.contains(&own_file),
         "`rhei states` should list only {default_source:?}; got:\n{}",
+        states.stdout
+    );
+}
+
+/// A restated default still resolves the way the default does, and that lookup
+/// searches the restating rhei's own root by name like any other: in the shape an
+/// adopted project has, with no file at the project root, `billing`'s own `alpha`
+/// is the file the whole project runs, `audit` declaring nothing included.
+/// §FS-rhei-state-machine-writer.5 §DA-per-rhei-state-machines
+#[test]
+fn a_restated_default_found_in_the_rheis_own_root_runs_from_there() {
+    let dir = unique_temp_dir("placement-adopted-default");
+    let home = dir.join(".home");
+    let project = two_machine_project(&dir);
+    std::fs::remove_file(project.join("states.yaml")).expect("remove the project-root machine");
+    write_fixture_file(
+        &project.join("audit").join("tasks"),
+        "01.md",
+        "### Task 1: Survey\n**State:** drafting\n",
+    );
+    let billing = project.join("billing");
+    write_fixture_file(&billing, "index.rhei.md", "# Rhei: Billing\n**States:** alpha\n");
+    write_fixture_file(&billing, "states.yaml", &machine("alpha", "drafting", "filed"));
+    let project_arg = project.display().to_string();
+
+    assert_validates(&rhei_in(&dir, &home, &["validate", &project_arg]));
+
+    let states = rhei_in(&dir, &home, &["states", &project_arg]);
+    assert_success(&states);
+    let own_source = format!("Source: '{}'", billing.join("states.yaml").display());
+    assert!(
+        states.stdout.lines().any(|line| line == own_source),
+        "`rhei states` should list {own_source:?} as the default's source; got:\n{}",
         states.stdout
     );
 }
