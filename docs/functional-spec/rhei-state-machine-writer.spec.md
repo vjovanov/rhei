@@ -490,7 +490,7 @@ Rhei finds a state machine only where state-machine resolution looks ([§FS-rhei
 - **A single-file plan:** `states.yaml` in the plan's directory.
 - **A Directory Workspace:** `states.yaml` at the workspace root.
 - **A Panta project's default:** `states.yaml` at the project root (the directory holding `index.panta.md`), named by that manifest's `**States:**`. Every rhei that declares no `**States:**` runs under it.
-- **One rhei's own process:** `states.yaml` at that rhei's execution root, named by the rhei's own `**States:**`. Every instantiated template ships this shape.
+- **One rhei's own process:** `states.yaml` at that rhei's execution root, named by the rhei's own `**States:**` when that names a machine other than the project default. Every instantiated template ships this shape. A rhei whose `**States:**` restates the default's name runs the default's file, and a `states.yaml` at its own root is not read ([§DA-per-rhei-state-machines](../decisions/architectural/per-rhei-state-machines.md#da-per-rhei-state-machines-the-state-machine-is-a-per-rhei-property-defaulted-by-the-manifest)).
 
 The file's `name` must equal the `**States:**` value that selects it. No other directory or file name is searched. A machine kept anywhere else loads only when every invocation passes `--state-machine <path>`. That flag replaces resolution for the whole scope, so it works for a plan, a workspace, or a project that runs a single machine. It cannot supply one machine among several.
 

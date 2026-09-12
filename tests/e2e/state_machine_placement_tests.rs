@@ -136,6 +136,40 @@ fn a_project_default_and_a_rheis_own_machine_are_both_found() {
     }
 }
 
+/// A rhei whose `**States:**` restates the project default's name runs the
+/// default's file, and the `states.yaml` at its own root is never read: `billing`
+/// declares `alpha` beside a file of that name with other states, and its ticket
+/// validates on a state only the project root's `alpha` has.
+/// §FS-rhei-state-machine-writer.5 §DA-per-rhei-state-machines
+#[test]
+fn a_rhei_restating_the_default_runs_the_defaults_file() {
+    let dir = unique_temp_dir("placement-restated-default");
+    let home = dir.join(".home");
+    let project = two_machine_project(&dir);
+    let billing = project.join("billing");
+    write_fixture_file(&billing, "index.rhei.md", "# Rhei: Billing\n**States:** alpha\n");
+    write_fixture_file(&billing, "states.yaml", &machine("alpha", "drafting", "filed"));
+    write_fixture_file(
+        &billing.join("tasks"),
+        "01.md",
+        "### Task 1: Draft\n**State:** surveying\n",
+    );
+    let project_arg = project.display().to_string();
+
+    assert_validates(&rhei_in(&dir, &home, &["validate", &project_arg]));
+
+    let states = rhei_in(&dir, &home, &["states", &project_arg]);
+    assert_success(&states);
+    let default_source = format!("Source: '{}'", project.join("states.yaml").display());
+    let own_file = billing.join("states.yaml").display().to_string();
+    assert!(
+        states.stdout.lines().any(|line| line == default_source)
+            && !states.stdout.contains(&own_file),
+        "`rhei states` should list only {default_source:?}; got:\n{}",
+        states.stdout
+    );
+}
+
 /// `docs/states.yaml` is not a place resolution looks: the plan fails with the
 /// not-found error, and the same file loads only through `--state-machine` —
 /// the issue's cases A and C. §FS-rhei-plan-language.1.3
