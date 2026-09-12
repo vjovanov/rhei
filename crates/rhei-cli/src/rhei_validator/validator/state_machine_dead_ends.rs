@@ -138,6 +138,16 @@ fn dead_end_reason(machine: &StateMachine, state: &str, allowed: Option<&HashSet
     }
 }
 
+/// `text` with its first character upper-cased, for a clause that opens a
+/// sentence rather than continuing one.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// The edge that gives a stranded state a way on, as the user would write it.
 fn dead_end_repair(state: &str) -> String {
     format!("give it a way on with `- {{from: {state}, to: <next-state>}}`")
@@ -181,12 +191,22 @@ fn profile_dead_end_message(
     state: &str,
     allowed: &HashSet<&str>,
 ) -> String {
+    // Widening `allowed` only repairs a state the profile narrowed away from
+    // its way out; where the machine itself gives it none, saying so would
+    // send the reader to the wrong file.
+    let narrowed = machine
+        .transitions
+        .iter()
+        .any(|rule| transition_leaves_state(machine, state, rule) && !allowed.contains(rule.to.0.as_str()));
+    let (widen, repair) = if narrowed {
+        ("Widen this profile's `allowed` to a state that reaches a final one, or ", dead_end_repair(state))
+    } else {
+        ("", capitalized(&dead_end_repair(state)))
+    };
     format!(
         "profile '{profile_name}' allows non-final state '{state}', but no path using only \
-         allowed states reaches a final state: {}. Widen this profile's `allowed` to a state \
-         that reaches a final one, or {}. {DEAD_END_HELP}",
-        dead_end_reason(machine, state, Some(allowed)),
-        dead_end_repair(state)
+         allowed states reaches a final state: {}. {widen}{repair}. {DEAD_END_HELP}",
+        dead_end_reason(machine, state, Some(allowed))
     )
 }
 
