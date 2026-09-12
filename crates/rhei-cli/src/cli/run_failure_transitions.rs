@@ -215,6 +215,10 @@ fn fire_agent_exit_transition(
         from_state,
         to_state,
         exit_code,
+        // Every edge that reaches here is one the engine chose for a worker it
+        // ended — a timeout, an agent's failure, a spent poll budget — so none
+        // of them is a declared route. §FS-rhei-programs.3.2
+        ExitCodeMatch::None,
         no_callbacks,
     ) {
         Ok(effective_to) => {

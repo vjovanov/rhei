@@ -108,10 +108,11 @@ spawns.mkdir(parents=True, exist_ok=True)
     fn missing_outputs_reschedule_warning_names_missing_artifacts() {
         let recorder = Arc::new(RecordingSink::default());
         let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
-        emit_exit_zero_missing_required_outputs_warning(
+        emit_missing_required_outputs_warning(
             "agent",
             "1",
             "pending",
+            0,
             &["required-report".to_string()],
             RetryOutlook::AttemptsLeft,
             &sink,
@@ -122,6 +123,31 @@ spawns.mkdir(parents=True, exist_ok=True)
             rhei_tui::RunEvent::Message { text, .. }
                 if text.contains("agent exited 0 but required outputs are missing")
                     && text.contains("required-report")
+        )));
+    }
+
+    /// The same stall reached from a declared route, where the worker's exit was
+    /// not `0`: the line names the code the program actually exited with, or it
+    /// sends the operator looking for an exit that never happened.
+    // §FS-rhei-programs.3.2 §FS-rhei-agents.3.2.1
+    #[test]
+    fn missing_outputs_warning_names_the_exit_code_the_worker_used() {
+        let recorder = Arc::new(RecordingSink::default());
+        let sink: Arc<dyn rhei_tui::EventSink> = recorder.clone();
+        emit_missing_required_outputs_warning(
+            "program",
+            "1",
+            "build",
+            3,
+            &["result (runtime/results/plan.1.md)".to_string()],
+            RetryOutlook::AttemptsLeft,
+            &sink,
+        );
+        let events = recorder.events.lock().expect("events");
+        assert!(events.iter().any(|event| matches!(
+            event,
+            rhei_tui::RunEvent::Message { text, .. }
+                if text.contains("program exited 3 but required outputs are missing")
         )));
     }
 

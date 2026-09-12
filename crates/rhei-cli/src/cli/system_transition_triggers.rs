@@ -289,14 +289,16 @@ fn execute_system_program_exit_transition(
     from: &str,
     to: &str,
     exit_code: i32,
+    matched: ExitCodeMatch,
     no_callbacks: bool,
 ) -> MietteResult<String> {
     let mut data = serde_json::Map::new();
     data.insert("exitCode".to_string(), serde_json::Value::from(exit_code));
-    // A zero exit is the worker reporting success: the worker owns the result,
-    // exactly as it does on the ordinary auto-advance path. A non-zero exit is
-    // the engine ending the work, so the engine says why. §FS-rhei-run.3
-    let message = (exit_code != 0)
+    // A zero exit reports success and a declared route names an edge: either
+    // way the worker spoke, and only an exit the engine ended the work on is
+    // the engine's to explain. §FS-rhei-run.3 §FS-rhei-programs.3.2
+    let engine_owns_the_outcome = exit_code != 0 && !matched.is_declared_route();
+    let message = engine_owns_the_outcome
         .then(|| format!("`rhei run`: the subprocess exited {exit_code} in state '{from}'."));
     execute_transition_with_origin(
         files,
@@ -309,6 +311,9 @@ fn execute_system_program_exit_transition(
         TransitionOrigin {
             triggered_by: Some("system"),
             seed_data: Some(serde_json::Value::Object(data)),
+            // Deliberately still the bare exit test: the source state's declared
+            // `outputs:` are checked on a zero exit and skipped on a non-zero
+            // one, a declared route as much as any other. §FS-rhei-run.3
             skip_source_outputs: exit_code != 0,
             result_message: message,
             supervisor: None,

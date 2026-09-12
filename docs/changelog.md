@@ -71,7 +71,7 @@
   [the environment variable's own contract already required](functional-spec/rhei-programs.spec.md#2-environment-variables);
   one that does not leaves the ticket in its state and is reported with `result`
   among its missing outputs, rather than advancing on a sentence the engine
-  wrote for it. (PR #N)
+  wrote for it. (PR #229)
 
 - **A state machine with a state nothing can leave is now refused when it
   loads.** Every command that reads the machine — `validate`, `run`, `next`,

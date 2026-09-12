@@ -589,7 +589,9 @@ fn run_agent_mode(
                     let target_id = parse_task_id(task_id_str);
                     let machine = machines.for_task_str(task_id_str);
                     if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
-                        if let Some(to_state) = find_program_exit_transition(
+                        // A dry run prints the edge; how it matched decides
+                        // nothing it prints. §FS-rhei-run.4
+                        if let Some(route) = find_program_exit_transition(
                             machine,
                             loaded.rhei.metadata.as_ref(),
                             task,
@@ -601,7 +603,7 @@ fn run_agent_mode(
                                 format_dry_run_transition(
                                     task_id_str,
                                     current_state_raw,
-                                    &to_state,
+                                    &route.to,
                                     machine,
                                 )
                             );
@@ -729,7 +731,9 @@ fn run_agent_mode(
                     let target_id = parse_task_id(task_id_str);
                     let machine = machines.for_task_str(task_id_str);
                     if let Some(task) = find_task_by_id(&loaded.rhei.tasks, &target_id) {
-                        if let Some(to_state) = find_program_exit_transition(
+                        // A dry run prints the edge; how it matched decides
+                        // nothing it prints. §FS-rhei-run.4
+                        if let Some(route) = find_program_exit_transition(
                             machine,
                             loaded.rhei.metadata.as_ref(),
                             task,
@@ -741,7 +745,7 @@ fn run_agent_mode(
                                 format_dry_run_transition(
                                     task_id_str,
                                     current_state_raw,
-                                    &to_state,
+                                    &route.to,
                                     machine,
                                 )
                             );

@@ -4,15 +4,12 @@
     /// A program state declaring `edges`, plus the two gating states and the
     /// terminal one those edges land on.
     ///
-    /// The cases below pin *selection*, which is what
-    /// [`find_program_exit_transition`] returns today. Whether the exit was a
-    /// declared route is the same question asked of the same rule
-    /// (§FS-rhei-programs.3.2), and the e2e suite
-    /// (`tests/e2e/declared_exit_route_tests.rs`) pins it where it is
-    /// observable — in the ticket's result file. When the helper starts
-    /// returning how the edge matched alongside the target, each case here
-    /// gains the matching assertion on that value; none of them changes its
-    /// expected target.
+    /// The cases below pin *selection* and the classification that travels
+    /// with it: whether the exit was a declared route is the same question
+    /// asked of the same rule (§FS-rhei-programs.3.2), answered where the
+    /// rule's `condition:` was evaluated. The e2e suite
+    /// (`tests/e2e/declared_exit_route_tests.rs`) pins the same split where it
+    /// is observable — in the ticket's result file.
     fn exit_route_machine(edges: &str) -> rhei_validator::StateMachine {
         rhei_validator::StateMachine::from_yaml_str(&format!(
             r#"name: routing-exit
@@ -52,10 +49,20 @@ transitions:
         rhei.tasks.into_iter().next().expect("one task")
     }
 
-    fn selected_edge(edges: &str, exit_code: i32) -> Option<String> {
+    fn selected_route(edges: &str, exit_code: i32) -> Option<ProgramExitRoute> {
         let machine = exit_route_machine(edges);
         find_program_exit_transition(&machine, None, &routing_task(), "route", exit_code)
             .expect("selection should not error")
+    }
+
+    fn selected_edge(edges: &str, exit_code: i32) -> Option<String> {
+        selected_route(edges, exit_code).map(|route| route.to)
+    }
+
+    /// Whether the selected edge was a declared route, or `None` when the exit
+    /// selected no edge at all. §FS-rhei-programs.3.2
+    fn selected_is_declared_route(edges: &str, exit_code: i32) -> Option<bool> {
+        selected_route(edges, exit_code).map(|route| route.matched.is_declared_route())
     }
 
     const EXACT: &str = "  - from: route\n    to: checked\n    exit_code: 3\n";
@@ -67,6 +74,7 @@ transitions:
     #[test]
     fn an_exact_integer_exit_code_selects_its_own_edge() {
         assert_eq!(selected_edge(EXACT, 3).as_deref(), Some("checked"));
+        assert_eq!(selected_is_declared_route(EXACT, 3), Some(true));
     }
 
     #[test]
@@ -74,11 +82,16 @@ transitions:
         assert_eq!(selected_edge(ARRAY, 3).as_deref(), Some("checked"));
         assert_eq!(selected_edge(ARRAY, 2).as_deref(), Some("checked"));
         assert_eq!(selected_edge(ARRAY, 4), None);
+        assert_eq!(selected_is_declared_route(ARRAY, 3), Some(true));
+        assert_eq!(selected_is_declared_route(ARRAY, 2), Some(true));
     }
 
     #[test]
     fn a_catch_all_alone_selects_the_failure_edge() {
         assert_eq!(selected_edge(CATCH_ALL, 3).as_deref(), Some("build-failed"));
+        // The program did not choose the code, so the engine still owes the
+        // account of it. §FS-rhei-programs.3.2
+        assert_eq!(selected_is_declared_route(CATCH_ALL, 3), Some(false));
     }
 
     #[test]
@@ -88,6 +101,10 @@ transitions:
         // A code the exact rule does not name still falls to the catch-all, so
         // the precedence is per exit code rather than per state.
         assert_eq!(selected_edge(&both, 4).as_deref(), Some("build-failed"));
+        // The entry follows the edge that fired, not the edges declared.
+        // §FS-rhei-programs.3.2
+        assert_eq!(selected_is_declared_route(&both, 3), Some(true));
+        assert_eq!(selected_is_declared_route(&both, 4), Some(false));
     }
 
     /// The case a fix that re-derived the classification from the machine would
@@ -99,4 +116,8 @@ transitions:
     fn an_exact_edge_its_condition_disqualified_leaves_the_catch_all_to_fire() {
         let both = format!("{DISQUALIFIED}{CATCH_ALL}");
         assert_eq!(selected_edge(&both, 3).as_deref(), Some("build-failed"));
+        // The assertion that would fail if the classification were ever
+        // re-derived from the machine instead of carried from the selection.
+        // §FS-rhei-programs.3.2
+        assert_eq!(selected_is_declared_route(&both, 3), Some(false));
     }
