@@ -28,6 +28,20 @@
 
 ### Changed
 
+- **A state machine with a state nothing can leave is now refused when it
+  loads.** Every command that reads the machine — `validate`, `run`, `next`,
+  `complete`, `transition`, `instantiate` — rejects it before a task is
+  scheduled, instead of validating clean and stranding the first task that
+  reaches the state after the work in it is spent. A state is left by an edge
+  whoever moves the task can take: every `from: <state>` edge counts, a
+  `from: "*"` edge counts only where its target is not `final: true`, and out
+  of a `gating: true` state every edge counts, because a human takes it with
+  `rhei transition`. The error names every stranded state at once, says which
+  wildcard target it will not count as progress, and prints the transition line
+  to add. **Upgrading:** a machine of this shape that passes `rhei validate`
+  today will fail, which is the intended effect — it was going to strand a task.
+  The repair is the one transition line the error prints. (PR #225)
+
 - **A supervisor that steers by appending no longer burns the visit that did
   it.** A supervising visit which appends an open child and exits 0 without a
   result was judged against the task graph as the pass found it *before* the
