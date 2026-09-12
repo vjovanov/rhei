@@ -489,14 +489,19 @@ impl UiState {
                 let sym = match outcome {
                     TaskOutcome::Completed => "✓",
                     TaskOutcome::Failed(_) => "✗",
+                    // The state is not done and nothing went wrong with it: the
+                    // machine asked for another attempt. §FS-rhei-states.2.2
+                    TaskOutcome::Waiting => "⏳",
                     TaskOutcome::Cancelled => "⊘",
                     TaskOutcome::TimedOut => "⏱",
                     // Distinct from cancelled's `⊘`: nothing about the ticket
                     // is wrong, the run simply stopped. §FS-rhei-run.3.2
                     TaskOutcome::Interrupted => "⏹",
                 };
+                // A handled wait claims no attention: it reads at the level a
+                // completion does, not a failure's. §FS-rhei-states.2.2
                 let level = match outcome {
-                    TaskOutcome::Completed => MessageLevel::Info,
+                    TaskOutcome::Completed | TaskOutcome::Waiting => MessageLevel::Info,
                     _ => MessageLevel::Warn,
                 };
                 if let Some(s) = self.slot_mut(*slot) {

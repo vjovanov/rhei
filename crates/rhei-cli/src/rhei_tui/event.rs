@@ -16,6 +16,12 @@ pub type Slot = u16;
 pub enum TaskOutcome {
     Completed,
     Failed(String),
+    /// The invocation's selected transition was its state's poll self-loop, so
+    /// the machine itself called this exit "not done yet": the attempt is a
+    /// handled wait, neither a failure nor a finished state, whatever exit code
+    /// matched the edge. It carries no reason the way [`Self::Failed`] does —
+    /// the exit that matched is already on the same record. §FS-rhei-states.2.2
+    Waiting,
     Cancelled,
     TimedOut,
     /// The engine ended the invocation because the run was interrupted. The

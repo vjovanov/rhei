@@ -148,6 +148,35 @@ fn a_failed_outcome_carries_its_reason() {
     }
 }
 
+/// The value this vocabulary gained. A wait must survive the stream in both
+/// directions, or `rhei attach --json` shows an attached reader a completion
+/// where the run itself wrote a wait.
+// §FS-rhei-run-json.2.1 §FS-rhei-states.2.2
+#[test]
+fn a_waiting_outcome_round_trips_and_carries_no_reason() {
+    let event = RunEvent::SlotReleased {
+        slot: 0,
+        task: "auth.1".to_string(),
+        from: "ci-wait".to_string(),
+        to: "ci-wait".to_string(),
+        log_path: PathBuf::from("l"),
+        outcome: TaskOutcome::Waiting,
+        finished_at: Instant::now(),
+        wall_clock: at(),
+        exit_code: Some(75),
+        duration_ms: 1,
+    };
+    let record = encode(Some(1), &event, at(), None);
+    assert_eq!(record["outcome"], "waiting");
+    assert_eq!(record["exit_code"], 75, "the exit that matched the self-loop stays on the record");
+    assert!(record["reason"].is_null(), "a wait's cause is its exit code, not a reason string");
+    let decoded = decode(&record.to_string()).expect("decode");
+    match decoded.event {
+        RunEvent::SlotReleased { outcome, .. } => assert_eq!(outcome, TaskOutcome::Waiting),
+        other => panic!("expected a released slot, got {other:?}"),
+    }
+}
+
 #[test]
 fn agent_output_is_the_only_non_structural_event() {
     for event in every_variant() {

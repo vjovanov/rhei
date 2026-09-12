@@ -116,6 +116,7 @@ include!("cli/new_ticket.rs");
 include!("cli/new_ticket_write.rs");
 include!("cli/new_verify.rs");
 include!("cli/run_command.rs");
+include!("cli/run_slot_release.rs");
 include!("cli/run_work_items.rs");
 include!("cli/run_parallel_spawn.rs");
 include!("cli/run_parallel_program_spawn.rs");

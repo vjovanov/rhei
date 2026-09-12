@@ -191,10 +191,12 @@ pub fn is_structural(event: &RunEvent) -> bool {
     !matches!(event, RunEvent::AgentOutput { .. })
 }
 
+/// The `outcome` vocabulary of a `slot_released` record. §FS-rhei-run-json.2.1
 fn outcome_name(outcome: &TaskOutcome) -> &'static str {
     match outcome {
         TaskOutcome::Completed => "completed",
         TaskOutcome::Failed(_) => "failed",
+        TaskOutcome::Waiting => "waiting",
         TaskOutcome::Cancelled => "cancelled",
         TaskOutcome::TimedOut => "timeout",
         TaskOutcome::Interrupted => "interrupted",
@@ -380,9 +382,15 @@ fn decode_event(kind: &str, v: &Value, wall_clock: SystemTime) -> Option<RunEven
     })
 }
 
+/// Read an `outcome` back off the stream, so an attached reader shows the run
+/// the words the run itself wrote. An unknown value still decodes as a
+/// completion: the vocabulary is additive under one `schema`, and a reader that
+/// stopped on a value it had not met would turn that into an outage.
+// §FS-rhei-run-json.2.1 §FS-rhei-run-json.2.2
 fn decode_outcome(name: &str, reason: Option<String>) -> TaskOutcome {
     match name {
         "failed" => TaskOutcome::Failed(reason.unwrap_or_default()),
+        "waiting" => TaskOutcome::Waiting,
         "cancelled" => TaskOutcome::Cancelled,
         "timeout" => TaskOutcome::TimedOut,
         "interrupted" => TaskOutcome::Interrupted,

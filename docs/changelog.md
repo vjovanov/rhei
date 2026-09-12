@@ -193,6 +193,10 @@
   to brief one selected step. Ordinary worker prompts retain both context
   blocks unchanged. (PR #211)
 
+- A poll state's handled wait is now recorded as `waiting` rather than `failed`
+  wherever a run reports an outcome, and the specification now says plainly that
+  the state ledger records moves and a poll self-loop is not one. (PR #228)
+
 - **A retained headless lock no longer makes a dead supervisor look live.** On
   Linux, `rhei runs` now verifies that the recorded process owns a contended
   run lock, so an inherited lock held after that process exits is classified as

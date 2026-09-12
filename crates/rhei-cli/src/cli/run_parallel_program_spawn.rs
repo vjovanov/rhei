@@ -158,22 +158,29 @@ fn spawn_parallel_program_work_item(
             );
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let (outcome, exit_code) = slot_outcome(&result);
-            sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
-                slot,
-                task: task_id_for_result.clone(),
-                from: from_state,
-                to: state_name_for_result.clone(),
-                log_path: log_for_thread,
-                outcome,
-                finished_at: std::time::Instant::now(),
-                wall_clock: std::time::SystemTime::now(),
-                exit_code,
-                duration_ms,
-            });
+            // Read here, where the process was reaped, and emitted by the main
+            // thread once it knows whether this attempt was a poll state's
+            // handled wait. §FS-rhei-states.2.2
+            let release = PendingSlotRelease::hold(
+                sink_for_thread,
+                SlotRelease {
+                    slot,
+                    task: task_id_for_result.clone(),
+                    from: from_state,
+                    to: state_name_for_result.clone(),
+                    log_path: log_for_thread,
+                    outcome,
+                    finished_at: std::time::Instant::now(),
+                    wall_clock: std::time::SystemTime::now(),
+                    exit_code,
+                    duration_ms,
+                },
+            );
             ParallelAgentThreadMessage::ProgramCompleted(ParallelProgramCompletion {
                 task_id_str: task_id_for_result,
                 state_name: state_name_for_result,
                 retry_outlook: outlook_for_result,
+                release,
                 result,
                 slot,
             })

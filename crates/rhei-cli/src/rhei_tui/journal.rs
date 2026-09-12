@@ -100,9 +100,11 @@ impl EventSink for JournalSink {
             } => {
                 let ts = format_rfc3339(wall_clock);
                 let log = self.format_path(&log_path);
+                // The journal's outcome vocabulary. §FS-rhei-run-tui.1.7
                 let outcome_str = match &outcome {
                     TaskOutcome::Completed => "completed",
                     TaskOutcome::Failed(_) => "failed",
+                    TaskOutcome::Waiting => "waiting",
                     TaskOutcome::Cancelled => "cancelled",
                     TaskOutcome::TimedOut => "timeout",
                     TaskOutcome::Interrupted => "interrupted",

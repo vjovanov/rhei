@@ -129,18 +129,23 @@ fn run_sequential_program_work_items(
         let duration_ms = started_at.elapsed().as_millis() as u64;
         let finished_wall = SystemTime::now();
         let (outcome, exit_code) = slot_outcome(&spawn_result);
-        sink.emit(RunEvent::SlotReleased {
-            slot: 0,
-            task: task_id_str.clone(),
-            from: task.state.as_str().to_string(),
-            to: current_state.clone(),
-            log_path: log.clone(),
-            outcome,
-            finished_at: TuiInstant::now(),
-            wall_clock: finished_wall,
-            exit_code,
-            duration_ms,
-        });
+        // Held rather than emitted: whether this attempt was a handled wait is
+        // known only once the transition below is selected. §FS-rhei-states.2.2
+        let mut release = PendingSlotRelease::hold(
+            sink.clone(),
+            SlotRelease {
+                slot: 0,
+                task: task_id_str.clone(),
+                from: task.state.as_str().to_string(),
+                to: current_state.clone(),
+                log_path: log.clone(),
+                outcome,
+                finished_at: TuiInstant::now(),
+                wall_clock: finished_wall,
+                exit_code,
+                duration_ms,
+            },
+        );
 
         match spawn_result {
             // §FS-rhei-run.3.2: interrupted, so no transition fires.
@@ -259,6 +264,9 @@ fn run_sequential_program_work_items(
                         current_state,
                         &to_state,
                     )? {
+                        // Not done yet, so the attempt releases as a wait.
+                        // §FS-rhei-states.2.2
+                        release.waiting();
                         run_info!(
                             "  Task {} poll self-loop scheduled next attempt from '{}'",
                             task_id_str,
