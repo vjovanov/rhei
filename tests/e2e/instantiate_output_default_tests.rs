@@ -109,7 +109,7 @@ fn instantiate_help(cwd: &Path) -> String {
     assert!(
         output.status.success(),
         "`rhei instantiate --help` should succeed; stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
+        stderr(&output)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
