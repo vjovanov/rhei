@@ -189,3 +189,189 @@ inputs:
     assert!(rendered.contains("- claude => claude-code-yolo-anthropic-claude-opus-4-7"));
     assert!(rendered.contains("- gemini => gemini-yolo-google-gemini-3.1-pro-preview"));
 }
+
+// ---------------------------------------------------------------------------
+// Bundled files reach the output as written — §FS-rhei-templates.5 — and a
+// template that really is malformed is told what is wrong with it in the words
+// of its own text — §FS-rhei-templates.5.3.
+// ---------------------------------------------------------------------------
+
+/// A minimal template — manifest plus a one-task plan — carrying the extra
+/// files a case needs, instantiated into `output/`. Parent directories are
+/// created, so a case can bundle `scripts/bad.sh`; a bundled `.sh` is made
+/// executable, because keeping that bit is half of "arrives as written".
+fn instantiate_bundling(prefix: &str, files: &[(&str, &str)]) -> (TestDir, PathBuf, CliRun) {
+    let dir = unique_temp_dir(prefix);
+    let template_dir = dir.join("bundle-template");
+    fs::create_dir_all(&template_dir).expect("create template dir");
+    write_fixture_file(
+        &template_dir,
+        "template.yaml",
+        "name: bundle-template\nversion: 1.0.0\ndescription: Carries bundled files\n",
+    );
+    write_fixture_file(
+        &template_dir,
+        "plan.rhei.md",
+        "# Rhei: Bundle\n\n## Tasks\n\n### Task one: First\n**State:** pending\n",
+    );
+    for (name, contents) in files {
+        let path = template_dir.join(name);
+        fs::create_dir_all(path.parent().expect("a bundled file has a parent"))
+            .expect("create bundled parent directory");
+        fs::write(&path, contents).expect("write bundled file");
+        #[cfg(unix)]
+        if name.ends_with(".sh") {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                .expect("make bundled script executable");
+        }
+    }
+
+    let output_dir = dir.join("output");
+    let result = run_raw(
+        &[
+            "instantiate",
+            template_dir.to_str().expect("template path"),
+            "--output",
+            output_dir.to_str().expect("output path"),
+        ],
+        &dir,
+    );
+    (dir, output_dir, result)
+}
+
+/// The negative half of [`assert_stderr_contains`]: the same whitespace-blind
+/// comparison, asserting that the text is *not* there. A diagnostic that names
+/// a construct the file does not contain is what this ticket is about, so the
+/// absence has to be asserted rather than assumed.
+fn assert_stderr_lacks(result: &CliRun, unwanted: &str) {
+    fn collapse(text: &str) -> String {
+        text.chars().filter(|c| c.is_ascii_graphic()).collect()
+    }
+    assert!(
+        !collapse(&result.stderr).contains(&collapse(unwanted)),
+        "expected stderr not to contain {:?}; got:\n{}",
+        unwanted,
+        result.stderr
+    );
+}
+
+/// §FS-rhei-templates.5: the construct list is closed and holds no comment, so
+/// a bundled shell script's `${#IR[@]}` is ordinary text. It arrives byte for
+/// byte with its executable bit — the case agent-grounds/rhei#203 reports,
+/// where `{#` opened a comment that never closed and instantiation aborted.
+#[test]
+fn instantiate_bundles_a_bash_array_length_verbatim() {
+    let script = "#!/usr/bin/env bash\nset -euo pipefail\nIR=(one two three)\necho \"${#IR[@]}\"\n";
+    let (_dir, output_dir, result) =
+        instantiate_bundling("templates-bash-array", &[("scripts/bad.sh", script)]);
+    assert_success(&result);
+
+    let bundled = output_dir.join("scripts/bad.sh");
+    let rendered = fs::read_to_string(&bundled).expect("read the bundled script");
+    assert_eq!(rendered, script, "a bundled script arrives as written");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&bundled).expect("stat the bundled script").permissions().mode();
+        assert!(mode & 0o111 != 0, "the executable bit survives instantiation; mode {mode:o}");
+    }
+}
+
+/// §FS-rhei-templates.5: the quieter half of the same defect. A file holding
+/// `${#A[@]}` and a later `#}` does not fail today — it renders, and everything
+/// between the two is cut out of the output without a word. The text arrives
+/// complete, and §FS-rhei-templates.5.3's warning names the file and the line
+/// so a template written against the old reading is told its output moved.
+#[test]
+fn instantiate_keeps_the_text_a_later_hash_brace_used_to_cut() {
+    let script = "#!/usr/bin/env bash\nA=(x y)\necho \"${#A[@]}\"\necho keep-me\n\
+                  # a trailing brace #}\necho tail\n";
+    let (_dir, output_dir, result) =
+        instantiate_bundling("templates-hash-brace", &[("scripts/silent.sh", script)]);
+    assert_success(&result);
+
+    let rendered =
+        fs::read_to_string(output_dir.join("scripts/silent.sh")).expect("read the bundled script");
+    assert_eq!(rendered, script, "nothing between `{{#` and `#}}` is dropped");
+    assert!(rendered.contains("echo keep-me"), "the cut line survives; got:\n{rendered}");
+    // The warning names the file and the line the first `{#` sits on, so the
+    // change of meaning is detectable rather than silent.
+    assert_stderr_contains(&result, "scripts/silent.sh:3");
+    assert_stderr_contains(&result, "{#");
+}
+
+/// §FS-rhei-templates.5.3: a parse failure is anchored on the opener that was
+/// never closed, not on the later line where the parser ran out of input. The
+/// `{{` here opens on line 2; today the message points at line 3.
+#[test]
+fn instantiate_blames_the_unclosed_interpolation_on_its_own_line() {
+    let notes = "line one\nline two {{ foo\nline three\n";
+    let (_dir, _output_dir, result) =
+        instantiate_bundling("templates-unclosed-interp", &[("notes.md", notes)]);
+    assert!(!result.status.success(), "an unclosed `{{{{` is a failure; got:\n{}", result.stdout);
+
+    assert_stderr_contains(&result, "notes.md:2");
+    assert_stderr_contains(&result, "}}");
+    assert_stderr_lacks(&result, "comment");
+}
+
+/// §FS-rhei-templates.5.3: and it names the opener the file actually contains.
+/// An unclosed `{%` is never reported as an invalid `{{ }}` expression — the
+/// fixed help string that sent two agents hunting for braces that were not
+/// there is the defect §FS-rhei-errors.6 already describes.
+#[test]
+fn instantiate_never_blames_an_interpolation_for_an_unclosed_block() {
+    let notes = "line one\n{% if title %}\nline three\n";
+    let (_dir, _output_dir, result) =
+        instantiate_bundling("templates-unclosed-block", &[("notes.md", notes)]);
+    assert!(!result.status.success(), "an unclosed `{{%` is a failure; got:\n{}", result.stdout);
+
+    assert_stderr_contains(&result, "notes.md:2");
+    assert_stderr_contains(&result, "{%");
+    assert_stderr_lacks(&result, "invalid {{ }} expression");
+    assert_stderr_lacks(&result, "comment");
+}
+
+/// §FS-rhei-templates.7: a GitHub Actions `${{ ... }}` is a real interpolation
+/// and stays one, so an unfenced workflow fragment still fails — but
+/// §FS-rhei-templates.5.3 makes the failure name the line, the expression, and
+/// the `{% raw %}` remedy instead of pointing at the manifest.
+#[test]
+fn instantiate_blames_the_workflow_expression_and_offers_raw() {
+    let workflow = concat!(
+        "name: ci\n",
+        "on: [push]\n",
+        "jobs:\n",
+        "  build:\n",
+        "    runs-on: ubuntu-latest\n",
+        "    steps:\n",
+        "      - run: echo ${{ github.sha }}\n",
+    );
+    let (_dir, _output_dir, result) =
+        instantiate_bundling("templates-workflow-expr", &[("workflows/ci.yml", workflow)]);
+    assert!(!result.status.success(), "an undeclared input is a failure; got:\n{}", result.stdout);
+
+    assert_stderr_contains(&result, "ci.yml:7");
+    assert_stderr_contains(&result, "github");
+    assert_stderr_contains(&result, "{% raw %}");
+}
+
+/// §FS-rhei-templates.5.2: the escapes that exist keep working. A `{# ... #}`
+/// inside a raw block is emitted literally, `\{{` still consumes its backslash,
+/// and a runtime `{name}` still passes through. A raw region is never blamed
+/// and never warned about, so the four shared templates that fence their Bash
+/// bodies render exactly as they do now. This one passes today: it is the guard
+/// that the change above does not take the escapes with it.
+#[test]
+fn instantiate_preserves_raw_blocks_and_backslash_escapes() {
+    let notes =
+        "raw: {% raw %}{# x #}{% endraw %}\nesc: \\{{ not_an_input }}\nruntime: {task_id}\n";
+    let (_dir, output_dir, result) =
+        instantiate_bundling("templates-escapes", &[("notes.md", notes)]);
+    assert_success(&result);
+
+    let rendered = fs::read_to_string(output_dir.join("notes.md")).expect("read rendered notes");
+    assert_eq!(rendered, "raw: {# x #}\nesc: {{ not_an_input }}\nruntime: {task_id}\n");
+    assert_stderr_lacks(&result, "notes.md:");
+}
