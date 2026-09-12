@@ -388,9 +388,10 @@ fn poll_attempts_exhausted(
 ///
 /// A step-2 exact match is the program naming the route it wants, so the engine
 /// records no subprocess-failure entry for it; a `"nonzero"` catch-all is the
-/// program merely failing, and an edge carrying no `exit_code` at all — a poll
-/// state's exhaustion edge, or the exit-`0` fall-through — is neither.
-/// §FS-rhei-programs.3.2
+/// program merely failing, and an edge carrying no `exit_code` at all — the
+/// exit-`0` fall-through — is neither. A spent poll budget is its own answer:
+/// the edge was selected regardless of what the program exited with, so the
+/// exit named nothing whatever the rule declares. §FS-rhei-programs.3.2
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExitCodeMatch {
     /// An integer or integer-array `exit_code:` condition: a **declared route**.
@@ -399,6 +400,10 @@ enum ExitCodeMatch {
     Nonzero,
     /// The selected rule declares no `exit_code:` at all.
     None,
+    /// The state's poll attempt budget was spent, so the engine selected this
+    /// edge regardless of its `exit_code:` — whatever it declares, the exit did
+    /// not choose it. §FS-rhei-programs.3.2 §FS-rhei-run.5.1
+    PollExhausted,
 }
 
 impl ExitCodeMatch {
@@ -477,11 +482,15 @@ fn find_program_exit_transition(
         }
         if program_transition_is_applicable(rule, machine, metadata, task, current_state) {
             // Classified here, where the condition was evaluated, and carried
-            // to the caller rather than re-derived. §FS-rhei-programs.3.2
-            return Ok(Some(ProgramExitRoute {
-                to: rule.to.0.clone(),
-                matched: ExitCodeMatch::of(rule),
-            }));
+            // to the caller rather than re-derived. An exhausted poll budget
+            // picks the edge on its own, so the exit chose nothing and the
+            // engine still owes the account. §FS-rhei-programs.3.2
+            let matched = if poll_exhaustion_active {
+                ExitCodeMatch::PollExhausted
+            } else {
+                ExitCodeMatch::of(rule)
+            };
+            return Ok(Some(ProgramExitRoute { to: rule.to.0.clone(), matched }));
         }
     }
 

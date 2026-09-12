@@ -121,3 +121,82 @@ transitions:
         // §FS-rhei-programs.3.2
         assert_eq!(selected_is_declared_route(&both, 3), Some(false));
     }
+
+    /// The shape every poll fixture has: one `poll:` state whose self-loop and
+    /// whose exhaustion edge declare the *same* exact code, so which of them
+    /// fires is decided by the attempt budget and never by the exit.
+    // §FS-rhei-run.5.1
+    fn poll_machine() -> rhei_validator::StateMachine {
+        rhei_validator::StateMachine::from_yaml_str(
+            r#"name: polling-exit
+version: 1
+states:
+  waiting:
+    description: Wait for the gate
+    program:
+      command: ["true"]
+    poll:
+      interval: 0s
+      max_attempts: 2
+  exhausted:
+    description: The budget ran out
+    final: true
+transitions:
+  - from: waiting
+    to: waiting
+    exit_code: 75
+  - from: waiting
+    to: exhausted
+    exit_code: 75
+"#,
+        )
+        .expect("valid polling machine")
+    }
+
+    /// One leaf ticket sitting in `waiting`, on its `visits`th attempt.
+    fn polling_task(visits: u64) -> (rhei_core::ast::Task, Metadata) {
+        let rhei = rhei_core::parse(
+            "# Rhei: Polling exit\n\n## Tasks\n\n### Task 1: Wait\n**State:** waiting\n",
+        )
+        .expect("parse polling plan");
+        let task = rhei.tasks.into_iter().next().expect("one task");
+        // The id is a bare number here, and frontmatter keys a single-segment
+        // numeric id numerically, so quoting it would miss the lookup.
+        let metadata = serde_yaml::from_str(&format!(
+            "metadata:\n  tasks:\n    {}:\n      stateVisits:\n        waiting: {visits}\n",
+            task.id
+        ))
+        .expect("visit metadata parses");
+        (task, metadata)
+    }
+
+    /// A spent poll budget picks the exhaustion edge *regardless of*
+    /// `exit_code:` (§FS-rhei-programs.3.2), so the exit named nothing and the
+    /// engine still owes the account of it — the same edge, taken while the
+    /// budget still had an attempt, is the self-loop instead. Reading the rule
+    /// alone would call this a declared route and silently drop the engine's
+    /// message on every poll machine whose exhaustion edge names a code.
+    #[test]
+    fn a_spent_poll_budget_selects_its_edge_rather_than_the_exit_choosing_it() {
+        let machine = poll_machine();
+        let (task, metadata) = polling_task(2);
+        let route =
+            find_program_exit_transition(&machine, Some(&metadata), &task, "waiting", 75)
+                .expect("selection should not error")
+                .expect("the exhaustion edge is selected");
+        assert_eq!(route.to, "exhausted");
+        assert!(!route.matched.is_declared_route());
+    }
+
+    /// The budget is not spent, so the self-loop is still open and the attempt
+    /// is a wait rather than a route out. §FS-rhei-run.5.1
+    #[test]
+    fn a_poll_with_an_attempt_left_stays_on_its_self_loop() {
+        let machine = poll_machine();
+        let (task, metadata) = polling_task(1);
+        let route =
+            find_program_exit_transition(&machine, Some(&metadata), &task, "waiting", 75)
+                .expect("selection should not error")
+                .expect("the self-loop is selected");
+        assert_eq!(route.to, "waiting");
+    }
