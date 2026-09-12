@@ -1,26 +1,3 @@
-fn profile_state_can_reach_final(machine: &StateMachine, profile: &Profile, start: &str) -> bool {
-    let allowed: HashSet<&str> = profile.allowed.iter().map(String::as_str).collect();
-    let mut seen = HashSet::new();
-    let mut queue = VecDeque::from([start.to_string()]);
-
-    while let Some(state) = queue.pop_front() {
-        if !seen.insert(state.clone()) {
-            continue;
-        }
-        if machine.states.get(&state).is_some_and(|def| def.terminal) {
-            return true;
-        }
-        for transition in machine.transitions.iter().filter(|transition| {
-            (transition.from.0 == state || transition.from.0 == "*")
-                && allowed.contains(transition.to.0.as_str())
-        }) {
-            queue.push_back(transition.to.0.clone());
-        }
-    }
-
-    false
-}
-
 /// Extract every condition string from `{if <condition>}` tags in `text`.
 fn extract_if_conditions(text: &str) -> Vec<&str> {
     let mut conditions = Vec::new();
