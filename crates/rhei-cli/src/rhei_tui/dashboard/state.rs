@@ -162,6 +162,9 @@ impl DashboardState {
                 slot_state.outcome = Some(match outcome {
                     TaskOutcome::Completed => "completed".to_string(),
                     TaskOutcome::Failed(reason) => format!("failed: {reason}"),
+                    // Carries no reason: the exit that matched the self-loop is
+                    // in the cell beside it. §FS-rhei-states.2.2
+                    TaskOutcome::Waiting => "waiting".to_string(),
                     TaskOutcome::Cancelled => "cancelled".to_string(),
                     TaskOutcome::TimedOut => "timed out".to_string(),
                     TaskOutcome::Interrupted => "interrupted".to_string(),

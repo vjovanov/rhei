@@ -50,6 +50,9 @@ struct LedgerRecord {
 enum LedgerOutcome {
     Completed,
     Failed(String),
+    /// The invocation selected its state's poll self-loop, so it neither failed
+    /// nor finished the state: it waited. §FS-rhei-states.2.2
+    Waiting,
     Cancelled,
     TimedOut,
     /// The run was interrupted and the engine ended the invocation; no
@@ -168,6 +171,7 @@ impl rhei_tui::EventSink for SummarySink {
                 let outcome = match outcome {
                     rhei_tui::TaskOutcome::Completed => LedgerOutcome::Completed,
                     rhei_tui::TaskOutcome::Failed(msg) => LedgerOutcome::Failed(msg),
+                    rhei_tui::TaskOutcome::Waiting => LedgerOutcome::Waiting,
                     rhei_tui::TaskOutcome::Cancelled => LedgerOutcome::Cancelled,
                     rhei_tui::TaskOutcome::TimedOut => LedgerOutcome::TimedOut,
                     rhei_tui::TaskOutcome::Interrupted => LedgerOutcome::Interrupted,
@@ -1494,6 +1498,12 @@ fn ledger_outcome_reason(outcome: &LedgerOutcome, exit_code: Option<i32>) -> Str
                 None => format!("failed: {msg}"),
             }
         }
+        // The reason a poll wait gives is the wait, with the exit the machine
+        // declared as "come back later" kept beside it. §FS-rhei-states.2.2
+        LedgerOutcome::Waiting => match exit_code {
+            Some(code) => format!("poll delay, exit {code}"),
+            None => "poll delay".to_string(),
+        },
         LedgerOutcome::Cancelled => "cancelled".to_string(),
         LedgerOutcome::TimedOut => "timed out".to_string(),
         // Not a verdict on the ticket: the run stopped the worker. §FS-rhei-run.3.2

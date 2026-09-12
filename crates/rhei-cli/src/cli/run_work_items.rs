@@ -104,6 +104,10 @@ struct ParallelProgramCompletion {
     /// the run says what it will do next.
     // §FS-rhei-agents.3.2.1 §FS-rhei-agents.3.2.3
     retry_outlook: RetryOutlook,
+    /// The slot release the worker read off the finished process, not yet
+    /// emitted: a poll self-loop makes it a wait, and only the main thread
+    /// selects the transition that says so. §FS-rhei-states.2.2
+    release: PendingSlotRelease,
     result: MietteResult<ProgramSpawnOutcome>,
     slot: rhei_tui::Slot,
 }
