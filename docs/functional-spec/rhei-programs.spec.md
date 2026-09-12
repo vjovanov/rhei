@@ -172,6 +172,25 @@ On a `poll:` state whose attempt budget is spent, step 1 does not govern the
 exhaustion edge: the engine selects the first matching non-self-loop
 transition regardless of `exit_code` (§FS-rhei-run.5.1).
 
+**An exit that fired an exact match is a declared route, not a failure.** A
+step-2 match — an integer or an integer-array condition — is the program naming
+the edge it wants: it chose that code to say where the ticket goes, so
+`rhei run` records **no subprocess-failure entry** in the ticket's result for
+it, whatever the code was
+([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop),
+[§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). A `"nonzero"`
+match at step 3 is not a declared route — the program did not choose the code,
+it merely failed — so the engine ends the work and says why. Where one state
+declares both and the exact edge wins, the entry follows the edge that fired:
+none. An exact rule disqualified by its `condition:` at step 5 never fired, so
+an exit that falls through to `"nonzero"` is an ordinary failure.
+
+The route is the only account of the outcome the engine has, so a declared
+route into a `final: true` state leaves the ticket's result to the program.
+That is what `RHEI_RESULT_PATH` is for (§2), and a program that leaves it empty
+stalls the ticket rather than advancing it on a sentence the engine wrote in
+its place ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)).
+
 ### 3.3. Mixing Exit-Code and Manual Transitions
 
 Programs may also call `rhei transition` or `rhei complete` directly via subprocess invocation, just like agents. When a program does so, the task state changes before the program exits, and exit-code evaluation is skipped entirely — the explicit transition takes precedence.

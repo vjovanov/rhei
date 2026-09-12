@@ -172,6 +172,7 @@ mod tests {
     include!("cli/tests_agent_resolution.rs");
     include!("cli/tests_agent_prompt_transport.rs");
     include!("cli/tests_spawn_records.rs");
+    include!("cli/tests_program_exit_routes.rs");
     include!("cli/tests_agent_execution_validation.rs");
     include!("cli/tests_usage_report.rs");
     include!("cli/tests_accounting.rs");

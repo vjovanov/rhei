@@ -189,12 +189,30 @@ from silently completing fresh tasks without executing them.
      transport and invocation-detail environment variables defined in
      [Agents Specification — Environment Variables](rhei-agents.spec.md#4-environment-variables), checkout-root working directory, and timeout.
    - Wait for the subprocess to exit, for the timeout to fire, or for the run to be interrupted. Each subprocess runs in its own process group and is terminated as a group — `SIGTERM`, grace 10 s, then `SIGKILL` — whichever of the three reasons ends it (§3.2).
-4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)).
+4. On subprocess exit, evaluate the state's [Completion Condition](rhei-agents.spec.md#32-completion-condition): exit code `0` plus every required `outputs:` artifact present on disk. When the transition this exit would select lands on a `final: true` state, the ticket's non-empty `runtime/results/<task-id>.md` is one more required artifact of that condition ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)) — the subprocess is the worker that knows why the ticket is finishing, and it was told the path in its prompt ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)), or, for a program, in `RHEI_RESULT_PATH` ([§FS-rhei-programs.2](rhei-programs.spec.md#2-environment-variables)).
+
+   That last artifact is owed on a **declared route** as well as on a zero exit:
+   a non-zero exit firing an exact `exit_code:` match is the program choosing
+   the edge ([§FS-rhei-programs.3.2](rhei-programs.spec.md#32-evaluation-order)),
+   so it is a worker speaking for itself and the engine has nothing to write in
+   its place. Only that half of the condition extends. The state's declared
+   `outputs:` are checked on a zero exit and skipped on a non-zero one, before
+   a declared route as after it.
 5. Select the outgoing transition without applying it yet.
 
-   - **The condition holds.** Select the first declared transition whose
-     `condition` / `exit_code` matches.
-   - **The subprocess exited non-zero, or its timeout fired.** Route through the
+   - **The condition holds, or the exit named its own edge.** Select the first
+     declared transition whose `condition` / `exit_code` matches. A non-zero
+     exit that fires an *exact* `exit_code:` match — an integer or an
+     integer-array condition
+     ([§FS-rhei-programs.3.2](rhei-programs.spec.md#32-evaluation-order)) —
+     belongs in this branch and not the next one: it is a **declared route**,
+     the program's way of saying where the ticket goes, so the engine takes the
+     edge and writes no result entry of its own
+     ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)).
+   - **The engine ended the work, or the exit named no edge.** Its timeout
+     fired; or the subprocess exited non-zero and matched no transition, or
+     matched only a `"nonzero"` catch-all, or spent a poll state's attempt
+     budget. Route through the
      state's error or timeout transition per
      [Agents Specification — Execution Loop](rhei-agents.spec.md#52-execution-loop).
      The error route selects only a transition the state declares with
@@ -202,11 +220,19 @@ from silently completing fresh tasks without executing them.
      edge: once its attempt budget is spent, the first matching non-self-loop
      transition is selected regardless of `exit_code` (§5.1).
      When no such transition is declared and `--continue-on-error` is unset,
-     `rhei run` aborts with a non-zero exit code.
-   - **The subprocess exited `0` and the completion condition fails** — a
+     `rhei run` aborts with a non-zero exit code. These outcomes are the
+     engine's own, so the engine supplies the ticket's result message for them
+     ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)).
+   - **The completion condition fails** — the subprocess exited `0` and a
      required `outputs:` artifact is missing, or the edge this exit selects
      lands on a `final: true` state and the ticket has no result
-     ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). **No transition fires.** The ticket stays in the
+     ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). The
+     second half holds for a declared route as well: an exact `exit_code:`
+     match into a `final: true` state is the program's own answer, and the
+     engine writes nothing in its place, so a program that leaves
+     `RHEI_RESULT_PATH` empty stalls here
+     ([§FS-rhei-programs.2](rhei-programs.spec.md#2-environment-variables)).
+     **No transition fires.** The ticket stays in the
      state it is in, the engine logs the missing-artifact warning of
      [§FS-rhei-agents.3.2.1](rhei-agents.spec.md#321-runtime-semantics) naming every path it checked — the result under the
      artifact name `result`, so the operator sees which file the run is waiting
@@ -328,13 +354,15 @@ from silently completing fresh tasks without executing them.
 | A **fanned-out** state (`all_targets` / `all_models`) whose selected edge is terminal | Every invocation, each into its own fragment `runtime/results/<task-id>/<state>/<visit_count>/<identity>.md`; the completion condition checks the invocation's own fragment, and once the last fragment lands `rhei run` merges them into `runtime/results/<task-id>.md` before applying the transition, idempotently ([§FS-rhei-states.3.3](rhei-states.spec.md#33-terminal-result)). One worker's account never stands in for another's, and no invocation overwrites a sibling. A `program:` state is not fanned out: it runs once and writes the ticket-level file. |
 | Timeout ([§FS-rhei-agents.7.3](rhei-agents.spec.md#73-timeout-behavior)) | The engine, which knows the timeout that ended the work and writes it as the result message. |
 | Unavailable required tooling ([§FS-rhei-agents.6](rhei-agents.spec.md#6-missing-tooling)) | The engine, which names the kind and the unavailable ids. |
-| Non-zero subprocess exit routed by `exit_code:` or an error transition | The engine, which names the exit code. |
+| Non-zero subprocess exit that named no edge — an error transition, an unmatched code, or a `"nonzero"` catch-all | The engine, which names the exit code. |
+| Non-zero subprocess exit that fired an **exact** `exit_code:` match ([§FS-rhei-programs.3.2](rhei-programs.spec.md#32-evaluation-order)) | The subprocess. The exit is a declared route rather than a failure the engine could narrate, so the ticket's result is the program's to write (`RHEI_RESULT_PATH`, [§FS-rhei-programs.2](rhei-programs.spec.md#2-environment-variables)). Missing, and step 4 fails the completion condition exactly as it does on a zero exit. |
 | Callback-only advancement (`--no-agent`, or a machine with no autonomous state) | A callback that wrote the result file, if one did — otherwise the engine, which records that it took the edge itself and that **no worker result was recorded**. What it says about the worker is what it can prove: with a spawn record for the source state on disk ([§FS-rhei-agents.8.4](rhei-agents.spec.md#84-spawn-records)) the sentence names the worker that ran — `agent '<id>'` or `program \`<command>\`` — its log, and how it ended; only with no such record does it say that no worker ran. |
 | Human gate released from a live surface — browser dashboard ([§FS-rhei-viz.5.1](rhei-viz.spec.md#51-human-gate-transitions)) or TUI ([§FS-rhei-run-tui.1.5.5](rhei-run-tui.spec.md#155-live-actions-intervene-and-human-gate)) | The human who released it, through the gate surface's own optional **Result** field. The message rides the transition like `rhei transition --result` does. Left blank with no result on disk, a release into a terminal state is refused, and the refusal names `rhei transition <id> --from <state> --to <state> --result "<why>"`. Releasing a gate into a non-terminal state is unaffected either way. |
 
 The line the table draws is one rule: **the engine writes a result only for the
 outcomes the engine itself produced** — a timeout it fired, tooling it could not
-start, an exit code it read, an edge it walked with no subprocess in the state.
+start, an exit code it read that no declared route matched, an edge it walked
+with no subprocess in the state.
 It never speaks for a worker that ran, and it never speaks for a human. Where a
 worker ran, a missing result is a failed completion condition, not a sentence
 the engine makes up; where a human decided, the human is asked — which is why

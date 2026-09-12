@@ -56,6 +56,23 @@
 
 ### Changed
 
+- **A program's declared exit route is no longer recorded as a subprocess
+  failure.** When a program state's exit code matched an exact `exit_code:`
+  transition, `rhei run` both took the edge and appended
+  `` `rhei run`: the subprocess exited N in state 'S'. `` to the ticket's result
+  file, so a routed exit read as a failure and the result file was never empty —
+  a program guarding on an empty `RHEI_RESULT_PATH` could never write the
+  terminal result it owned. An exit that selects an exact integer or
+  integer-array `exit_code` edge is now a declared route and leaves no entry. A
+  catch-all `exit_code: nonzero` edge is unchanged and still records why,
+  because there the program did not choose the code. **Breaking:** a program
+  whose exact-match edge lands directly on a `final: true` state must now write
+  `RHEI_RESULT_PATH` itself, which
+  [the environment variable's own contract already required](functional-spec/rhei-programs.spec.md#2-environment-variables);
+  one that does not leaves the ticket in its state and is reported with `result`
+  among its missing outputs, rather than advancing on a sentence the engine
+  wrote for it. (PR #N)
+
 - **A state machine with a state nothing can leave is now refused when it
   loads.** Every command that reads the machine — `validate`, `run`, `next`,
   `complete`, `transition`, `instantiate` — rejects it before a task is

@@ -18,6 +18,7 @@ mod cost_project_scope_tests;
 mod cost_selection_tests;
 mod current_dir_target_tests;
 mod dead_end_state_tests;
+mod declared_exit_route_tests;
 mod diagnostic_wrap_tests;
 mod error_guidance_tests;
 mod examples_tests;
@@ -74,6 +75,10 @@ mod transition_tests;
 mod validate_retry_cache_tests;
 mod waiting_on_person_tests;
 
+/// The plan and machine text most of them start from.
+mod shared_fixtures;
+pub use shared_fixtures::*;
+
 // Shared with the `integration_markdown_plans` harness, which cannot see this
 // module tree and `include!`s the same file.
 #[path = "../support/binaries.rs"]
@@ -113,104 +118,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-// ---------------------------------------------------------------------------
-// State machine
-// ---------------------------------------------------------------------------
-
-pub const STATE_MACHINE: &str = r#"name: integration-test
-version: 1
-states:
-  draft:
-    initial: true
-    description: Analysis phase
-    instructions: |
-      Analyze the task and write a description. Transition to pending once done.
-  pending:
-    description: Ready for work
-    instructions: |
-      Implement the task. Transition to completed when finished.
-  completed:
-    final: true
-    description: Done
-  cancelled:
-    final: true
-    description: Abandoned
-transitions:
-  - from: draft
-    to: pending
-  - from: pending
-    to: completed
-  - from: "*"
-    to: cancelled
-"#;
-
-// ---------------------------------------------------------------------------
-// Plan templates (all tasks start in draft)
-// ---------------------------------------------------------------------------
-
-pub const LINEAR_PLAN: &str = r#"# Rhei: Linear Chain
-
-## Tasks
-
-### Task 1: First step
-**State:** draft
-
-### Task 2: Second step
-**State:** draft
-**Prior:** Task 1
-
-### Task 3: Third step
-**State:** draft
-**Prior:** Task 2
-"#;
-
-pub const PARALLEL_PLAN: &str = r#"# Rhei: Parallel Branches
-
-## Tasks
-
-### Task 1: Root
-**State:** draft
-
-### Task 2: Branch A
-**State:** draft
-**Prior:** Task 1
-
-### Task 3: Branch B
-**State:** draft
-**Prior:** Task 1
-"#;
-
-pub const INDEPENDENT_PLAN: &str = r#"# Rhei: Independent Tasks
-
-## Tasks
-
-### Task 1: Alpha
-**State:** draft
-
-### Task 2: Beta
-**State:** draft
-
-### Task 3: Gamma
-**State:** draft
-"#;
-
-pub const SUBTASK_PLAN: &str = r#"# Rhei: Subtask Test
-
-## Tasks
-
-### Task 1: Parent task
-**State:** draft
-Some task content here.
-
-#### Task 1.1: First subtask
-**State:** draft
-Subtask one content.
-
-#### Task 1.2: Second subtask
-**State:** draft
-Subtask two content.
-"#;
 
 // ---------------------------------------------------------------------------
 // Helpers
