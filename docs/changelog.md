@@ -14,7 +14,7 @@
   states the precondition and says to report the capture in the result instead
   of creating a project, and `rhei new`'s specification states the precondition
   where the capture is prescribed, alongside the one its neighbour already had.
-  No command behaviour changes. (PR #N)
+  No command behaviour changes. (PR #238)
 
 - **`rhei cost` and `rhei summary` read the accounting of the rhei they were
   pointed at.** Both resolved their accounting root one level above where a run
