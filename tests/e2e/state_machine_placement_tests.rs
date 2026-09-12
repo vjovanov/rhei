@@ -28,11 +28,7 @@ fn rhei_in(cwd: &Path, home: &Path, args: &[&str]) -> CliRun {
     let mut cmd = rhei_command(home);
     cmd.current_dir(cwd).args(args);
     let output = cmd.output().expect("rhei command should run");
-    CliRun {
-        status: output.status,
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    }
+    CliRun::from(&output)
 }
 
 fn assert_validates(result: &CliRun) {
