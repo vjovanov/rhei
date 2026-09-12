@@ -291,6 +291,44 @@ fn captures_into_the_basin_creating_it_on_demand() {
     assert_success(&new_run(&["validate"], &dir));
 }
 
+/// A lone plan for a worker that was handed one file and no project.
+fn lone_plan(prefix: &str) -> TestDir {
+    let dir = unique_temp_dir(prefix);
+    write_fixture_file(
+        &dir,
+        "solo.rhei.md",
+        "# Rhei: Solo\n\n## Tasks\n\n### Task 1: One\n**State:** pending\n",
+    );
+    dir
+}
+
+/// §FS-rhei-new.3.5: outside a project there is no unfiled inbox to file into,
+/// so the capture is refused rather than growing a `basin/` beside the plan.
+#[test]
+fn refuses_a_basin_capture_outside_a_project() {
+    let dir = lone_plan("new-ticket-basin-lone");
+    let result = new_run(&["new", "Fix the footer typo", "--under", "basin"], &dir);
+    assert_failure(&result, "the basin exists only inside a Panta project");
+
+    let said = flattened_output(&result);
+    assert!(said.contains("solo.rhei.md"), "the refusal names the plan it resolved, got:\n{said}");
+    assert!(said.contains("rhei init"), "and points at the one remedy, got:\n{said}");
+    assert!(!dir.join("basin").exists(), "and creates nothing on the way to refusing");
+}
+
+/// §FS-rhei-new.3.5: `basin` is the one `--under` value a lone plan cannot
+/// answer for — every other one resolves inside the plan itself.
+#[test]
+fn a_lone_plan_still_takes_a_ticket_under_its_own_ids() {
+    let dir = lone_plan("new-ticket-lone-under");
+    assert_success(&new_run(&["new", "A sibling", "--under", "solo"], &dir));
+    assert_success(&new_run(&["new", "A subtask", "--under", "solo.1"], &dir));
+
+    let plan = fs::read_to_string(dir.join("solo.rhei.md")).expect("rhei file");
+    assert!(plan.contains("#### Task 1.1: A subtask\n"), "got:\n{plan}");
+    assert!(plan.contains("### Task 2: A sibling\n"), "got:\n{plan}");
+}
+
 /// §FS-rhei-new.3.2: the state comes from the *owning rhei's* machine, not the
 /// project default.
 #[test]
