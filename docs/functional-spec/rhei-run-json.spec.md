@@ -73,7 +73,7 @@ or repurposing a field named here is a breaking change and moves `schema`
 | `pass_ended` | Each scheduler pass ends | `pass`, `progressed` |
 | `tasks_deferred` | Ready tasks yielded a same-state slot | `pass`, `tasks` |
 | `task_outputs_missing` | A worker exited `0` without its required artifacts | `task`, `state`, `entries` |
-| `usage_reported` | An accounting record was durably written | `task`, `invocation_id`, `slot`, `usage` |
+| `usage_reported` | A turn was measured, and again once the accounting record was durably written | `task`, `invocation_id`, `slot`, `report` (`streamed`/`final`), `usage` |
 | `message` | Engine diagnostics | `level` (`info`/`warn`/`error`), `text` |
 | `link` | The run produced a URL or file link | `label`, `url` |
 | `agent_output` | A live agent output line (§2.3) | `slot`, `task`, `stream`, `line` |
@@ -83,6 +83,12 @@ or repurposing a field named here is a breaking change and moves `schema`
 `interrupted`, matching the journal vocabulary of [§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format). Paths
 are workspace-relative when inside the workspace and absolute otherwise, as in
 the journal.
+
+`usage_reported.report` is `streamed` for a running total observed
+mid-invocation and `final` for the one report that follows the durable record;
+exactly one `final` record exists per invocation that reaches a record
+[§FS-rhei-cost-accounting.7.1](rhei-cost-accounting.spec.md#71-line-oriented-frontends). Adding the field does not move the schema version
+(§2.2), and a record written before it decodes as `final`.
 
 A stream that ends without `run_finished` says the run did not reach its own
 end: it was interrupted, it failed, or the process died. That is information,
