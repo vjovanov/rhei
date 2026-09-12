@@ -142,6 +142,24 @@
         assert_eq!(resolved.timeout_secs, Some(120));
     }
 
+    /// Spawn time refuses an undeclared mode with the clause `validate` gives
+    /// the same selector, so the category has one wording rather than one per
+    /// surface. `validate` shadows this at `rhei run`, but not at
+    /// `rhei snapshot continue`, where a record's mode outlives the settings
+    /// that declared it. §FS-rhei-errors.1.4 §FS-rhei-errors.6
+    #[test]
+    fn a_target_selectors_mode_is_refused_with_where_modes_are_declared() {
+        let selector = "codex[bogus]:openai:gpt";
+        let Err(err) = resolve_target_agent(selector, None, &default_settings()) else {
+            panic!("an undeclared mode must be refused");
+        };
+        assert!(err.to_string().contains("has no mode 'bogus'"), "got: {err}");
+        let help = err.help().expect("the refusal carries help").to_string();
+        assert!(help.contains("`agents.codex.modes`"), "got: {help}");
+        assert!(help.contains(".agent-grounds/rhei/settings.json"), "got: {help}");
+        assert!(help.contains("~/.config/rhei/settings.json"), "got: {help}");
+    }
+
     #[test]
     fn mode_default_order_uses_declaration_order() {
         let settings: RheiSettings = serde_json::from_str(

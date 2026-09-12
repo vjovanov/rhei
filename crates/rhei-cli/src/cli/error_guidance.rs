@@ -246,6 +246,22 @@ fn unknown_agent_help(id: &str, known: &[String], project_settings: &str) -> Str
     format!("{hint}Define it under {}.", settings_entry_location("agents.<id>", project_settings))
 }
 
+/// Help for a mode the resolved agent does not declare: the listing says which
+/// modes exist, the clause where to write the one that does not.
+/// §FS-rhei-errors.1.4
+///
+/// Spawn time refuses a mode at two sites, so the whole help is built here and
+/// the category keeps one wording. §FS-rhei-errors.6 A modeless agent is still
+/// offered both ways out — the brackets are usually the mistake, declaring the
+/// mode the other. §FS-rhei-errors.1.2
+fn unknown_mode_help(id: &str, mode: &str, known: &[String], project_settings: &str) -> String {
+    let hint = did_you_mean(mode, known).unwrap_or_else(|| {
+        format!("agent '{id}' declares no modes; drop the brackets from the selector.")
+    });
+    let location = settings_entry_location(&format!("agents.{id}.modes"), project_settings);
+    format!("{hint} Declare it under {location}.")
+}
+
 /// Help for a `--agent` value that is really a selector. Without it the user is
 /// told to define `agents.my-agent[nope]:some-model`. §FS-rhei-errors.1.2
 fn agent_flag_selector_help(value: &str, known: &[String]) -> Option<String> {
