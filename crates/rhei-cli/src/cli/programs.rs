@@ -481,10 +481,9 @@ fn find_program_exit_transition(
             continue;
         }
         if program_transition_is_applicable(rule, machine, metadata, task, current_state) {
-            // Classified here, where the condition was evaluated, and carried
-            // to the caller rather than re-derived. An exhausted poll budget
-            // picks the edge on its own, so the exit chose nothing and the
-            // engine still owes the account. §FS-rhei-programs.3.2
+            // Classified here, where the condition fired, not re-derived later.
+            // An exhausted poll budget picks the edge on its own, so the exit
+            // chose nothing and the engine still owes the account. §FS-rhei-programs.3.2
             let matched = if poll_exhaustion_active {
                 ExitCodeMatch::PollExhausted
             } else {

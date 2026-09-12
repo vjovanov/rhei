@@ -736,9 +736,8 @@ impl RunSummaryReport {
             &None,
             &|id| activity.contains_key(id),
             // §FS-rhei-run-report.3.1: what the ticket's last worker left
-            // unwritten and the code it exited with, captured live rather than
-            // re-read from prose, and only while the ticket still sits in the
-            // state it stalled in.
+            // unwritten and the code it exited with, captured live rather
+            // than re-read from prose, while the ticket sits in the state it stalled in.
             &|id, state| {
                 activity.get(id).and_then(|entry| {
                     entry
