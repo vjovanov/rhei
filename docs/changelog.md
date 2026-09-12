@@ -270,6 +270,16 @@
   that does not name the transitioning task's nearest in-scope supervising
   ancestor is still accepted and still has no effect. (PR #230)
 
+- **A refused loop re-entry names the state whose budget is actually spent.**
+  `rhei transition` decides a loop-back against the *destination* state's
+  budget, so refusing `human-review -> supervising` reported `human-review` —
+  the one state of the pair with no `visits:` to raise. The refusal now names
+  the destination and carries its usage, as `visit budget for state
+  'supervising' is exhausted (2/2 visits)`, and a poll state's refusal reads
+  `poll budget for state 'ci-wait' is exhausted (3/3 attempts)` so the reader is
+  sent to `poll.max_attempts:` rather than to a key that state cannot declare.
+  Which transitions are permitted is unchanged. (PR #N)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When

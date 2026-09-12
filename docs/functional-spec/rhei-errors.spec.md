@@ -94,6 +94,36 @@ remedy rides in each entry rather than in the help: one help line cannot carry
 four different keys, and the entry is also what a machine consumer reads as that
 failure's own message (§5).
 
+### 1.5. The Subject a Check Measured
+
+A check that weighs several candidate subjects names, in its message, the one
+it actually measured — not the one the caller happened to be standing on. A
+message naming the wrong subject costs more than a vague one would: it is a
+confident pointer at a place with nothing to change, and the round trip is
+spent before the reader can discover that.
+
+The measurement comes with it. A budget reported as spent says how far it is
+spent, as `used/limit` with the unit it is counted in, so the reader learns what
+to raise it past without re-deriving the count from the plan's metadata.
+
+**Refusing a counted-loop re-entry.** A loop-back into a counted state is
+refused once that state's budget is spent, and the budget consulted is the
+**destination** state's ([§FS-rhei-transitions.4.3](rhei-transitions.spec.md#43-counted-loops)) — which, on a loop back out
+of a gate, is not the state the task is sitting in. The refusal therefore names
+the destination, and names which kind of budget it was, because the two kinds
+are mutually exclusive and are raised by different keys:
+
+```
+visit budget for state 'supervising' is exhausted (2/2 visits)
+poll budget for state 'ci-wait' is exhausted (3/3 attempts)
+```
+
+The first names a state declaring `visits:`; the second a state declaring
+`poll.max_attempts:` ([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)). A refused self-loop names its own
+state, which is both the state being left and the state whose budget was spent,
+so the rule reads the same either way: the subject is whatever the check
+measured.
+
 ## 2. Copy-Paste Safety
 
 Any command Rhei prints — in an error, a help line, or a success summary — must

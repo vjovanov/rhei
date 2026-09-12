@@ -32,6 +32,7 @@ mod headless_undecided_tests;
 mod install_skills_tests;
 mod laid_output_root_tests;
 mod list_ready_tests;
+mod loop_budget_refusal_tests;
 mod memory_map_tests;
 mod memory_prompt_tests;
 mod memory_supervisor_prompt_tests;
