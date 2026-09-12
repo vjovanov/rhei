@@ -20,6 +20,18 @@
     /// for three, for the same reason.
     const ESCAPED_INTERPOLATION_SENTINEL: char = '\u{e001}';
 
+    /// Marks a code point an **input value** carried rather than one the
+    /// preprocessor put there, so the restore hands the value back its own
+    /// bytes instead of rewriting them into `{#` or `{{`
+    /// (§FS-rhei-templates.5.1). It is written into the output and taken out
+    /// again, never into a template's source, so nothing constrains its width.
+    const VALUE_SENTINEL_ESCAPE: char = '\u{e002}';
+
+    /// The code points the round trip keeps for itself, which is why a
+    /// template's own text may not carry one. §FS-rhei-templates.5.4
+    const RESERVED_CODE_POINTS: [char; 3] =
+        [COMMENT_OPENER_SENTINEL, ESCAPED_INTERPOLATION_SENTINEL, VALUE_SENTINEL_ESCAPE];
+
     // The whole point of both sentinels is that they change no offset.
     const _: () = assert!(COMMENT_OPENER_SENTINEL.len_utf8() == "{#".len());
     const _: () = assert!(ESCAPED_INTERPOLATION_SENTINEL.len_utf8() == r"\{{".len());
@@ -35,7 +47,13 @@
     ///
     /// One left-to-right pass, so the lexer's own precedence is preserved — in
     /// `{{#`, the `{{` wins and the `{#` one byte later is not an opener at
-    /// all. §FS-rhei-templates.5 §FS-rhei-templates.5.2
+    /// all. A real opener is stepped over *whole*: what is inside it is an
+    /// expression rather than text, so a `{#` in one of its string literals is
+    /// still the `{#` the author wrote and still compares as one. An opener
+    /// whose delimiter never closes holds the rest of the file, which is
+    /// therefore copied as written — the template fails to parse either way,
+    /// and §FS-rhei-templates.5.3 is what names that opener.
+    /// §FS-rhei-templates.5 §FS-rhei-templates.5.2
     fn hide_non_syntax_openers(raw: &str) -> String {
         let bytes = raw.as_bytes();
         let mut out = String::with_capacity(raw.len());
@@ -54,10 +72,20 @@
                 match bytes.get(i + 1) {
                     // A real opener: step over it so its body is not rewritten
                     // as if it were text.
-                    Some(b'{') | Some(b'%') => {
-                        i += 2;
-                        continue;
-                    }
+                    Some(b'{') => match read_interpolation(raw, i) {
+                        Some((end, _)) => {
+                            i = end;
+                            continue;
+                        }
+                        None => break,
+                    },
+                    Some(b'%') => match read_template_tag(raw, i) {
+                        Some(tag) => {
+                            i = tag.end;
+                            continue;
+                        }
+                        None => break,
+                    },
                     Some(b'#') => {
                         out.push_str(&raw[copied..i]);
                         out.push(COMMENT_OPENER_SENTINEL);
@@ -75,25 +103,77 @@
         out
     }
 
-    /// Put back what [`hide_non_syntax_openers`] hid. §FS-rhei-templates.5
+    /// Put back what [`hide_non_syntax_openers`] hid, and hand back untouched
+    /// what [`format_escaped_value`] marked as an input value's own — the
+    /// preprocessor's sentinels are the only ones that stand for anything.
+    /// §FS-rhei-templates.5 §FS-rhei-templates.5.1
     fn restore_hidden_openers(text: &str) -> String {
-        text.replace(COMMENT_OPENER_SENTINEL, "{#")
-            .replace(ESCAPED_INTERPOLATION_SENTINEL, "{{")
+        let mut out = String::with_capacity(text.len());
+        let mut chars = text.chars();
+
+        while let Some(next) = chars.next() {
+            match next {
+                VALUE_SENTINEL_ESCAPE => {
+                    if let Some(carried) = chars.next() {
+                        out.push(carried);
+                    }
+                }
+                COMMENT_OPENER_SENTINEL => out.push_str("{#"),
+                ESCAPED_INTERPOLATION_SENTINEL => out.push_str("{{"),
+                other => out.push(other),
+            }
+        }
+
+        out
     }
 
-    /// Refuse a template that already contains a sentinel, rather than letting
-    /// the round trip rewrite text the author meant. §FS-rhei-templates.5
+    /// Mark every reserved code point an input value carries, so the restore
+    /// gives the value its own bytes back rather than reading them as
+    /// something the preprocessor hid. §FS-rhei-templates.5.1
+    fn escape_value_sentinels(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+
+        for next in text.chars() {
+            if RESERVED_CODE_POINTS.contains(&next) {
+                out.push(VALUE_SENTINEL_ESCAPE);
+            }
+            out.push(next);
+        }
+
+        out
+    }
+
+    /// Write one interpolated value, marking what it carries, in place of
+    /// MiniJinja's default formatter — which is also where the strict check on
+    /// an undefined value lives, so that check is repeated here rather than
+    /// lost. Auto-escaping never applies: the environment loads no named
+    /// template, so nothing selects a format for it.
+    /// §FS-rhei-templates.5 §FS-rhei-templates.5.1
+    fn format_escaped_value(
+        out: &mut minijinja::Output,
+        state: &minijinja::State,
+        value: &minijinja::Value,
+    ) -> Result<(), minijinja::Error> {
+        if value.is_undefined()
+            && matches!(state.undefined_behavior(), minijinja::UndefinedBehavior::Strict)
+        {
+            return Err(minijinja::Error::from(minijinja::ErrorKind::UndefinedError));
+        }
+        out.write_str(&escape_value_sentinels(&value.to_string())).map_err(minijinja::Error::from)
+    }
+
+    /// Refuse a template that already contains a reserved code point, rather
+    /// than letting the round trip rewrite text the author meant.
+    /// §FS-rhei-templates.5.4
     fn reject_reserved_code_points(raw: &str, path: &Path) -> MietteResult<()> {
-        let found = [COMMENT_OPENER_SENTINEL, ESCAPED_INTERPOLATION_SENTINEL]
-            .into_iter()
-            .find(|sentinel| raw.contains(*sentinel));
-        let Some(found) = found else {
+        let Some(found) = RESERVED_CODE_POINTS.into_iter().find(|point| raw.contains(*point))
+        else {
             return Ok(());
         };
         Err(miette!(
-            help = "rhei stands these code points in for `{#` and `\\{{` while a template is \
-                    parsed, so a template cannot contain one itself. Remove it from the file, \
-                    then re-run.",
+            help = "rhei stands these code points in for the text it hides from the parser \
+                    while a template is rendered, so a template cannot contain one itself. \
+                    Remove it from the file, then re-run.",
             "template '{}' contains the reserved code point U+{:04X}",
             path.display(),
             found as u32
@@ -396,8 +476,9 @@
             return;
         };
         eprintln!(
-            "warning: {}:{} contains `{{#`. Earlier versions of rhei cut everything from there \
-             to the next `#}}`; it is now emitted verbatim.",
+            "warning: {}:{} contains `{{#`. Earlier versions of rhei read it as an opener and \
+             either cut the text through to the next `#}}` or refused the file outright; it is \
+             now emitted verbatim.",
             path.display(),
             line
         );
@@ -423,6 +504,8 @@
         // task files, ...). Preserve it so rendered files keep the POSIX trailing
         // newline of their template source.
         env.set_keep_trailing_newline(true);
+        // An input value is the author's, not the preprocessor's. §FS-rhei-templates.5.1
+        env.set_formatter(format_escaped_value);
         env.add_filter("slug", |value: String| slugify_target_value(&value));
 
         let template = env
