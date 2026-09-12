@@ -293,8 +293,26 @@ states:
 
 - **Attempt counter.** `poll.max_attempts` replaces the `visits` cap for the state. The same `metadata.tasks.<id>.stateVisits.<state-name>` counter records attempts; the counter starts at `1` on first entry and increments on every self-loop re-entry, identical to the `visits` accounting in [Transitions Specification — Counted Loops](rhei-transitions.spec.md#43-counted-loops).
 - **Retry signal.** Any self-loop transition (`from: X, to: X`) selected by the normal transition-matching rules is interpreted as "not done yet." The engine persists `metadata.tasks.<id>.pollNextAttemptAt.<state-name> = now() + interval`, releases the slot, and stops working this task for this pass. On later passes the task is excluded from the ready set until `pollNextAttemptAt` has elapsed.
+
+  That attempt is recorded as a **wait** — neither a failure nor a completion —
+  whatever exit code matched the self-loop. Every surface that reports an
+  outcome says `waiting` for it: the run event journal
+  ([§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format)), the `--json` stream ([§FS-rhei-run-json.2.1](rhei-run-json.spec.md#21-records)), the live
+  surfaces reading the same events ([§FS-rhei-run-tui.1.1](rhei-run-tui.spec.md#11-event-surface)), and the run report's
+  ledger ([§FS-rhei-run-report.4](rhei-run-report.spec.md#4-transition-ledger)). A non-zero exit the machine itself declares
+  as "come back later" is not a subprocess that went wrong, and an exit-`0`
+  attempt that took the self-loop has not finished the state either, so neither
+  `failed` nor `completed` describes it.
+
+  The self-loop is also handled **internally**: the engine schedules the next
+  attempt rather than applying a transition, so nothing is appended to the
+  central state-transition ledger for it ([§FS-rhei-complete.3.1](rhei-complete.spec.md#31-state-transition-ledger),
+  [§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)). Declaring the edge is how the machine grants the state
+  permission to repeat; the ledger records where a task went, and a waiting task
+  has not gone anywhere. The attempts are in the journal instead, one
+  `start@`/`end@` pair each.
 - **Exit.** Any non-self-loop transition exits the state normally and clears both `pollNextAttemptAt.<state-name>` and `stateVisits.<state-name>` for that state.
-- **Exhaustion.** When `stateVisits.<state-name> >= poll.max_attempts`, the engine will *not* execute a self-loop transition even if one matches. Instead it re-evaluates transitions and picks the first matching non-self-loop. The recommended pattern is an explicit exhaustion transition:
+- **Exhaustion.** When `stateVisits.<state-name> >= poll.max_attempts`, the engine will *not* execute a self-loop transition even if one matches. Instead it re-evaluates transitions and picks the first matching non-self-loop. That edge is an ordinary **move**: it is applied, it appends its ledger line, and the attempt that selected it keeps the outcome its own exit earns rather than reading as a wait — the waiting is over, which is what exhaustion means. The recommended pattern is an explicit exhaustion transition:
   ```yaml
   - from: ci-wait
     to: ci-gave-up

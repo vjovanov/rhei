@@ -275,8 +275,17 @@ from silently completing fresh tasks without executing them.
    terminal poll exits may emit. See
    [Snapshots Specification — Emit on Exit](rhei-snapshots.spec.md#102-emit-on-exit).
 8. Apply the selected transition and append one central state-transition entry
-   to `runtime/state-transitions.log` as `<task-id> <from>@<to>`. When the
-   moved task has a supervising ancestor, the shared path records the
+   to `runtime/state-transitions.log` as `<task-id> <from>@<to>`.
+
+   **One selected transition does not reach this step: a poll state's
+   self-loop.** Step 5 may select it, but the engine has already handled it by
+   scheduling the next attempt and releasing the slot
+   ([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)), so there is no move to apply and no entry is
+   appended — the task is in the state it was already in. The pass stops working
+   that task and continues with the rest. Every other selected transition,
+   including a poll state's exhaustion edge, is applied here.
+
+   When the moved task has a supervising ancestor, the shared path records the
    checkpoint on the nearest one and holds its subtree ([§FS-rhei-supervision.2](rhei-supervision.spec.md#2-checkpoints)). The
    subprocess **must not** call `rhei transition` or `rhei complete`; the
    orchestrator owns the transition. When the effective target is `final:
