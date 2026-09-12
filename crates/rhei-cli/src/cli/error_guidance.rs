@@ -220,19 +220,30 @@ fn require_project_root(project_root: Option<&Path>) -> MietteResult<&Path> {
     })
 }
 
+/// Where a registry entry is declared: the key it is written under, and the
+/// two files it may be written in. Every refusal of a name the settings
+/// registry would have carried says this, so a listing of what exists is never
+/// the whole answer. §FS-rhei-errors.1.4
+///
+/// It is an instruction rather than a report, so it still reads correctly when
+/// the registry came entirely from the built-ins and neither file exists yet.
+///
+/// `project_settings` is the file the merge resolved, not the path rhei writes:
+/// a project still on the deprecated home that followed this advice to the new
+/// path would create a file shadowing the registry that refused the name.
+/// §FS-rhei-agents.1.1
+fn settings_entry_location(key: &str, project_settings: &str) -> String {
+    format!("`{key}` in {project_settings} or ~/.config/rhei/settings.json")
+}
+
 /// Help for an agent id not in the merged registry. `known` is already seeded
 /// with the built-ins, so this never names them twice. §FS-rhei-errors.1.3
 ///
-/// `project_settings` is the file the merge resolved, not the path rhei writes:
-/// a project still on the deprecated home that follows this advice to the new
-/// path creates a file shadowing the registry this error just listed.
-/// §FS-rhei-agents.1.1
+/// This is the wording every other registry refusal shares, so it is built
+/// from the same clause rather than beside it. §FS-rhei-errors.1.4
 fn unknown_agent_help(id: &str, known: &[String], project_settings: &str) -> String {
     let hint = did_you_mean(id, known).map(|hint| format!("{hint} ")).unwrap_or_default();
-    format!(
-        "{hint}Define it under `agents.<id>` in {project_settings} or \
-         ~/.config/rhei/settings.json."
-    )
+    format!("{hint}Define it under {}.", settings_entry_location("agents.<id>", project_settings))
 }
 
 /// Help for a `--agent` value that is really a selector. Without it the user is

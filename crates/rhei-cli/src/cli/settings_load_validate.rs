@@ -221,26 +221,37 @@ fn load_merged_settings(plan_root: &Path) -> MietteResult<RheiSettings> {
 }
 
 /// The agents the merged registry knows, so an error does not leave an author
-/// guessing at names nothing else lists. §FS-rhei-agents.1.1
+/// guessing at names nothing else lists — and where to declare the one they
+/// wanted, which the listing alone never says. §FS-rhei-agents.1.1
+/// §FS-rhei-errors.1.4
 fn known_agents_hint(settings: &RheiSettings) -> String {
+    let location =
+        settings_entry_location("agents.<id>", settings.project_settings_file.relative_path());
     if settings.agents.is_empty() {
-        return format!(
-            "no agents are configured; declare one under `agents` in {}",
-            settings.project_settings_file.relative_path()
-        );
+        return format!("no agents are configured; declare one under {location}");
     }
     let names: Vec<&str> = settings.agents.keys().map(String::as_str).collect();
-    format!("known agents: {}", names.join(", "))
+    format!("known agents: {}; declare another under {location}", names.join(", "))
 }
 
 /// The modes one agent declares, listed the way an invalid state lists its
-/// allowed states. §FS-rhei-agents.1.1
-fn known_modes_hint(profile: &CustomAgentProfile) -> String {
+/// allowed states, and where the missing one is declared. §FS-rhei-agents.1.1
+/// §FS-rhei-errors.1.4
+fn known_modes_hint(settings: &RheiSettings, id: &str, profile: &CustomAgentProfile) -> String {
+    let location = settings_entry_location(
+        &format!("agents.{id}.modes"),
+        settings.project_settings_file.relative_path(),
+    );
     if profile.modes.is_empty() {
-        return "it declares no modes".to_string();
+        // Both ways out, as spawn time offers them: the brackets are usually
+        // the mistake, and declaring the mode is the other. §FS-rhei-errors.1.2
+        return format!(
+            "it declares no modes; drop the brackets from the selector, \
+             or declare one under {location}"
+        );
     }
     let modes: Vec<&str> = profile.modes.keys().map(String::as_str).collect();
-    format!("known modes: {}", modes.join(", "))
+    format!("known modes: {}; declare another under {location}", modes.join(", "))
 }
 
 fn validate_machine_settings_references(
@@ -349,7 +360,7 @@ fn validate_machine_settings_references(
                         state_name,
                         mode,
                         agent.id(),
-                        known_modes_hint(profile)
+                        known_modes_hint(settings, agent.id(), profile)
                     ));
                 }
             }
@@ -382,7 +393,7 @@ fn validate_machine_settings_references(
                                 mode,
                                 target.agent,
                                 selector,
-                                known_modes_hint(profile)
+                                known_modes_hint(settings, &target.agent, profile)
                             ));
                         }
                     }
@@ -496,7 +507,7 @@ fn validate_task_execution_override_settings_references(
                                 mode,
                                 target.agent,
                                 selector,
-                                known_modes_hint(profile)
+                                known_modes_hint(settings, &target.agent, profile)
                             ));
                         }
                     }
