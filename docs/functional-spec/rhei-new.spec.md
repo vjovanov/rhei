@@ -177,7 +177,8 @@ read as a ticket id and the new ticket becomes its child. A value that is
 neither is an error listing the rhei ids in the project.
 
 `--under basin` is how a ticket gets captured without choosing a domain rhei
-first ([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)). The basin directory is created on demand; nothing
+first ([§FS-rhei-panta.2](rhei-panta.spec.md#2-default-home-for-new-rheis)), inside a Panta project and nowhere else (§3.5).
+The basin directory is created on demand; nothing
 else is generated, because the basin's manifest is synthetic by design
 ([§AR-rhei-panta.1](../architecture/rhei-panta.spec.md#1-on-disk-layout)). Filing it into a domain rhei later stays a file move.
 
@@ -305,6 +306,35 @@ reading it, so leading whitespace does not protect a heading or a marker, and
 the refusal says so. Demoting or escaping the author's line automatically would
 mean a create that edits its input behind the author's back, and a description
 carrying someone's issue body has to come out the way they wrote it.
+
+### 3.5. The basin needs a project
+
+`--under basin` requires a Panta project, exactly as creating a rhei does
+(§2.1). Outside one there is no project directory to hold `basin/`, and the plan
+the command resolved is itself the only rhei there is
+([§AR-rhei-panta.2](../architecture/rhei-panta.spec.md#2-load-model)) — so there is no unfiled inbox to file into, and
+none the command could create on demand. Against a lone plan or a bare
+workspace it says so, naming the plan it resolved, and points at `rhei init`:
+
+```
+  × the basin exists only inside a Panta project; plan.rhei.md is a lone plan
+  help: run `rhei init` to make this a project, then capture with `--under
+        basin`.
+```
+
+Every other `--under` value still works there, because it resolves inside that
+plan: the plan's own id takes a top-level ticket, and a ticket id takes a
+subtask. `basin` is the one value a lone plan cannot answer for, which is why
+the refusal names the plan rather than listing ids that were never the problem.
+
+The refusal is the whole of the command's part in it. `rhei new` does not create
+the project (§6), so the help line is advice to whoever ran it and not a step
+the command will take on its own. That matters most for a caller who may not
+take it either — an agent whose instructions reserve creating a project for a
+human has no capture path here at all. Any document that prescribes `--under
+basin` to such a caller therefore has to carry this precondition with it and say
+what to do instead: report the capture and carry on, rather than create a
+project to hold it.
 
 ## 4. Ids
 

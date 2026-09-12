@@ -78,6 +78,7 @@ mod terminal_result_tests;
 mod transition_tests;
 mod validate_retry_cache_tests;
 mod waiting_on_person_tests;
+mod worker_capture_precondition_tests;
 
 /// The plan and machine text most of them start from.
 mod shared_fixtures;

@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **The worker skill's capture instruction now says when it can be followed.**
+  `rhei-plan-worker` is handed one plan and forbidden from looking for a project
+  around it, so it routinely works a lone `.rhei.md`. *Capturing Work You Did
+  Not Come For* prescribed `rhei new --under basin` there with no precondition,
+  and the basin exists only inside a Panta project: the command refused and
+  offered `rhei init`, which the same section reserves for a human, leaving an
+  agent with no path for work it had just been told to capture. The section now
+  states the precondition and says to report the capture in the result instead
+  of creating a project, and `rhei new`'s specification states the precondition
+  where the capture is prescribed, alongside the one its neighbour already had.
+  No command behaviour changes. (PR #N)
+
 - **`rhei cost` and `rhei summary` read the accounting of the rhei they were
   pointed at.** Both resolved their accounting root one level above where a run
   laid into a Panta work root writes its records, so every spelling of a member
