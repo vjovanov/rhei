@@ -278,7 +278,7 @@
   'supervising' is exhausted (2/2 visits)`, and a poll state's refusal reads
   `poll budget for state 'ci-wait' is exhausted (3/3 attempts)` so the reader is
   sent to `poll.max_attempts:` rather than to a key that state cannot declare.
-  Which transitions are permitted is unchanged. (PR #N)
+  Which transitions are permitted is unchanged. (PR #235)
 
 ## 2. [0.4.1] - 2026-09-07
 
