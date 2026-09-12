@@ -55,6 +55,7 @@ mod self_advancing_agent_tests;
 mod snapshot_codex_session_tests;
 mod snapshot_continue_root_tests;
 mod snapshot_tests;
+mod state_machine_placement_tests;
 mod summary_tests;
 mod supervised_delivery_tests;
 mod supervision_appended_child_tests;

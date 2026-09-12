@@ -485,16 +485,14 @@ Use a custom state machine when:
 
 ## 5. File Placement
 
-State machine YAML files should be placed in the project at a conventional location:
+Rhei finds a state machine only where state-machine resolution looks ([§FS-rhei-plan-language.1.3](rhei-plan-language.spec.md#13-state-machine-resolution)), and only in a file named `states.yaml`. Place a machine by what it governs:
 
-- `docs/states.yaml` — for projects with a single state machine.
-- `docs/states/<name>.yaml` — for projects with multiple state machines.
+- **A single-file plan:** `states.yaml` in the plan's directory.
+- **A Directory Workspace:** `states.yaml` at the workspace root.
+- **A Panta project's default:** `states.yaml` at the project root (the directory holding `index.panta.md`), named by that manifest's `**States:**`. Every rhei that declares no `**States:**` runs under it.
+- **One rhei's own process:** `states.yaml` at that rhei's execution root, named by the rhei's own `**States:**`. Every instantiated template ships this shape.
 
-Plans normally pick up a sibling or workspace-root `states.yaml`
-automatically when they declare `**States:** <name>`. The YAML file's
-`name` must match that declaration. Use `--state-machine <path>` when you
-need to override the conventional auto-discovered file, for example when
-reusing one shared machine from a non-standard location.
+The file's `name` must equal the `**States:**` value that selects it. No other directory or file name is searched. A machine kept anywhere else loads only when every invocation passes `--state-machine <path>`. That flag replaces resolution for the whole scope, so it works for a plan, a workspace, or a project that runs a single machine. It cannot supply one machine among several.
 
 ## Related Specifications
 
