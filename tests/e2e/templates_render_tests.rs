@@ -398,3 +398,46 @@ fn instantiate_keeps_a_bundled_array_length_beside_a_raw_region() {
     assert_stderr_contains(&result, "notes.md:4");
     assert_stderr_lacks(&result, "comment");
 }
+
+/// §FS-rhei-templates.5.2: a `{%` inside a raw region is literal text like the
+/// `{{` above it. `printf '{%s}'` in a fenced Bash body has no `%}` of its own,
+/// so reading it as a tag hands it the `{% endraw %}` on the next line: the
+/// region never ends, the `${#A[@]}` below it goes unwarned, and the `{#` in
+/// the expression below that is rewritten instead of measured.
+#[test]
+fn instantiate_ends_a_region_that_fences_a_printf_format() {
+    let script = "#!/usr/bin/env bash\n{% raw %}\nprintf '{%s}\\n' \"$1\"\n{% endraw %}\n\
+                  A=(x y); echo \"${#A[@]}\"\nmarker: {{ \"a{#b\" | length }}\n";
+    let (_dir, output_dir, result) =
+        instantiate_bundling("templates-raw-printf", &[("scripts/emit.sh", script)]);
+    assert_success(&result);
+
+    let rendered =
+        fs::read_to_string(output_dir.join("scripts/emit.sh")).expect("read the bundled script");
+    assert_eq!(
+        rendered,
+        "#!/usr/bin/env bash\n\nprintf '{%s}\\n' \"$1\"\n\nA=(x y); echo \"${#A[@]}\"\nmarker: 4\n",
+        "the fenced body moved, or the expression below it measured text it does not hold"
+    );
+    // The `{#` on line 5 is text outside the region, so it is warned about on
+    // its own line. §FS-rhei-templates.5.3
+    assert_stderr_contains(&result, "scripts/emit.sh:5");
+    assert_stderr_lacks(&result, "comment");
+}
+
+/// §FS-rhei-templates.5.3: and a parse failure below such a region names the
+/// opener that is really unclosed, on its own line. The region ended on line 4,
+/// so it is not blamed and the remedy does not ask for a `{% endraw %}` the
+/// file already has.
+#[test]
+fn instantiate_never_blames_a_region_that_fences_a_printf_format() {
+    let script = "#!/usr/bin/env bash\n{% raw %}\nprintf '{%s}\\n' \"$1\"\n{% endraw %}\n\
+                  echo \"{{ title }\"\n";
+    let (_dir, _output_dir, result) =
+        instantiate_bundling("templates-raw-printf-unclosed", &[("scripts/emit.sh", script)]);
+    assert!(!result.status.success(), "an unclosed `{{{{` is a failure; got:\n{}", result.stdout);
+
+    assert_stderr_contains(&result, "scripts/emit.sh:5");
+    assert_stderr_lacks(&result, "scripts/emit.sh:2");
+    assert_stderr_lacks(&result, "is never closed by `{% endraw %}`");
+}

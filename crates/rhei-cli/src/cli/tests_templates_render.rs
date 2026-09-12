@@ -118,6 +118,21 @@ mod templates_render_tests {
                 "a bundled array length after the region stayed in the parser's way"
             );
         }
+
+        /// A `{%` inside a region is text as well: `printf '{%s}'` has no `%}`
+        /// of its own, so reading it as a tag hands it the `{% endraw %}` on
+        /// the next line and leaves the rest of the file inside a region that
+        /// ended — where a `{#` in an expression is rewritten rather than
+        /// measured as the author wrote it. §FS-rhei-templates.5.2
+        #[test]
+        fn ends_a_region_that_fences_a_percent_brace_of_its_own() {
+            let source = "{% raw %}\nprintf '{%s}\\n' \"$1\"\n{% endraw %}\n\
+                          echo \"${#A[@]}\"\nmarker: {{ \"a{#b\" | length }}\n";
+            let hidden = hide_non_syntax_openers(source);
+            assert!(hidden.contains("printf '{%s}"), "the fenced body moved: {hidden:?}");
+            assert!(hidden.contains("$\u{91}A[@]}"), "a text-level `{{#` below it moved");
+            assert!(hidden.contains("\"a{#b\""), "a `{{#` inside an expression was rewritten");
+        }
     }
 
     /// §FS-rhei-templates.5.4: the round trip keeps a few code points for
@@ -200,6 +215,16 @@ mod templates_render_tests {
             );
         }
 
+        /// §FS-rhei-templates.5: the same region, rendered. Its `{%s}` is part
+        /// of the Bash the region fences, and the expression below it still
+        /// measures the two characters its string literal holds.
+        #[test]
+        fn measures_a_hash_brace_below_a_region_that_fences_a_percent_brace() {
+            let source = "{% raw %}\nprintf '{%s}\\n' \"$1\"\n{% endraw %}\n\
+                          marker: {{ \"a{#b\" | length }}\n";
+            assert_eq!(render(source, "x"), "\nprintf '{%s}\\n' \"$1\"\n\nmarker: 4\n");
+        }
+
         /// MiniJinja makes the strict check before it reaches a formatter, and
         /// makes it only for the undefined an expression named without
         /// declaring. An if-expression with no `else` yields the *silent*
@@ -266,6 +291,17 @@ mod templates_render_tests {
             assert!(unclosed(source).is_none(), "a raw region was blamed: {source:?}");
         }
 
+        /// A region that fences a `{%` of its own still ends at its
+        /// `{% endraw %}`, so what is blamed is the opener below it rather than
+        /// a region that closed two lines up — and the author is not sent to
+        /// close what is already closed.
+        #[test]
+        fn blames_the_opener_below_a_region_that_fences_a_percent_brace() {
+            let source = "#!/usr/bin/env bash\n{% raw %}\nprintf '{%s}\\n' \"$1\"\n\
+                          {% endraw %}\necho \"{{ title }\"\n";
+            assert_eq!(unclosed(source), Some(("{{", 5, "}}".to_string())));
+        }
+
         #[test]
         fn blames_a_raw_block_that_never_ends() {
             let source = "text\n{% raw %}\n{{ literal }}\n";
@@ -307,6 +343,16 @@ mod templates_render_tests {
         #[test]
         fn ignores_one_inside_a_raw_region() {
             assert_eq!(first_line("raw: {% raw %}{# x #}{% endraw %}\n"), None);
+        }
+
+        /// The region above it ends where its `{% endraw %}` says, so the `{#`
+        /// below is text and its line is named. A region left open swallows
+        /// every later occurrence and the file is never warned about.
+        #[test]
+        fn names_one_below_a_region_that_fences_a_percent_brace() {
+            let source = "{% raw %}\nprintf '{%s}\\n' \"$1\"\n{% endraw %}\nA=(x y)\n\
+                          echo \"${#A[@]}\"\n";
+            assert_eq!(first_line(source), Some(5));
         }
 
         #[test]
