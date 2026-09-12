@@ -184,7 +184,10 @@ A transition applied to a descendant while its nearest supervisor is itself
 in flight — a cancel the supervisor issues during its own visit (§5.1) — is
 not a checkpoint: the supervisor already knows. The shared path recognizes
 that visit from the supervisor's `**Assignee:**` claim or from execution
-context scoped to an explicit operation on the outer plan. That context names
+context scoped to an explicit operation on the outer plan — which on the
+command line is `rhei transition --supervisor <TASK_ID>`, naming the supervisor
+the move is issued by ([§FS-rhei-transition-cmd.2](rhei-transition-cmd.spec.md#2-options)).
+That context names
 the active supervisor only while its command is applying a transition to the
 same plan; it is not an ambient task-id variable inherited by the agent or its
 children ([§FS-rhei-agents.4](rhei-agents.spec.md#4-environment-variables)). A nested independent Rhei therefore has no authority over the outer
@@ -673,9 +676,16 @@ follows from not knowing it: waiting for a child that cannot start, or treating
 this visit as the last one. It additionally states
 that the agent **may** run `rhei transition` against *held descendants* — to
 cancel a step the checkpoint made unnecessary, typically, passing
-`--result "<why>"` because a cancelled ticket still has to say why (§6) — and
+`--result "<why>"` because a cancelled ticket still has to say why (§6) and
+`--supervisor <this task's id>` because the move is this supervisor's own — and
 may append descendants under its own task in its task file, as any agent
-editing its own file may. It still must not transition its own task: the orchestrator owns
+editing its own file may. The prompt says what that flag is for rather than
+only that it is passed: it does not permit the move, which the
+dispatch-and-claim hold already allows (§3.1), it keeps the move from returning
+as a checkpoint (§2.1) and waking the supervisor with news it already has. A
+supervisor told only to type the flag reads it as the permission, and a
+supervisor is the reader most likely to write that reading down somewhere
+else. It still must not transition its own task: the orchestrator owns
 that edge. A transition the supervisor applies to a descendant is an external
 plan change the orchestrator respects on re-read ([§FS-rhei-agents.5.2](rhei-agents.spec.md#52-execution-loop)).
 

@@ -23,6 +23,7 @@ The ticket must be named one way or the other.
 | `--from <STATE>` | Yes      |         | Expected current state (compare-and-swap guard)                             |
 | `--to <STATE>`   | Yes      |         | Target state                                                                |
 | `--result <MSG>` | Only when `--to` is a `final: true` state and the ticket has no result yet | | Result message appended to `runtime/results/<task-id>.md`. See §3.2. |
+| `--supervisor <TASK_ID>` | No |  | The supervisor issuing this move. Suppresses the checkpoint the move would otherwise deliver to it. |
 | `--no-callbacks` | No       | false   | Skip execution of `on_leave` / `on_enter` callbacks registered on the edge  |
 
 `--result` is accepted on any transition, not only terminal ones: a message
@@ -32,6 +33,20 @@ already be satisfied by the time the ticket reaches a `final: true` state. A
 `--result` whose message is empty or whitespace-only is rejected — an empty
 result is the exact thing §3.2 refuses, and accepting the flag while ignoring
 its value would hide that.
+
+`--supervisor` grants no authority. The hold a supervisor places on its subtree
+is a dispatch-and-claim hold
+([§FS-rhei-supervision.3.1](rhei-supervision.spec.md#31-the-rule)), so the move
+lands on a held descendant with or without the flag; its one effect is that the
+checkpoint the move would otherwise deliver to the named supervisor is not
+recorded ([§FS-rhei-supervision.2.1](rhei-supervision.spec.md#21-checkpoint-events)),
+so a supervisor acting on its own held descendant is not woken by its own doing.
+The value is an ordinary ticket target (§2.1), so a value naming no task is
+rejected before anything is applied. A value naming a real task that is *not*
+the transitioning task's nearest in-scope supervising ancestor
+([§FS-rhei-supervision.2.2](rhei-supervision.spec.md#22-nearest-in-scope-supervising-ancestor))
+is accepted and has no effect: the move is applied as though the flag were
+absent, and the checkpoint is recorded after all.
 
 State values passed to `--from` and `--to` follow the state-value rendering rules in the [main spec](rhei-plan-language.spec.md#32-state-validity): bare for names that match `IDENTIFIER`, backtick-wrapped otherwise.
 
