@@ -53,6 +53,18 @@ transitions:
     )
 }
 
+/// The same machine with its program state marked `concurrent: true`, which is
+/// what lets one pass hold both tickets in `route` at once. Without the flag the
+/// scheduler defers all but one ticket per pass, and the pool is entered one
+/// program at a time — which asserts nothing the sequential loop does not.
+fn concurrent_route_machine(command: &str, edges: &str) -> String {
+    let sequential = route_machine(command, edges);
+    let concurrent =
+        sequential.replace("    initial: true\n", "    initial: true\n    concurrent: true\n");
+    assert_ne!(concurrent, sequential, "the route state should have gained `concurrent: true`");
+    concurrent
+}
+
 /// The ticket's result file as the run left it. Absent and empty are the same
 /// answer — the engine wrote nothing — and which one it is depends on whether
 /// some other rule happened to touch the file.
@@ -174,41 +186,70 @@ fn an_exact_edge_its_condition_disqualified_is_not_a_declared_route() {
 /// The two program-completion paths are separate code, so the contract is
 /// asserted on both: the worker pool must agree with `--parallel 1` about what
 /// a declared route leaves behind.
+///
+/// Reaching the pool is a property of the fixture rather than of `--parallel`:
+/// tickets that share one plan file are forced back to sequential execution, so
+/// each ticket here has a file of its own in a directory workspace and `route` is
+/// `concurrent: true`. The run's own `(parallel)` markers are asserted because a
+/// fixture that drifts back to the sequential path would otherwise keep passing
+/// while testing the path this test exists to cover twice over.
 // §FS-rhei-run.3 §FS-rhei-run.5
 #[test]
 fn the_worker_pool_agrees_that_a_declared_route_records_nothing() {
-    let dir = unique_temp_dir("declared-route-parallel");
+    let tasks = [
+        ("01-route.md", "### Task 1: Route on a meaningful exit\n**State:** route\n"),
+        ("02-route.md", "### Task 2: Route on a meaningful exit as well\n**State:** route\n"),
+    ];
+    let (dir, workspace, machine_path) =
+        create_workspace("declared-route-parallel", "# Rhei: Routing exit\n", &tasks);
     let program = write_python_agent(&dir, "route.py", "sys.exit(3)\n");
-    let plan = r#"# Rhei: Routing exit
-
-## Tasks
-
-### Task 1: Route on a meaningful exit
-**State:** route
-
-### Task 2: Route on a meaningful exit as well
-**State:** route
-"#;
-    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(
-        &dir,
-        "states.yaml",
-        &route_machine(
+    fs::write(
+        &machine_path,
+        concurrent_route_machine(
             &fixture_command(&program),
             "  - from: route\n    to: checked\n    exit_code: 3\n",
         ),
-    );
+    )
+    .expect("state machine should be written");
 
-    assert_success(&run_cli(
+    let result = run_cli(
         "run",
-        &plan_path,
+        &workspace,
         &machine_path,
         &["--no-tui", "--no-callbacks", "--parallel", "2"],
-    ));
+    );
+    assert_success(&result);
+
+    let spawns = result
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix("Spawning program for Task "))
+        .collect::<Vec<_>>();
+    assert_eq!(spawns.len(), 2, "one spawn per ticket; got:\n{}", result.stdout);
+    assert!(
+        !result.stdout.contains("Deferred"),
+        "both tickets belong in one pass, or the pool holds one program at a time; got:\n{}",
+        result.stdout
+    );
+    for spawn in &spawns {
+        assert!(
+            spawn.ends_with("(parallel)"),
+            "the pool is what this test is for, so a run that fell back to the \
+             sequential loop fails it; got:\n{spawn}"
+        );
+    }
 
     for task in ["1", "2"] {
-        assert_task_state(&plan_path, &machine_path, task, "checked");
-        let recorded = recorded_result(&dir, &format!("plan.{task}"));
+        let suffix = format!(".{task}");
+        let task_id = spawns
+            .iter()
+            .filter_map(|spawn| spawn.split_once(": "))
+            .map(|(id, _)| id)
+            .find(|id| id.ends_with(&suffix))
+            .unwrap_or_else(|| panic!("Task {task} should have spawned; got {spawns:?}"));
+
+        assert_task_state(&workspace, &machine_path, task, "checked");
+        let recorded = recorded_result(&workspace, task_id);
         assert!(
             recorded.trim().is_empty(),
             "task {task}: the worker pool writes no entry either; got:\n{recorded}"
