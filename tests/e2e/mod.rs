@@ -30,6 +30,7 @@ mod headless_support;
 mod headless_tests;
 mod headless_undecided_tests;
 mod install_skills_tests;
+mod instantiate_output_default_tests;
 mod laid_output_root_tests;
 mod list_ready_tests;
 mod loop_budget_refusal_tests;
