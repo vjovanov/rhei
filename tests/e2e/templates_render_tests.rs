@@ -190,11 +190,9 @@ inputs:
     assert!(rendered.contains("- gemini => gemini-yolo-google-gemini-3.1-pro-preview"));
 }
 
-// ---------------------------------------------------------------------------
 // Bundled files reach the output as written — §FS-rhei-templates.5 — and a
-// template that really is malformed is told what is wrong with it in the words
-// of its own text — §FS-rhei-templates.5.3.
-// ---------------------------------------------------------------------------
+// malformed template is told what is wrong with it in the words of its own
+// text — §FS-rhei-templates.5.3.
 
 /// A minimal template — manifest plus a one-task plan — carrying the extra
 /// files a case needs, instantiated into `output/`. Parent directories are
