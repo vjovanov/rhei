@@ -677,11 +677,15 @@ written cannot be revised. Such a frontend:
 - writes **no** line for an invocation with no priced cost, and none for an
   invocation that never reaches a durable record.
 
-`StdoutSink` is the one such frontend, and it is what `--no-tui`, a non-TTY
-stdout, and the `runtime/run.log` of a headless run all write through
-[§FS-rhei-run-tui.1.3](rhei-run-tui.spec.md#13-sink-implementations). Totalling the accounting lines of a run therefore gives
-the same figure as `runtime/run-report.md` and `rhei cost`, and each figure is
-an invocation's own cost rather than a moment's reading of it.
+The clauses above bind the frontend a run is read through. `StdoutSink` is that
+frontend for `--no-tui`, a non-TTY stdout, and the `runtime/run.log` of a
+headless run [§FS-rhei-run-tui.1.3](rhei-run-tui.spec.md#13-sink-implementations), so totalling the accounting lines of a
+run gives the same figure as `runtime/run-report.md` and `rhei cost`, and each
+figure is an invocation's own cost rather than a moment's reading of it. The
+transition journal is not one of those frontends: it keeps one entry per run
+event in every mode [§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format), so it appends a line per report and
+still carries running totals. Its lines name their `invocation=`, which an
+accounting line does not, so a reader can tell them apart rather than sum them.
 
 This is a deliberate trade against goal 5 above, and only on this surface: a
 reader tailing a line-oriented run no longer watches a figure rise. The TUI cost
