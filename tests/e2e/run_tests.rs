@@ -447,9 +447,7 @@ states:
     agent: codex
   completed:
     final: true
-transitions:
-  - from: review
-    to: completed
+transitions: [{ from: review, to: completed }]
 "#;
     let plan = r#"# Rhei: Task Override Fanout
 

@@ -112,7 +112,7 @@ path = "tests/e2e/run_tests.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 1500, unit = "lines" }
+max_accepted = { value = 1400, unit = "lines" }
 until = "Split by callback, agent, program, and snapshot behavior when new cases are added."
 reason = """
 Run-command E2E scenarios share setup and process assertions.
