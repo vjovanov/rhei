@@ -280,6 +280,8 @@ transitions:
     to: completed
   - from: review
     to: completed
+  - from: supervising
+    to: completed
 "#;
 
     let plan = r#"# Rhei: Quiet

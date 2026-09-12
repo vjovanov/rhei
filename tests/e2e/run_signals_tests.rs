@@ -1153,6 +1153,8 @@ transitions:
   - from: work
     to: timed-out
     timeout: 2s
+  - from: timed-out
+    to: completed
 "#;
 
 /// A shutdown that arrives *inside* the termination grace outranks the deadline

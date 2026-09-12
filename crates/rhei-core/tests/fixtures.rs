@@ -248,4 +248,9 @@ states:
   completed:
     description: Task finished successfully
     final: true
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
 "#;

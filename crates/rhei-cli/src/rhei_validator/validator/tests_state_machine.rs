@@ -10,6 +10,11 @@ states:
   pending: { description: "not started" }
   in-progress: { description: "doing" }
   completed: { description: "done", final: true }
+transitions:
+  - from: pending
+    to: in-progress
+  - from: in-progress
+    to: completed
 "#;
         StateMachine::from_yaml_str(yaml).expect("states load")
     }
@@ -35,6 +40,11 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: review
+    to: done
+  - from: draft
+    to: done
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -128,6 +138,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: analyze
+    to: done
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -209,6 +222,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: review
+    to: done
 "#;
 
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -312,6 +328,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: implement
+    to: done
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid condition should load");
     }
@@ -364,6 +383,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: implement
+    to: done
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid condition in personality should load");
     }
@@ -457,6 +479,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: review
+    to: done
 "#;
         let rhei = parse(input).expect("parse ok");
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
@@ -488,6 +513,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: pending
+    to: done
 "#,
         )
         .expect("states load");
@@ -516,6 +544,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: pending
+    to: done
 "#,
         )
         .expect("states load");

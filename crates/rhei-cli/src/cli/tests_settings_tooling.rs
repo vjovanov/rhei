@@ -996,6 +996,9 @@ states:
   done:
     description: terminal
     final: true
+transitions:
+  - from: pending
+    to: done
 "#,
         );
         let rhei = rhei_core::parse(
