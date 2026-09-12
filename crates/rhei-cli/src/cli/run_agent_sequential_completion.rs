@@ -168,9 +168,9 @@ fn handle_sequential_agent_completion(
             let failure_selected_to_state = if timed_out {
                 find_timeout_transition(machine, current_state)
             } else if !status.success() {
-// Load refuses an `exit_code:` edge from a state with no `program:`,
+                // Load refuses an `exit_code:` edge from a state with no `program:`,
                 // so an agent reaches this only by a poll exhaustion edge, whose
-                // classification is `None` and unread. §FS-rhei-run.5.1
+                // classification the caller never reads. §FS-rhei-run.5.1
                 find_program_exit_transition(
                     machine,
                     loaded.rhei.metadata.as_ref(),
