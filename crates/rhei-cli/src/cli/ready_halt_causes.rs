@@ -41,11 +41,12 @@ enum HaltCause {
     /// it is dispatched. Named so a held subtree is never read as a stall.
     // §FS-rhei-supervision.3.4
     HeldBySupervisor { supervisor: String, state: String, awaiting_human: bool },
-    /// A supervisor whose subtree is closed and whose machine declares no edge
-    /// out of the supervising state on `openDescendants`. The run did
-    /// everything right — it ran the whole subtree — and then had nowhere to
-    /// put the parent; `rhei validate` warns about exactly this machine, so the
-    /// halt names the missing line rather than pointing at logs.
+    /// A supervisor whose subtree is closed and whose machine gives no
+    /// `openDescendants` edge out of the supervising state a path to a final
+    /// state it can finish in. The run did everything right — it ran the whole
+    /// subtree — and then had nowhere to put the parent; `rhei validate` warns
+    /// about exactly this machine, by the same predicate, so the halt names the
+    /// missing line rather than pointing at logs.
     // §FS-rhei-supervision.1.2 §FS-rhei-supervision.4.1
     SupervisorHasNoTerminalEdge { suggested_final: String },
     /// A supervisor that released its subtree and can never be woken again:
@@ -157,15 +158,17 @@ impl HaltCause {
                     )
                 },
             ),
-            // §FS-rhei-supervision.4.1: the missing line, verbatim.
+            // §FS-rhei-supervision.4.1: the missing line, verbatim, and beside
+            // it the repair that leaves a deliberate gate where it is.
             HaltCause::SupervisorHasNoTerminalEdge { suggested_final } => (
                 format!(
-                    "no transition out of '{state}' is eligible on `openDescendants`; its \
-                     subtree is closed and nothing can finish it"
+                    "no `openDescendants` transition out of '{state}' reaches a final state, \
+                     cancellation aside; its subtree is closed and nothing can finish it"
                 ),
                 format!(
                     "add `- {{from: {state}, to: {suggested_final}, condition: \
-                     openDescendants < 1}}` to the machine's transitions"
+                     openDescendants < 1}}` to the machine's transitions, or point an existing \
+                     `openDescendants` edge at a state that reaches a final one"
                 ),
             ),
             // §FS-rhei-supervision.3.6: the checkpoint is the only wake, so
@@ -254,18 +257,6 @@ impl HaltCause {
             ),
         }
     }
-}
-
-/// Whether the machine gives a supervising state an edge that finishes the task
-/// once its subtree closes — the same shape `rhei validate` warns about the
-/// absence of. §FS-rhei-supervision.1.2
-fn supervising_state_can_finish(machine: &rhei_validator::StateMachine, state: &str) -> bool {
-    machine.transitions().iter().any(|rule| {
-        rule.from.0 == state
-            && rule.to.0 != state
-            && machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false)
-            && rule.condition.as_deref().is_some_and(|cond| cond.contains("openDescendants"))
-    })
 }
 
 /// The terminal state a suggested `openDescendants` edge should aim at: one the
@@ -360,7 +351,9 @@ fn classify_halt(
     // stalled work: the machine is missing a line. §FS-rhei-supervision.4.1
     if task_is_supervising(task, machine)
         && open.is_empty()
-        && !supervising_state_can_finish(machine, &state)
+        // The one predicate the warning uses, so the two surfaces cannot drift.
+        // §FS-rhei-supervision.1.2
+        && !rhei_validator::supervising_state_can_finish(machine, &state)
     {
         return HaltCause::SupervisorHasNoTerminalEdge {
             suggested_final: suggested_final_state(machine, &state),

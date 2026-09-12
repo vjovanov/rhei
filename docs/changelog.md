@@ -72,7 +72,7 @@
   reaches one beside the literal line it already named, which is unchanged.
   Neither surface now suggests the one repair that would delete a deliberate
   human gate. No exit code changes; warnings never fail `rhei validate`.
-  (PR #N)
+  (PR #236)
 
 ### Changed
 

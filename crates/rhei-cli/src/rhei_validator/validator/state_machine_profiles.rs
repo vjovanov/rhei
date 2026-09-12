@@ -109,7 +109,7 @@ impl StateMachine {
                 if self.states.get(allowed).is_some_and(|def| def.terminal) {
                     continue;
                 }
-                if !state_can_reach_final(self, allowed, Some(&allowed_states)) {
+                if !state_can_reach_final(self, allowed, Some(&allowed_states), FinalReached::Any) {
                     return Err(StateMachineLoadError::Invalid(profile_dead_end_message(
                         self,
                         profile_name,
