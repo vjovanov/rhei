@@ -165,6 +165,15 @@
   rather than changing silently. `{% raw %}` regions are unaffected, and the
   warning does not change the exit code. (PR #226)
 
+- **Escaping inside an `{% autoescape %}` block is no longer applied.** Hiding
+  `{#` from the parser means writing interpolated values through a formatter of
+  rhei's own, and that formatter does not read the format an `{% autoescape %}`
+  block selects, so a value interpolated inside one now arrives unescaped.
+  `{% autoescape %}` is not one of the constructs §FS-rhei-templates.5 lists and
+  that list is closed, so a template using it was never inside the language rhei
+  renders; this line is here because the change of meaning is silent otherwise.
+  (PR #226)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's

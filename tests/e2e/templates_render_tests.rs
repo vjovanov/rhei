@@ -373,3 +373,28 @@ fn instantiate_preserves_raw_blocks_and_backslash_escapes() {
     assert_eq!(rendered, "raw: {# x #}\nesc: {{ not_an_input }}\nruntime: {task_id}\n");
     assert_stderr_lacks(&result, "notes.md:");
 }
+
+/// §FS-rhei-templates.5.2: a raw region and a bundled script in one file. The
+/// `{{` the region documents is literal text and pairs with nothing, so the
+/// `${#A[@]}` below it is still hidden from the parser and the interpolation
+/// past both still resolves. Reading that literal `{{` as an opener is how the
+/// ticket's own failure came back: it paired with the `}}` two lines later and
+/// left the `{#` between them for MiniJinja to read as a comment.
+#[test]
+fn instantiate_keeps_a_bundled_array_length_beside_a_raw_region() {
+    let notes = "{% raw %}\nUse {{ to open an expression.\n{% endraw %}\n\
+                 A=(x y); echo \"${#A[@]}\"\ncount: {{ 1 + 1 }}\n";
+    let (_dir, output_dir, result) =
+        instantiate_bundling("templates-raw-and-bash", &[("notes.md", notes)]);
+    assert_success(&result);
+
+    let rendered = fs::read_to_string(output_dir.join("notes.md")).expect("read rendered notes");
+    assert_eq!(
+        rendered, "\nUse {{ to open an expression.\n\nA=(x y); echo \"${#A[@]}\"\ncount: 2\n",
+        "a raw region left the Bash line beside it unrendered"
+    );
+    // The `{#` is text, so the change of meaning is still announced — on the
+    // line it sits on, and without the word the ticket was sent hunting for.
+    assert_stderr_contains(&result, "notes.md:4");
+    assert_stderr_lacks(&result, "comment");
+}

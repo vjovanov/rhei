@@ -87,6 +87,37 @@ mod templates_render_tests {
                 assert_eq!(hide_non_syntax_openers(source), source, "text inside an opener moved");
             }
         }
+
+        /// A `{{` inside a `{% raw %}` region is literal text and opens
+        /// nothing. Reading it as an opener pairs it with the `}}` of a real
+        /// interpolation further down, and every `{#` between the two goes
+        /// unhidden — which is the ticket's own failure, for a file that only
+        /// documents what `{{` means. §FS-rhei-templates.5.2
+        #[test]
+        fn leaves_a_raw_regions_literal_braces_unpaired() {
+            let source = "{% raw %}\nUse {{ to open.\n{% endraw %}\n\
+                          A=(x y); echo \"${#A[@]}\"\ntitle: {{ title }}\n";
+            let hidden = hide_non_syntax_openers(source);
+            assert!(hidden.contains("Use {{ to open."), "the raw region moved: {hidden:?}");
+            assert!(hidden.contains("$\u{91}A[@]}"), "the `{{#` after it stayed: {hidden:?}");
+            assert!(hidden.contains("title: {{ title }}"), "the interpolation moved: {hidden:?}");
+        }
+
+        /// The other branch: a raw-fenced `{{` with no `}}` anywhere after it
+        /// used to stop the pass dead, so the `\{{` escape past the region
+        /// stopped being honoured. §FS-rhei-templates.5.2
+        #[test]
+        fn honours_what_follows_a_raw_fenced_brace_that_never_pairs() {
+            let source = "{% raw %}\nliteral {{ open\n{% endraw %}\nesc: \\{{ notvar }}\n";
+            let hidden = hide_non_syntax_openers(source);
+            assert!(hidden.contains("\u{e001} notvar }}"), "the escape was left: {hidden:?}");
+
+            let bash = "{% raw %}\nliteral {{ open\n{% endraw %}\necho \"${#A[@]}\"\n";
+            assert!(
+                hide_non_syntax_openers(bash).contains("$\u{91}A[@]}"),
+                "a bundled array length after the region stayed in the parser's way"
+            );
+        }
     }
 
     /// §FS-rhei-templates.5.4: the round trip keeps a few code points for
@@ -156,9 +187,36 @@ mod templates_render_tests {
             assert_eq!(render(source, "other"), "NO\n");
         }
 
-        /// The strict undefined check rides on MiniJinja's default formatter,
-        /// which the escaping one replaces; an undeclared input is still an
-        /// error naming itself. §FS-rhei-templates.5.3
+        /// §FS-rhei-templates.5: a `{% raw %}` region documenting what `{{`
+        /// means does not stop a bundled `${#ARR[@]}` beside it from being
+        /// emitted verbatim, and the interpolation past both still resolves.
+        #[test]
+        fn renders_a_bundled_array_length_beside_a_raw_region() {
+            let source = "{% raw %}\nUse {{ to open.\n{% endraw %}\n\
+                          A=(x y); echo \"${#A[@]}\"\ntitle: {{ title }}\n";
+            assert_eq!(
+                render(source, "hello"),
+                "\nUse {{ to open.\n\nA=(x y); echo \"${#A[@]}\"\ntitle: hello\n"
+            );
+        }
+
+        /// MiniJinja makes the strict check before it reaches a formatter, and
+        /// makes it only for the undefined an expression named without
+        /// declaring. An if-expression with no `else` yields the *silent*
+        /// undefined the engine exempts, and renders as empty text.
+        /// §FS-rhei-templates.5
+        #[test]
+        fn renders_an_if_expression_with_no_else_as_empty_text() {
+            let values = BTreeMap::from([("flag".to_string(), serde_json::Value::from(false))]);
+            let rendered =
+                render_template_text("x: [{{ 1 if flag }}]\n", &values, Path::new("/t/n.md"), "t")
+                    .expect("an if-expression with no false branch renders");
+            assert_eq!(rendered, "x: []\n");
+        }
+
+        /// The other side of the same line: replacing the formatter does not
+        /// lose the strict check, so an undeclared input is still an error
+        /// naming itself. §FS-rhei-templates.5.3
         #[test]
         fn still_fails_on_an_input_the_manifest_does_not_declare() {
             let values = BTreeMap::new();
