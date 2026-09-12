@@ -75,6 +75,8 @@ Optional workflow controls:
 
 Required: `from` (source state name, or `"*"` wildcard — typically a global cancellation edge); `to`; `description`.
 
+A wildcard edge whose `to` is `final: true` is an escape hatch, not a way forward. `rhei run` never takes one to advance a task, so a state whose only matching rule is that edge strands every task that reaches it, and the machine is refused when it loads. Out of a `gating: true` state the same edge does count, because a human takes it with `rhei transition`. An explicit `from: <state>` edge counts whatever its target, `cancelled` included.
+
 Optional: `on_leave` (callback on the source before state change); `on_enter` (callback on the target after); `condition` (expression `rhei run` uses to choose among outgoing edges); `exit_code` (routes by subprocess exit code under `rhei run`); `timeout`.
 
 Condition operands are integer literals, `visitCount` and `visits`, `pollAttempts` and `pollMaxAttempts` on poll states, and `openDescendants` — the number of non-terminal descendants of the transitioning task, evaluated against the plan as re-read after the subprocess exits. `openDescendants` is how a parent's machine *selects* its terminal edge; the engine's descendants-first guard still decides whether that edge may be taken.
@@ -96,7 +98,7 @@ Rules:
 
 - Every profile declares `initial` and a non-empty `allowed`, and `initial` is a member of `allowed`.
 - `allowed` includes at least one `final: true` state.
-- **Reachability:** for every non-final state in `allowed`, a path to a final state in `allowed` exists using only transitions whose `to` is also in `allowed`; and every non-initial state in `allowed` is reachable from `initial` the same way. This is the core constraint the Transitions rules below build on.
+- **Reachability:** for every non-final state in `allowed`, a path to a final state in `allowed` exists using only transitions whose `to` is also in `allowed` and that count as a way out (see *Transition fields*); and every non-initial state in `allowed` is reachable from `initial` the same way. This is the core constraint the Transitions rules below build on.
 
 ### Node policy
 
@@ -189,8 +191,8 @@ Paths resolve relative to the plan's execution root (the directory containing th
 1. Declare every legal transition explicitly. Unlisted transitions are forbidden — this is the core safety property.
 2. Model only real workflow paths.
 3. Multiple outgoing transitions are distinct outcomes; document each in `description`. Under `rhei run`, route among them with `condition` / `exit_code`, not `instructions` prose.
-4. Honor the profile reachability constraint (see *Profiles*) when choosing edges: every allowed non-final state must keep a path to a terminal inside `allowed`.
-5. Provide a cancellation path from every non-final state, usually `from: "*"` to a `cancelled` terminal.
+4. Give every non-final state a way out — a path to a `final: true` state — and keep that path inside each profile's `allowed` set too (see *Profiles*). A machine that breaks either is refused when it loads, naming the state and the edge to add.
+5. Provide a cancellation path from every non-final state, usually `from: "*"` to a `cancelled` terminal. It is an escape hatch and never a state's way forward, so a state still needs an edge of its own.
 6. No outgoing transitions from final states.
 7. Avoid prose-only gates for machine-critical decisions. If a decision changes what the machine may do, encode it as a gating state, artifact contract, transition `condition`, `exit_code` route, or callback result the runtime can observe.
 
@@ -255,7 +257,8 @@ Before returning the machine, verify:
 - State names are lowercase hyphenated `IDENTIFIER`s (names with spaces/punctuation are legal but must be backticked in markdown).
 - The abandon state — if the machine has one — is named `cancelled` (or `canceled`, the same reserved name). Only that name gets cancellation semantics: a cancelled prior does not satisfy a dependency, `rhei complete` never selects it, the run report marks it apart from success, and a transition into it waives the abandoned step's declared `outputs:`. `dropped`, `abandoned`, and friends are ordinary terminal states and get none of it.
 - `name` is a meaningful project-derived identifier.
-- `profiles` present; every profile declares `initial` and a non-empty `allowed`; `initial` ∈ `allowed`; `allowed` contains ≥1 final; reachability holds (every allowed non-final reaches a final via `to`-in-`allowed` transitions).
+- Every non-final state reaches a `final: true` state, counting a `from: "*"` edge only where its target is not final — or where the state is `gating: true`, whose every edge counts.
+- `profiles` present; every profile declares `initial` and a non-empty `allowed`; `initial` ∈ `allowed`; `allowed` contains ≥1 final; reachability holds (every allowed non-final reaches a final via `to`-in-`allowed` transitions, counted the same way).
 - `node_policy` has `root` and `default`, both naming defined profiles; every `by_type` key is a declared non-root kind; `rhei` is never a `by_type` key.
 - No orphan states (defined but unreferenced by any profile `allowed`, transition, or override).
 

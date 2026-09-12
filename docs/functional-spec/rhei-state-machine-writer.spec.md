@@ -147,9 +147,9 @@ The state machine writer follows these rules when designing a state machine:
 
 3. **Fan-out from a state represents decisions.** When a state has multiple outgoing transitions, each target represents a different outcome. Document in the transition's `description` when each path is taken.
 
-4. **The transition graph must be connected.** For every profile, every state in that profile's `allowed` set other than its `initial` must be reachable from the `initial` state using transitions whose `to` also lies in `allowed`. Every non-terminal state in `allowed` must have a path to at least one final state in `allowed`. Unreachable or dead-end states in a profile are design errors.
+4. **The transition graph must be connected.** Every non-terminal state must have a path to at least one final state, counting an edge as [§FS-rhei-transitions.4.6](rhei-transitions.spec.md#46-wildcard-semantics) counts it, and the same must hold inside each profile's `allowed` set, using transitions whose `to` also lies in `allowed`. Every state in a profile's `allowed` set other than its `initial` must be reachable from the `initial` state the same way. A dead-end state is not a design error to be caught in review: the machine is refused when it loads.
 
-5. **Provide a cancellation path.** Use a wildcard transition (`from: "*"`) to a `cancelled` terminal state, or declare explicit cancellation transitions from each non-terminal state. Every task must be cancellable.
+5. **Provide a cancellation path.** Use a wildcard transition (`from: "*"`) to a `cancelled` terminal state, or declare explicit cancellation transitions from each non-terminal state. Every task must be cancellable. A wildcard edge to a final state is an escape hatch and never a state's way forward, so it does not discharge rule 4 — the exception is a `gating: true` state, which a human leaves with `rhei transition`.
 
 6. **Team handoffs are transitions.** When work passes from one team to another, model it as a transition between team-owned states. The `on_leave` callback on the source state packages the deliverable; the `on_enter` callback on the target state notifies the receiving team.
 
