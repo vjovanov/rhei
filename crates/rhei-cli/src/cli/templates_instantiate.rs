@@ -97,6 +97,7 @@
         let materialized =
             match materialize_template(
                 template_dir,
+                template,
                 layout,
                 &target_dir,
                 &resolved_values,

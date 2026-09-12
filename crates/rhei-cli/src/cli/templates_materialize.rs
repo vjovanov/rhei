@@ -9,6 +9,9 @@
         root: &'a Path,
         /// True when `root` is scratch space the user neither chose nor keeps.
         scratch: bool,
+        /// The template as the user named it, so a render diagnostic can say
+        /// how to list the inputs it declares. §FS-rhei-templates.5.3
+        template_ref: &'a str,
     }
 
     impl MaterializeTarget<'_> {
@@ -36,12 +39,13 @@
 
     fn materialize_template(
         template_dir: &Path,
+        template_ref: &str,
         layout: TemplateLayout,
         output_dir: &Path,
         values: &BTreeMap<String, serde_json::Value>,
         scratch: bool,
     ) -> MietteResult<MaterializedTemplate> {
-        let target = MaterializeTarget { root: output_dir, scratch };
+        let target = MaterializeTarget { root: output_dir, scratch, template_ref };
         fs::create_dir_all(output_dir)
             .map_err(|err| target.io_report(output_dir, "failed to create output directory", err))?;
         let root_permissions = fs::metadata(template_dir)
@@ -121,7 +125,8 @@
                 let raw = fs::read_to_string(&src_path).map_err(|err| {
                     file_io_report(&src_path, "failed to read template text file", err)
                 })?;
-                let rendered = render_template_text(&raw, values, &src_path)?;
+                let rendered =
+                    render_template_text(&raw, values, &src_path, target.template_ref)?;
                 // Template-shipped settings.json must parse as JSON after
                 // instantiation-variable substitution. Catching this here
                 // surfaces malformed bundles before `rhei validate` runs.
@@ -153,35 +158,4 @@
         let bytes = fs::read(path)
             .map_err(|err| file_io_report(path, "failed to read template file", err))?;
         Ok(!bytes[..bytes.len().min(8192)].contains(&0))
-    }
-
-    fn render_template_text(
-        raw: &str,
-        values: &BTreeMap<String, serde_json::Value>,
-        path: &Path,
-    ) -> MietteResult<String> {
-        let literal_open = "__RHEI_TEMPLATE_LITERAL_OPEN__";
-        let preprocessed = raw.replace(r"\{{", literal_open);
-        let mut env = MiniJinjaEnvironment::new();
-        env.set_undefined_behavior(UndefinedBehavior::Strict);
-        // MiniJinja strips a single trailing newline by default, which drops the
-        // final newline from every instantiated file (states.yaml, settings.json,
-        // task files, ...). Preserve it so rendered files keep the POSIX trailing
-        // newline of their template source.
-        env.set_keep_trailing_newline(true);
-        env.add_filter("slug", |value: String| slugify_target_value(&value));
-
-        let template = env
-            .template_from_str(&preprocessed)
-            .map_err(|err| miette!(
-                help = "this template's text contains an invalid {{ }} expression. Fix the template file, then re-run.",
-                "failed to parse template '{}': {err}", path.display()
-            ))?;
-        let rendered = template
-            .render(values)
-            .map_err(|err| miette!(
-                help = "this template references an input it does not declare, or applies a filter to the wrong type. Fix the template file, then re-run.",
-                "failed to render template '{}': {err}", path.display()
-            ))?;
-        Ok(rendered.replace(literal_open, "{{"))
     }

@@ -39,6 +39,18 @@
   view, the browser dashboard and `rhei run --json` receive every report as
   before. (PR #227)
 
+- **A bundled script's `${#ARR[@]}` no longer aborts instantiation.** The
+  instantiation renderer read `{#` as a MiniJinja comment opener, so a template
+  bundling an ordinary Bash script failed to parse, and the message blamed an
+  invalid `{{ }}` expression the file did not contain. `{# ... #}` is not
+  instantiation syntax, so it is now hidden from the parser and emitted as
+  written. A template that really is malformed is told which `{{` or `{%` was
+  never closed and the line that opener sits on, rather than the later line at
+  which the parser ran out of input, and the parser's own words are quoted
+  instead of contradicted. A render failure names the failing expression and its
+  line, and an undeclared input is named in the remedy along with the
+  `{% raw %}` route and `--list-inputs`. (PR #226)
+
 ### Changed
 
 - **A state machine with a state nothing can leave is now refused when it
@@ -140,6 +152,15 @@
   is what the platform refused: a line put over the cap by something else
   reports what was measured and keeps the `PATH` remedy, rather than naming a
   byte count smaller than the limit in the same sentence. (PR #222)
+
+- **`{# ... #}` is no longer cut out of an instantiated file.** Text between a
+  `{#` and the next `#}` used to disappear from the output without a word — a
+  script holding both `${#A[@]}` and a later `#}` lost every line in between.
+  That text is now emitted verbatim, and rendering a file that contains `{#`
+  prints one warning naming the file and the line of the first occurrence, so a
+  template authored against the old reading is told its output has changed
+  rather than changing silently. `{% raw %}` regions are unaffected, and the
+  warning does not change the exit code. (PR #226)
 
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
