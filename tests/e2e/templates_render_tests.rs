@@ -238,6 +238,19 @@ fn instantiate_bundling(prefix: &str, files: &[(&str, &str)]) -> (TestDir, PathB
     (dir, output_dir, result)
 }
 
+/// A fragment holding a path, spelled the way this platform writes one.
+///
+/// A diagnostic names the file it is about through a `PathBuf` the
+/// materialization walk built by joining components, so `scripts/emit.sh` on
+/// Unix is `scripts\emit.sh` on Windows. §FS-rhei-templates.5.3 pins the
+/// `<path>:<line>` form and leaves the separator to the platform
+/// (§REQ-cross-platform.2), so an assertion spelled with a slash pins what
+/// nothing requires: it fails on Windows where it looks for the text, and —
+/// worse — passes there vacuously where it looks for its absence.
+fn native_path(fragment: &str) -> String {
+    fragment.replace('/', std::path::MAIN_SEPARATOR_STR)
+}
+
 /// The negative half of [`assert_stderr_contains`]: the same whitespace-blind
 /// comparison, asserting that the text is *not* there. A diagnostic that names
 /// a construct the file does not contain is what this ticket is about, so the
@@ -295,7 +308,7 @@ fn instantiate_keeps_the_text_a_later_hash_brace_used_to_cut() {
     assert!(rendered.contains("echo keep-me"), "the cut line survives; got:\n{rendered}");
     // The warning names the file and the line the first `{#` sits on, so the
     // change of meaning is detectable rather than silent.
-    assert_stderr_contains(&result, "scripts/silent.sh:3");
+    assert_stderr_contains(&result, &native_path("scripts/silent.sh:3"));
     assert_stderr_contains(&result, "{#");
 }
 
@@ -421,7 +434,7 @@ fn instantiate_ends_a_region_that_fences_a_printf_format() {
     );
     // The `{#` on line 5 is text outside the region, so it is warned about on
     // its own line. §FS-rhei-templates.5.3
-    assert_stderr_contains(&result, "scripts/emit.sh:5");
+    assert_stderr_contains(&result, &native_path("scripts/emit.sh:5"));
     assert_stderr_lacks(&result, "comment");
 }
 
@@ -437,7 +450,7 @@ fn instantiate_never_blames_a_region_that_fences_a_printf_format() {
         instantiate_bundling("templates-raw-printf-unclosed", &[("scripts/emit.sh", script)]);
     assert!(!result.status.success(), "an unclosed `{{{{` is a failure; got:\n{}", result.stdout);
 
-    assert_stderr_contains(&result, "scripts/emit.sh:5");
-    assert_stderr_lacks(&result, "scripts/emit.sh:2");
+    assert_stderr_contains(&result, &native_path("scripts/emit.sh:5"));
+    assert_stderr_lacks(&result, &native_path("scripts/emit.sh:2"));
     assert_stderr_lacks(&result, "is never closed by `{% endraw %}`");
 }

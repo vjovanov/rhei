@@ -403,6 +403,12 @@ what it requires of instantiation:
   position the underlying parser reported, and quotes that parser's own words
   rather than contradicting them.
 
+The `<path>` of every message and warning in this section is written in the
+platform's own spelling, so the file a Unix reader is sent to as
+`scripts/emit.sh:5` is named `scripts\emit.sh:5` on Windows — the one declared
+difference here, and the spelling that platform's own shell and editor take
+([§REQ-cross-platform.2](../requirements/cross-platform.md#2-parity)).
+
 Rendering a file whose text contains `{#` also emits one **warning** per file on
 stderr, naming the file and the line of the first occurrence and saying that the
 text is now emitted verbatim (§5). The warning is not a failure: instantiation
