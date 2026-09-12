@@ -304,10 +304,15 @@ transitions:
     assert_eq!(attempts.lines().count(), 3);
 }
 
+/// A fast non-zero exit takes its own `exit_code:` edge rather than the state's
+/// `timeout:` one. The edge lands on a `final: true` state, so the program
+/// writes the ticket's result before exiting: an exact match is a declared route
+/// and the engine writes no account of its own for one. §FS-rhei-programs.3.2
 #[test]
 fn run_program_fast_nonzero_with_timeout_uses_exit_code_transition() {
     let dir = unique_temp_dir("run-program-nonzero-timeout");
-    let script = write_python_agent(&dir, "build.py", "sys.exit(2)\n");
+    let script =
+        write_python_agent(&dir, "build.py", "result('Failed by exit code.')\nsys.exit(2)\n");
     let machine = format!(
         r#"name: run-program-nonzero-timeout-test
 version: 1
