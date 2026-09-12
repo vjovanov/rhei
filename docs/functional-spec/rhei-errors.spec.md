@@ -69,6 +69,31 @@ the command that lists them all. Each candidate appears once — registries are
 built by merging built-in entries with user settings, and a name present in
 both is still one name.
 
+### 1.4. Where the Refused Name Is Declared
+
+Listing the names a registry knows says what exists; it does not say where to
+write the one the author wanted. So when a name is refused against a registry
+that settings declare, the error also names the key the entry is written under
+and the files it may be written in — the project settings file and the global
+one (§FS-rhei-agents.1.1). Unknown agent ids and unknown agent modes follow this
+rule.
+
+The clause is an instruction, not a report. A registry is seeded with built-in
+entries, so a name can be refused against one that no settings file contributed
+to, and there is then no file to report. What the author needs is the same
+either way — where to declare the name they wanted — so the wording still reads
+correctly when the file it names does not exist yet.
+
+Which project file is named is not a free choice. It is the file the merge
+resolved and never the one Rhei writes (§FS-rhei-agents.1.1), so a project still
+on the deprecated home is sent to the file Rhei is actually reading rather than
+to one that would shadow it.
+
+Where a single command reports many failures under one help line (§1.1), this
+remedy rides in each entry rather than in the help: one help line cannot carry
+four different keys, and the entry is also what a machine consumer reads as that
+failure's own message (§5).
+
 ## 2. Copy-Paste Safety
 
 Any command Rhei prints — in an error, a help line, or a success summary — must
