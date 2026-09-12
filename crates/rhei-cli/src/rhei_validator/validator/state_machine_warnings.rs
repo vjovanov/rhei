@@ -67,16 +67,13 @@ fn warn_on_supervising_state(
     let outgoing = || machine.transitions.iter().filter(|rule| rule.from.0 == *state_name);
 
     // §FS-rhei-supervision.4.1: `openDescendants` is how a machine selects the
-    // edge that finishes a parent once its subtree is closed.
-    let has_open_descendants_exit = outgoing().any(|rule| {
-        rule.to.0 != *state_name
-            && machine.states.get(&rule.to.0).map(|def| def.terminal).unwrap_or(false)
-            && rule.condition.as_deref().is_some_and(|cond| cond.contains("openDescendants"))
-    });
-    if !has_open_descendants_exit {
+    // edge that finishes a parent once its subtree is closed — and finishing is
+    // a path from that edge's target, not the edge alone.
+    if !supervising_state_can_finish(machine, state_name) {
         report.warnings.push(format!(
-            "state '{state_name}' declares 'execute_on' but no transition from it reaches a final \
-             state on `openDescendants`; the supervisor has no way to finish"
+            "state '{state_name}' declares 'execute_on' but no `openDescendants` transition from \
+             it reaches a final state by any path, cancellation aside; the supervisor has no way \
+             to finish. Point one at a final state, or at a state that reaches one."
         ));
     }
 

@@ -63,19 +63,48 @@ fn states_reachable_from<'a>(
     order
 }
 
-/// Whether some `final: true` state is reachable from `start`, counting only
-/// the edges that can take a task out of the state they leave, and only the
-/// states `allowed` permits when a profile narrows the machine.
+/// Which final states count as arriving, for a walk that asks whether one can
+/// be reached.
+///
+/// The specification distinguishes exactly two questions, so this carries
+/// exactly two variants rather than an arbitrary predicate: a third way of
+/// counting a final state would need a specification point of its own before
+/// it could be written here.
+// §FS-rhei-transitions.4.6 §FS-rhei-supervision.1.2
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinalReached {
+    /// Any `final: true` state: *can a task be taken out of this state*. The
+    /// engine needs somewhere to put it, and abandonment is somewhere.
+    /// §FS-rhei-states.1.3
+    Any,
+    /// Any `final: true` state but the reserved cancellation terminal: *can
+    /// this supervisor finish*. Reaching `cancelled` abandons the supervised
+    /// work rather than declaring it done. §FS-rhei-states.1.4
+    NotCancellation,
+}
+
+impl FinalReached {
+    /// Whether arriving at `state` answers this question.
+    fn arrives_at(self, machine: &StateMachine, state: &str) -> bool {
+        state_is_terminal(machine, state)
+            && (self == FinalReached::Any || !is_cancelled_state_name(state))
+    }
+}
+
+/// Whether a final state `counts` accepts is reachable from `start`, counting
+/// only the edges that can take a task out of the state they leave, and only
+/// the states `allowed` permits when a profile narrows the machine.
 /// §FS-rhei-transitions.4.6
 fn state_can_reach_final<'a>(
     machine: &'a StateMachine,
     start: &'a str,
     allowed: Option<&HashSet<&str>>,
+    counts: FinalReached,
 ) -> bool {
-    state_is_terminal(machine, start)
+    counts.arrives_at(machine, start)
         || states_reachable_from(machine, start, allowed)
             .into_iter()
-            .any(|state| state_is_terminal(machine, state))
+            .any(|state| counts.arrives_at(machine, state))
 }
 
 /// Name states in an error, bounded by the listing rule: past eight, name the
@@ -259,7 +288,9 @@ impl StateMachine {
         let stranded: Vec<&str> = self
             .states
             .iter()
-            .filter(|(name, def)| !def.terminal && !state_can_reach_final(self, name, None))
+            .filter(|(name, def)| {
+                !def.terminal && !state_can_reach_final(self, name, None, FinalReached::Any)
+            })
             .map(|(name, _)| name.as_str())
             .collect();
 

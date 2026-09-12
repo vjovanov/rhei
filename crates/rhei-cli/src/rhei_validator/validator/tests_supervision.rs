@@ -340,3 +340,58 @@ node_policy:
              cannot finish; got: {warnings:?}"
         );
     }
+
+    /// The canonical supervisor's finishing edge, the line every case below
+    /// swaps for the shape it is about.
+    const CANONICAL_FINISH_EDGE: &str = "  - { from: supervising, to: completed, description: Subtree done, condition: openDescendants < 1 }";
+
+    /// The one predicate both surfaces ask, answered directly on every shape
+    /// of supervisor the rule distinguishes.
+    ///
+    /// `rhei validate`'s warning and `rhei run`'s halt were the same one-hop
+    /// test written twice, and §FS-rhei-supervision.1.2 requires them to say
+    /// the same thing. They now share this function, so this is the one cheap
+    /// place that agreement is pinned — the surfaces themselves are pinned end
+    /// to end, which is far more expensive per shape.
+    // §FS-rhei-supervision.1.2 §FS-rhei-states.1.4 §FS-rhei-transitions.4.6
+    #[test]
+    fn the_shared_predicate_answers_every_shape_of_supervisor() {
+        let finishing = |edge: &str| {
+            supervising_machine(
+                canonical_states(),
+                &canonical_transitions().replace(CANONICAL_FINISH_EDGE, edge),
+            )
+        };
+        let gated = finishing(
+            "  - { from: supervising, to: human-review, description: Subtree done; a human rules, condition: openDescendants < 1 }\n  - { from: human-review, to: completed, description: The ruling is recorded }",
+        );
+        let abandoning = finishing(
+            "  - { from: supervising, to: cancelled, description: Subtree closed, condition: openDescendants < 1 }",
+        );
+        // The edge stays, its condition goes: 'supervising' still reaches
+        // 'completed', and nothing selects that edge when the subtree closes.
+        let unconditional =
+            finishing("  - { from: supervising, to: completed, description: Subtree done }");
+        let no_edge = supervising_machine(
+            canonical_states(),
+            &canonical_transitions().replace(&format!("{CANONICAL_FINISH_EDGE}\n"), ""),
+        );
+
+        for (shape, yaml, finishes) in [
+            ("points straight at 'completed'", finishing(CANONICAL_FINISH_EDGE), true),
+            ("reaches 'completed' through the gate 'human-review'", gated, true),
+            ("points straight at 'cancelled'", abandoning, false),
+            ("lands in a pocket of gating states", pocketed_supervisor().to_string(), false),
+            ("reaches 'completed' by an unconditional edge", unconditional, false),
+            ("declares no `openDescendants` edge at all", no_edge, false),
+        ] {
+            let machine = StateMachine::from_yaml_str(&yaml)
+                .unwrap_or_else(|err| panic!("the machine that {shape} loads: {err}"));
+            assert_eq!(
+                supervising_state_can_finish(&machine, "supervising"),
+                finishes,
+                "a supervisor that {shape} {} finish",
+                if finishes { "can" } else { "cannot" }
+            );
+        }
+    }
