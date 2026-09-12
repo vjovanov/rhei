@@ -45,10 +45,11 @@ fn emit_exit_zero_warnings(
             ),
         });
     } else {
-        emit_exit_zero_missing_required_outputs_warning(
+        emit_missing_required_outputs_warning(
             "agent",
             task_id_str,
             state_name,
+            0,
             &missing,
             outlook,
             sink,
@@ -66,11 +67,17 @@ fn emit_exit_zero_warnings(
 /// `worker` is `agent` or `program`. A program is a worker like any other and
 /// stalls the same way, so it must reach the report the same way; only the noun
 /// in the sentence differs.
+///
+/// `exit_code` is the code the worker actually exited with, not always `0`: a
+/// program that took a declared route out of a non-zero exit owes the ticket's
+/// result the same way, and a line that said `0` would send the operator
+/// looking for an exit that never happened. §FS-rhei-programs.3.2
 // §FS-rhei-agents.3.2.1 §FS-rhei-run-report.3.1
-fn emit_exit_zero_missing_required_outputs_warning(
+fn emit_missing_required_outputs_warning(
     worker: &str,
     task_id_str: &str,
     state_name: &str,
+    exit_code: i32,
     missing: &[String],
     // What the run will actually do next, which is not decided by the missing
     // artifacts alone. §FS-rhei-agents.3.2.1
@@ -80,8 +87,9 @@ fn emit_exit_zero_missing_required_outputs_warning(
     sink.emit(rhei_tui::RunEvent::Message {
         level: rhei_tui::MessageLevel::Warn,
         text: format!(
-            "  warning: {} exited 0 but required outputs are missing for task {} in state '{}': {}",
+            "  warning: {} exited {} but required outputs are missing for task {} in state '{}': {}",
             worker,
+            exit_code,
             task_id_str,
             state_name,
             missing.join(", ")
@@ -166,6 +174,60 @@ fn missing_terminal_result_output(
     }
     let shown = std::path::absolute(&path).unwrap_or(path);
     Some(format_missing_required_output("result", &shown.display().to_string()))
+}
+
+/// The required artifacts a program's exit leaves unwritten, chosen by what the
+/// exit was.
+///
+/// A zero exit is judged on the whole completion condition: the state's
+/// declared `outputs:` and, on an edge into a `final: true` state, the ticket's
+/// result. A **declared route** — a non-zero exit that fired an exact
+/// `exit_code:` edge — is judged on the ticket's result alone: the engine writes
+/// no result of its own for it, so the program owes one, while the state's
+/// declared `outputs:` stay skipped on a non-zero exit exactly as before. Any
+/// other non-zero exit carries the engine's own account and is judged on
+/// nothing.
+///
+/// A `program:` state never fans out, however many targets it names, so the
+/// result is judged as the whole task's. §FS-rhei-programs.2
+// §FS-rhei-run.3 §FS-rhei-programs.3.2 §FS-rhei-states.3.3
+#[allow(clippy::too_many_arguments)]
+fn missing_program_exit_outputs(
+    workspace_root: &Path,
+    artifact_root: &Path,
+    machine: &rhei_validator::StateMachine,
+    metadata: Option<&Metadata>,
+    task: &rhei_core::ast::Task,
+    state_name: &str,
+    route: &ProgramExitRoute,
+    exit_code: i32,
+) -> Vec<String> {
+    if route.to == state_name {
+        return Vec::new();
+    }
+    if exit_code == 0 {
+        return collect_missing_required_outputs(
+            workspace_root,
+            artifact_root,
+            machine,
+            metadata,
+            task,
+            state_name,
+            Some(route.to.as_str()),
+        );
+    }
+    if !route.matched.is_declared_route() {
+        return Vec::new();
+    }
+    missing_terminal_result_output(
+        artifact_root,
+        machine,
+        task,
+        Some(route.to.as_str()),
+        ResultInvocation::whole_task(),
+    )
+    .into_iter()
+    .collect()
 }
 
 /// Walk all resolved invocations for this state and collect the union of

@@ -384,13 +384,62 @@ fn poll_attempts_exhausted(
         )
 }
 
+/// How the edge a program's exit selected matched that exit.
+///
+/// A step-2 exact match is the program naming the route it wants, so the engine
+/// records no subprocess-failure entry for it; a `"nonzero"` catch-all is the
+/// program merely failing, and an edge carrying no `exit_code` at all — a poll
+/// state's exhaustion edge, or the exit-`0` fall-through — is neither.
+/// §FS-rhei-programs.3.2
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExitCodeMatch {
+    /// An integer or integer-array `exit_code:` condition: a **declared route**.
+    Exact,
+    /// A `"nonzero"` catch-all condition.
+    Nonzero,
+    /// The selected rule declares no `exit_code:` at all.
+    None,
+}
+
+impl ExitCodeMatch {
+    fn of(rule: &rhei_core::ast::TransitionRule) -> Self {
+        if transition_has_exact_exit_code(rule) {
+            Self::Exact
+        } else if transition_is_nonzero_exit_code(rule) {
+            Self::Nonzero
+        } else {
+            Self::None
+        }
+    }
+
+    /// Whether this exit chose its own edge, and so owns the account of the
+    /// outcome the engine would otherwise write. §FS-rhei-programs.3.2
+    fn is_declared_route(self) -> bool {
+        matches!(self, Self::Exact)
+    }
+}
+
+/// The edge a program's exit selects, and how it matched.
+///
+/// The two travel together because only the selection can answer the second
+/// question: it is the one place a rule's `condition:` is evaluated, so an
+/// exact edge its condition disqualified is a rule the machine still declares
+/// and the exit still did not take. Asking the machine again afterwards would
+/// read that exit as a declared route and drop the engine's account of a
+/// genuine failure. §FS-rhei-programs.3.2
+#[derive(Debug, Clone)]
+struct ProgramExitRoute {
+    to: String,
+    matched: ExitCodeMatch,
+}
+
 fn find_program_exit_transition(
     machine: &rhei_validator::StateMachine,
     metadata: Option<&Metadata>,
     task: &rhei_core::ast::Task,
     current_state: &str,
     exit_code: i32,
-) -> MietteResult<Option<String>> {
+) -> MietteResult<Option<ProgramExitRoute>> {
     let applicable_exact_match_exists = exit_code != 0
         && machine
             .transitions()
@@ -427,7 +476,12 @@ fn find_program_exit_transition(
             continue;
         }
         if program_transition_is_applicable(rule, machine, metadata, task, current_state) {
-            return Ok(Some(rule.to.0.clone()));
+            // Classified here, where the condition was evaluated, and carried
+            // to the caller rather than re-derived. §FS-rhei-programs.3.2
+            return Ok(Some(ProgramExitRoute {
+                to: rule.to.0.clone(),
+                matched: ExitCodeMatch::of(rule),
+            }));
         }
     }
 

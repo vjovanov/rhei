@@ -132,40 +132,44 @@ fn handle_parallel_program_completion(
                 });
             };
 
-            if let Some(to_state) = find_program_exit_transition(
+            if let Some(exit_route) = find_program_exit_transition(
                 machine,
                 reloaded.rhei.metadata.as_ref(),
                 task,
                 &state_name,
                 exit_code,
             )? {
-                if exit_code == 0 && to_state != state_name {
-                    let missing_required_outputs = collect_missing_required_outputs(
-                        workspace_root,
-                        &reloaded.task_root(&task_id_str, workspace_root),
-                        machine,
-                        reloaded.rhei.metadata.as_ref(),
-                        task,
+                let to_state = exit_route.to.as_str();
+                // The worker pool judges a declared route exactly as the
+                // single-worker path does, or the two drift on what a routed
+                // exit leaves behind. §FS-rhei-run.3 §FS-rhei-programs.3.2
+                let missing_required_outputs = missing_program_exit_outputs(
+                    workspace_root,
+                    &reloaded.task_root(&task_id_str, workspace_root),
+                    machine,
+                    reloaded.rhei.metadata.as_ref(),
+                    task,
+                    &state_name,
+                    &exit_route,
+                    exit_code,
+                );
+                if !missing_required_outputs.is_empty() {
+                    // A program is a worker like any other: its stall must
+                    // reach the run report as the artifacts it owes, not as
+                    // a nameless one. §FS-rhei-run-report.3.1
+                    emit_missing_required_outputs_warning(
+                        "program",
+                        &task_id_str,
                         &state_name,
-                        Some(to_state.as_str()),
+                        exit_code,
+                        &missing_required_outputs,
+                        retry_outlook,
+                        sink,
                     );
-                    if !missing_required_outputs.is_empty() {
-                        // A program is a worker like any other: its stall must
-                        // reach the run report as the artifacts it owes, not as
-                        // a nameless one. §FS-rhei-run-report.3.1
-                        emit_exit_zero_missing_required_outputs_warning(
-                            "program",
-                            &task_id_str,
-                            &state_name,
-                            &missing_required_outputs,
-                            retry_outlook,
-                            sink,
-                        );
-                        return Ok(ParallelProgramCompletionEffect {
-                            advanced,
-                            program_spawned: true,
-                        });
-                    }
+                    return Ok(ParallelProgramCompletionEffect {
+                        advanced,
+                        program_spawned: true,
+                    });
                 }
                 if record_poll_self_loop_if_needed(
                     &reloaded,
@@ -173,7 +177,7 @@ fn handle_parallel_program_completion(
                     machine,
                     task,
                     &state_name,
-                    &to_state,
+                    to_state,
                 )? {
                     // Not done yet, so the attempt releases as a wait.
                     // §FS-rhei-states.2.2
@@ -204,8 +208,9 @@ fn handle_parallel_program_completion(
                     machine,
                     &route.local_id,
                     &state_name,
-                    &to_state,
+                    to_state,
                     exit_code,
+                    exit_route.matched,
                     opts.no_callbacks(),
                 )?;
                 emit_run_message(

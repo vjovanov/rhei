@@ -223,38 +223,42 @@ fn run_sequential_program_work_items(
                 }
 
                 let exit_code = program_outcome.status.code().unwrap_or(-1);
-                if let Some(to_state) = find_program_exit_transition(
+                if let Some(exit_route) = find_program_exit_transition(
                     machine,
                     loaded.rhei.metadata.as_ref(),
                     task,
                     current_state,
                     exit_code,
                 )? {
-                    if exit_code == 0 && to_state != *current_state {
-                        let missing_required_outputs = collect_missing_required_outputs(
-                            workspace_root,
-                            &reloaded.task_root(task_id_str, workspace_root),
-                            machine,
-                            reloaded.rhei.metadata.as_ref(),
-                            task_after.unwrap_or(task),
+                    let to_state = exit_route.to.as_str();
+                    // A declared route into a terminal state is judged on the
+                    // ticket's result alone: the engine writes none in its
+                    // place. §FS-rhei-run.3 §FS-rhei-programs.3.2
+                    let missing_required_outputs = missing_program_exit_outputs(
+                        workspace_root,
+                        &reloaded.task_root(task_id_str, workspace_root),
+                        machine,
+                        reloaded.rhei.metadata.as_ref(),
+                        task_after.unwrap_or(task),
+                        current_state,
+                        &exit_route,
+                        exit_code,
+                    );
+                    if !missing_required_outputs.is_empty() {
+                        // A program is a worker: its stall reaches
+                        // the report as the artifacts it owes.
+                        // §FS-rhei-run-report.3.1
+                        emit_missing_required_outputs_warning(
+                            "program",
+                            task_id_str,
                             current_state,
-                            Some(to_state.as_str()),
+                            exit_code,
+                            &missing_required_outputs,
+                            plan.retry_outlook(budget),
+                            sink,
                         );
-                        if !missing_required_outputs.is_empty() {
-                            // A program is a worker: its stall reaches
-                            // the report as the artifacts it owes.
-                            // §FS-rhei-run-report.3.1
-                            emit_exit_zero_missing_required_outputs_warning(
-                                "program",
-                                task_id_str,
-                                current_state,
-                                &missing_required_outputs,
-                                plan.retry_outlook(budget),
-                                sink,
-                            );
-                            progress.stalled_tasks.insert(task_id_str.clone());
-                            continue;
-                        }
+                        progress.stalled_tasks.insert(task_id_str.clone());
+                        continue;
                     }
                     if record_poll_self_loop_if_needed(
                         &loaded,
@@ -262,7 +266,7 @@ fn run_sequential_program_work_items(
                         machine,
                         task,
                         current_state,
-                        &to_state,
+                        to_state,
                     )? {
                         // Not done yet, so the attempt releases as a wait.
                         // §FS-rhei-states.2.2
@@ -288,8 +292,9 @@ fn run_sequential_program_work_items(
                         machine,
                         &route.local_id,
                         current_state,
-                        &to_state,
+                        to_state,
                         exit_code,
+                        exit_route.matched,
                         opts.no_callbacks(),
                     )?;
                     run_info!(

@@ -133,6 +133,9 @@ fn handle_parallel_agent_exit(
         failure_selected_to_state = if timed_out {
             find_timeout_transition(machine, &state_name)
         } else if !status.success() {
+// Load refuses an `exit_code:` edge from a state with no `program:`,
+            // so an agent reaches this only by a poll exhaustion edge, whose
+            // classification is `None` and unread. §FS-rhei-run.5.1
             find_program_exit_transition(
                 machine,
                 reloaded.rhei.metadata.as_ref(),
@@ -140,6 +143,7 @@ fn handle_parallel_agent_exit(
                 &state_name,
                 status.code().unwrap_or(-1),
             )?
+            .map(|route| route.to)
         } else {
             None
         };
@@ -230,10 +234,13 @@ fn handle_parallel_agent_exit(
                         }
                     }
                 }
-                emit_exit_zero_missing_required_outputs_warning(
+                // An agent reaches this block only on a zero exit.
+                // §FS-rhei-agents.3.2
+                emit_missing_required_outputs_warning(
                     "agent",
                     &task_id_str,
                     &state_name,
+                    0,
                     &missing_required_outputs,
                     retry_outlook,
                     sink,
