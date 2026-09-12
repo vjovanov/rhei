@@ -1,5 +1,6 @@
     // What a template that will not render is told — a responsibility apart
     // from rendering one that will, and a seam §AR-source-file-size.3 names.
+
     // Every message here is anchored on what the file contains rather than on
     // where the parser gave up. §FS-rhei-templates.5.3
 
