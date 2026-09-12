@@ -300,43 +300,16 @@ fn evaluate_transition_condition(
     Ok(outcome)
 }
 
-fn loop_reentry_allowed(
-    machine: &rhei_validator::StateMachine,
-    metadata: Option<&Metadata>,
-    task_id: &TaskId,
-    current_state: &str,
-    current_state_raw: &str,
-    to_state: &str,
-) -> bool {
-    if current_state == to_state {
-        if let Some(poll) = machine.states.get(current_state).and_then(|def| def.poll.as_ref()) {
-            let current = current_state_visit_count(
-                metadata,
-                task_id,
-                current_state,
-                current_state_raw,
-                machine,
-            );
-            return current < u64::from(poll.max_attempts);
-        }
-    }
-
-    let Some(limit) = state_visit_limit(machine, to_state) else {
-        return true;
-    };
-
-    let mut current = task_visit_count(metadata, task_id, to_state);
-    if current_state == to_state {
-        current = current.max(raw_state_visit_count(current_state_raw, machine, to_state));
-    }
-    current < limit
-}
-
 /// Explain why a specific declared transition is not applicable right now,
 /// in user-facing prose. Returns a short phrase (e.g. "condition `visitCount
 /// \>= visits` evaluated to false" or "visit budget for state 'review' is
-/// exhausted"). Does NOT re-check applicability — callers are expected to
-/// invoke this only when `transition_rule_is_applicable` returned false.
+/// exhausted (2/2 visits)"). A spent loop budget is reported by the check that
+/// measured it, so the phrase names that budget's own state — the destination
+/// on a loop back out of a gate — and not the state being left.
+/// §FS-rhei-errors.1.5
+///
+/// Does NOT re-check applicability — callers are expected to invoke this only
+/// when `transition_rule_is_applicable` returned false.
 fn describe_blocked_transition(
     rule: &rhei_core::ast::TransitionRule,
     machine: &rhei_validator::StateMachine,
@@ -345,7 +318,7 @@ fn describe_blocked_transition(
     current_state: &str,
     current_state_raw: &str,
 ) -> String {
-    if !loop_reentry_allowed(
+    if let Some(budget) = spent_loop_budget(
         machine,
         metadata,
         task_id,
@@ -353,7 +326,7 @@ fn describe_blocked_transition(
         current_state_raw,
         &rule.to.0,
     ) {
-        return format!("visit budget for state '{}' is exhausted", current_state);
+        return budget.to_string();
     }
     if let Some(condition) = rule.condition.as_deref() {
         return format!("condition `{}` evaluated to false", condition);
