@@ -434,6 +434,35 @@ fn dynamic_completion_completes_task_ids_and_transition_targets() {
     assert!(targets.stdout.contains("pending\tReady for work"));
 }
 
+/// `rhei transition --<TAB>` offers `--supervisor`, described by what it does.
+/// clap drops a hidden candidate only when a visible one shares the typed
+/// prefix, so today the flag is offered from `--sup` and denied from `--`:
+/// completion half-advertises an option the help denies outright.
+/// §FS-rhei-completions.7 §FS-rhei-completions.6.1
+#[test]
+fn dynamic_completion_offers_the_transition_supervisor_flag() {
+    let home = unique_temp_dir("completions-supervisor-home");
+    let dir = unique_temp_dir("completions-supervisor-project");
+    write_completion_plan(&dir);
+
+    let flags = run_dynamic_completion(&dir, &home, "fish", &["--", "rhei", "transition", "--"]);
+    assert!(
+        flags.status.success(),
+        "transition flag completion should succeed\nstdout:\n{}\nstderr:\n{}",
+        flags.stdout,
+        flags.stderr
+    );
+
+    let candidate =
+        flags.stdout.lines().find(|line| line.starts_with("--supervisor\t")).unwrap_or_else(|| {
+            panic!("`rhei transition --` should offer `--supervisor`:\n{}", flags.stdout)
+        });
+    assert!(
+        candidate.contains("checkpoint"),
+        "the candidate should say what the flag does, not that it is internal: {candidate}"
+    );
+}
+
 #[test]
 fn dynamic_completion_completes_list_filters() {
     let home = unique_temp_dir("completions-list-home");
