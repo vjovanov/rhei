@@ -107,6 +107,14 @@
     /// whole, so a `{#` in one of its string literals is part of an expression
     /// rather than text and still compares as the `{#` the author wrote.
     /// §FS-rhei-templates.5
+    ///
+    /// Inside a region the only construct is the `{% endraw %}` that ends it,
+    /// because a `{%` there is text like any other — `printf '{%s}'` in a
+    /// fenced Bash body has no `%}` of its own, and reading it as a tag hands
+    /// it the region's closing tag instead and leaves the rest of the file
+    /// inside a region that ended. A `{#` inside such text is hidden and put
+    /// back like any other: the engine emits a region verbatim and never looks
+    /// at it. §FS-rhei-templates.5.2
     struct TemplateWalk<'a> {
         raw: &'a str,
         /// Byte index the next token is looked for at.
@@ -156,9 +164,14 @@
                         return Some(self.at(TemplateToken::CommentOpener, start, start + 2));
                     }
                     Some(b'%') => {
-                        let Some(tag) = read_template_tag(raw, start) else {
-                            // Inside a region an unreadable tag is text, not a
-                            // failure: only `{% endraw %}` means anything there.
+                        // Inside a region only `{% endraw %}` is a tag. Reading
+                        // any other one scans for a `%}` that text never had,
+                        // and the region's own closing tag supplies it.
+                        let tag = read_template_tag(raw, start)
+                            .filter(|tag| !self.in_raw || tag.name == "endraw");
+                        let Some(tag) = tag else {
+                            // So inside a region this is two bytes of literal
+                            // text, exactly as a `{{` is one branch down.
                             if self.in_raw {
                                 self.i = start + 2;
                                 continue;
@@ -251,10 +264,11 @@
                         scan.first_comment_opener.get_or_insert(line);
                     }
                 }
-                TemplateToken::Tag(tag) if in_raw => {
-                    if tag.name == "endraw" {
-                        open_blocks.pop();
-                    }
+                // The walk hands out no tag inside a region but the
+                // `{% endraw %}` that ends it, and the block that tag closes is
+                // the region the `{% raw %}` below pushed.
+                TemplateToken::Tag(_) if in_raw => {
+                    open_blocks.pop();
                 }
                 TemplateToken::Tag(tag) => {
                     if tag.name == "raw" {
