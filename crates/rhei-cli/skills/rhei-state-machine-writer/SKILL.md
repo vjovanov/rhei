@@ -237,7 +237,7 @@ When the workflow needs several agents to **deliberate** — take each other's p
 6. Draft transitions, including cancellation and recovery paths.
 7. Draft profiles and `node_policy` — start with one default profile; add `by_type` / `overrides` only when kinds need different flows.
 8. Add callbacks only where the workflow truly integrates with external automation.
-9. Write the YAML to a conventional location (see *File Placement*). For a template, write to `<template>/states.yaml` and ensure the plan skeleton declares the same machine name via `**States:**`.
+9. Write the YAML where the plan that declares it will find it (see *File Placement*). For a template, write to `<template>/states.yaml` and ensure the plan skeleton declares the same machine name via `**States:**`.
 10. Validate with the CLI when available.
 
 ## Validation Checklist
@@ -266,10 +266,13 @@ When the CLI is available, validate with `rhei states --state-machine <path>` (a
 
 ## File Placement
 
-- `docs/states.yaml` — single machine for the project, auto-discovered by a sibling or workspace-root plan.
-- `docs/states/<name>.yaml` — multiple machines in the project.
-- `.agent-grounds/rhei/states.yaml` or `.agent-grounds/rhei/states/<name>.yaml` — for projects keeping rhei's own material in its project-local home rather than under `docs/`.
+Rhei finds a machine only where state-machine resolution looks, and only in a file named `states.yaml` ([§FS-rhei-state-machine-writer.5](../../../../docs/functional-spec/rhei-state-machine-writer.spec.md#5-file-placement)). Place it by what it governs:
 
-A plan picks up a sibling or workspace-root `states.yaml` automatically when it declares `**States:** <name>`; the YAML's `name` must match. Use `--state-machine <path>` to override the auto-discovered file.
+- **A single-file plan** — `states.yaml` in the plan's directory.
+- **A Directory Workspace** — `states.yaml` at the workspace root.
+- **A Panta project's default** — `states.yaml` at the project root (the directory holding `index.panta.md`), named by the manifest's `**States:**`. Every rhei that declares no `**States:**` runs under it.
+- **One rhei's own process** — `states.yaml` at that rhei's execution root, named by the rhei's own `**States:**`. This is where an instantiated template's `states.yaml` lands.
+
+The YAML's `name` must equal the `**States:**` value that selects it. No other directory or file name is searched. A machine kept anywhere else loads only when every invocation passes `--state-machine <path>`, and that flag replaces resolution for the whole scope: it works for a plan, a workspace, or a project that runs a single machine, but it cannot supply one machine among several.
 
 Write the machine before anything points at it. In a Panta project a rhei binds to one with `rhei new "<title>" --states <name>`, and that create resolves the name at create time: with no `states.yaml` declaring it, the create is refused and rolled back, and `--keep-on-error` is what writes the declaration anyway. The order is machine first, rhei second — a rhei points at a machine, never the other way round.

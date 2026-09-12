@@ -1,6 +1,6 @@
 # Default Rhei State Machine
 
-These are the default states used by Rhei plans when no project-specific state machine is declared (i.e., when `**States:**` is omitted, or when the project's `docs/states.yaml` mirrors this set). This mirrors the built-in `rhei` machine (version 4.0).
+These are the default states used by Rhei plans when no machine is declared, or when `**States:** rhei` is declared and no `states.yaml` named `rhei` is found where resolution looks. This mirrors the built-in `rhei` machine (version 4.0).
 
 Every task node starts in `pending` (the profile's `initial`). Agents claim a task with `rhei next` — which sets `**Assignee:**` without changing the state — then do the task and call `rhei complete` to finalize with a result message.
 
