@@ -28,6 +28,15 @@ pub enum TaskOutcome {
     /// ticket keeps its state and no transition fires, so this is neither a
     /// failure nor a timeout. §FS-rhei-run.3.2
     Interrupted,
+    /// An `outcome` read off a `--json` stream that this build has no variant
+    /// for, held under the name the stream spelled it with.
+    ///
+    /// The vocabulary is additive under one `schema`, so a reader meeting a
+    /// value a newer run emitted carries it through — prints it, stores it,
+    /// passes it on — rather than deciding it must be one of the words it does
+    /// know (§FS-rhei-run-json.2.2). No run emits this variant; only
+    /// `decode_outcome` produces one.
+    Unrecognized(String),
 }
 
 /// Aggregate statistics emitted with `RunFinished`.

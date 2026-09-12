@@ -16,9 +16,9 @@ struct UsageRecord {
 }
 
 /// Reported usage, keyed by invocation id. `UsageReported` arrives repeatedly
-/// for one invocation as a streaming extractor observes further turns, and
-/// arrives after `SlotReleased`, so a report replaces its predecessor rather
-/// than adding to it. §FS-rhei-cost-accounting.9
+/// for one invocation as a streaming extractor observes further turns, on
+/// either side of that invocation's `SlotReleased`, so a report replaces its
+/// predecessor rather than adding to it. §FS-rhei-cost-accounting.9
 #[derive(Default)]
 struct UsageLedger {
     records: Vec<UsageRecord>,

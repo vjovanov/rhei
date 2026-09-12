@@ -29,6 +29,8 @@ fn handle_parallel_agent_exit(
     let ParallelAgentExit {
         task_id_str,
         state_name,
+        // Emitted when this function returns. §FS-rhei-states.2.2
+        mut release,
         resolved,
         log,
         snapshot_preload,
@@ -346,12 +348,15 @@ fn handle_parallel_agent_exit(
                 ),
             };
             match auto_advance_result {
-                Ok(Some(to_state)) => {
+                Ok(Some(advance)) => {
+                    // A scheduled next attempt is not a move: the attempt
+                    // that selected the edge is a wait. §FS-rhei-states.2.2
+                    if advance.poll_wait { release.waiting(); }
                     run_info!(
                         "  Task {} auto-advanced: '{}' -> '{}'",
                         task_id_str,
                         state_name,
-                        to_state
+                        advance.to
                     );
                     *progress.advanced_any = true;
                 }

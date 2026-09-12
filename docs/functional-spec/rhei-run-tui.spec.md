@@ -35,14 +35,17 @@ Slot-oriented events (see below) mean the renderer updates exactly one slot per 
 ### 1.1. Event Surface
 
 ```rust
-// crates/rhei-tui/src/event.rs
+// crates/rhei-cli/src/rhei_tui/event.rs
 pub type Slot = u16;
 
 pub enum TaskOutcome {
     Completed,
     Failed(String),
+    Waiting,
     Cancelled,
     TimedOut,
+    Interrupted,
+    Unrecognized(String),
 }
 
 pub struct RunSummary {
@@ -207,6 +210,17 @@ source-order task ids.
 `SlotAssigned` is emitted at spawn time; `SlotReleased` is emitted when the spawned agent or program exits. Both events carry the slot index so the renderer can update the right slot without reconciliation. Both events also carry `from` and `to`: when `from == to`, the worker started or ended in the same autonomous state and renderers must not present that as a real self-transition.
 
 `SlotAssigned.agent` identifies the resolved agent or target label when the invocation is agent-backed; it is `None` for program-backed work. `SlotReleased.exit_code` is the subprocess exit status when one is available, and `duration_ms` is the invocation duration in milliseconds.
+
+`SlotReleased.outcome` is what the released invocation earned, and three of its
+values are not read off the exit status alone. `Waiting` is a poll state's
+handled wait, selected by its self-loop whatever the exit code
+([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)). `Interrupted` is a
+worker the run itself ended, which is a verdict on the run and not on the ticket
+([§FS-rhei-run.3.2](rhei-run.spec.md#32-interruption-and-process-ownership)).
+`Unrecognized` holds an outcome word read off a `--json` stream that this build
+has no variant for: no run emits one, and a frontend that meets one shows and
+re-emits the name it was given rather than the nearest word it knows
+([§FS-rhei-run-json.2.2](rhei-run-json.spec.md#22-schema-version)).
 
 `AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript; built-in structured result envelopes are decoded to their human-readable result text on both surfaces. [§FS-rhei-cost-accounting.4](rhei-cost-accounting.spec.md#4-extraction-flow)
 

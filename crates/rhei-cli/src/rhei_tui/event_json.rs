@@ -192,7 +192,7 @@ pub fn is_structural(event: &RunEvent) -> bool {
 }
 
 /// The `outcome` vocabulary of a `slot_released` record. §FS-rhei-run-json.2.1
-fn outcome_name(outcome: &TaskOutcome) -> &'static str {
+fn outcome_name(outcome: &TaskOutcome) -> &str {
     match outcome {
         TaskOutcome::Completed => "completed",
         TaskOutcome::Failed(_) => "failed",
@@ -200,6 +200,10 @@ fn outcome_name(outcome: &TaskOutcome) -> &'static str {
         TaskOutcome::Cancelled => "cancelled",
         TaskOutcome::TimedOut => "timeout",
         TaskOutcome::Interrupted => "interrupted",
+        // Written back exactly as it was read, which is what makes a reader
+        // that re-encodes — `rhei attach --json` — pass the record on
+        // unchanged. §FS-rhei-run-json.2.2
+        TaskOutcome::Unrecognized(name) => name,
     }
 }
 
@@ -383,18 +387,21 @@ fn decode_event(kind: &str, v: &Value, wall_clock: SystemTime) -> Option<RunEven
 }
 
 /// Read an `outcome` back off the stream, so an attached reader shows the run
-/// the words the run itself wrote. An unknown value still decodes as a
-/// completion: the vocabulary is additive under one `schema`, and a reader that
-/// stopped on a value it had not met would turn that into an outage.
+/// the words the run itself wrote. A value this build has no variant for is
+/// kept under its own name rather than rewritten to one that is: the vocabulary
+/// is additive under one `schema`, a reader that stopped on a word it had not
+/// met would turn that into an outage, and one that renamed it would report the
+/// run as something it never said.
 // §FS-rhei-run-json.2.1 §FS-rhei-run-json.2.2
 fn decode_outcome(name: &str, reason: Option<String>) -> TaskOutcome {
     match name {
+        "completed" => TaskOutcome::Completed,
         "failed" => TaskOutcome::Failed(reason.unwrap_or_default()),
         "waiting" => TaskOutcome::Waiting,
         "cancelled" => TaskOutcome::Cancelled,
         "timeout" => TaskOutcome::TimedOut,
         "interrupted" => TaskOutcome::Interrupted,
-        _ => TaskOutcome::Completed,
+        other => TaskOutcome::Unrecognized(other.to_string()),
     }
 }
 

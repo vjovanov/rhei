@@ -497,6 +497,9 @@ impl UiState {
                     // Distinct from cancelled's `⊘`: nothing about the ticket
                     // is wrong, the run simply stopped. §FS-rhei-run.3.2
                     TaskOutcome::Interrupted => "⏹",
+                    // A word from a newer run than this reader.
+                    // §FS-rhei-run-json.2.2
+                    TaskOutcome::Unrecognized(_) => "?",
                 };
                 // A handled wait claims no attention: it reads at the level a
                 // completion does, not a failure's. §FS-rhei-states.2.2
@@ -504,12 +507,19 @@ impl UiState {
                     TaskOutcome::Completed | TaskOutcome::Waiting => MessageLevel::Info,
                     _ => MessageLevel::Warn,
                 };
+                // Carried through rather than rewritten, so the line says what
+                // the run said even where the symbol cannot.
+                // §FS-rhei-run-json.2.2
+                let unknown = match outcome {
+                    TaskOutcome::Unrecognized(name) => format!(" {name}"),
+                    _ => String::new(),
+                };
                 if let Some(s) = self.slot_mut(*slot) {
                     *s = SlotState::default();
                 }
                 self.push_journal(
                     level,
-                    format!("{sym} slot {slot}: {task} ({}s)", duration_ms / 1000),
+                    format!("{sym} slot {slot}: {task}{unknown} ({}s)", duration_ms / 1000),
                 );
             }
             RunEvent::PassEnded { pass, progressed } => {

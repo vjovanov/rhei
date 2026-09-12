@@ -58,6 +58,10 @@ enum LedgerOutcome {
     /// The run was interrupted and the engine ended the invocation; no
     /// transition was selected. §FS-rhei-run.3.2
     Interrupted,
+    /// An outcome word this build has no variant for, kept as it was read.
+    /// Reachable only from a decoded `--json` stream — a run's own events never
+    /// carry one. §FS-rhei-run-json.2.2
+    Unrecognized(String),
 }
 
 /// `EventSink` recording per-task driver/duration for the console task tree and
@@ -175,6 +179,9 @@ impl rhei_tui::EventSink for SummarySink {
                     rhei_tui::TaskOutcome::Cancelled => LedgerOutcome::Cancelled,
                     rhei_tui::TaskOutcome::TimedOut => LedgerOutcome::TimedOut,
                     rhei_tui::TaskOutcome::Interrupted => LedgerOutcome::Interrupted,
+                    rhei_tui::TaskOutcome::Unrecognized(name) => {
+                        LedgerOutcome::Unrecognized(name)
+                    }
                 };
                 state.ledger.push(LedgerRecord {
                     task,
@@ -1508,6 +1515,12 @@ fn ledger_outcome_reason(outcome: &LedgerOutcome, exit_code: Option<i32>) -> Str
         LedgerOutcome::TimedOut => "timed out".to_string(),
         // Not a verdict on the ticket: the run stopped the worker. §FS-rhei-run.3.2
         LedgerOutcome::Interrupted => "interrupted".to_string(),
+        // The word the stream used, kept rather than translated into one this
+        // build knows. §FS-rhei-run-json.2.2
+        LedgerOutcome::Unrecognized(name) => match exit_code {
+            Some(code) => format!("{name}, exit {code}"),
+            None => name.clone(),
+        },
     }
 }
 

@@ -221,3 +221,119 @@ fn the_worker_pool_journals_a_poll_wait_like_the_sequential_path() {
         "the pooled path appends no self-loop edge either"
     );
 }
+
+/// The same shape, backed by an `agent` rather than a `program`. The two
+/// release their slots through different code — an agent's goes out from the
+/// completion handler that decides what its exit meant, a program's from the
+/// loop that reaped it — so the rule of §FS-rhei-states.2.2 has to reach both.
+const RULING_AGENT_MACHINE: &str = r#"name: poll-waiting-agent
+version: 1
+states:
+  awaiting-ruling:
+    description: Poll until the external ruling is available
+    agent: mock
+    agent_timeout: 30s
+    poll:
+      interval: 0s
+      max_attempts: 2
+    instructions: Say whether the ruling has landed.
+  completed:
+    description: Done
+    final: true
+transitions:
+  - from: awaiting-ruling
+    to: awaiting-ruling
+    condition: pollAttempts < pollMaxAttempts
+  - from: awaiting-ruling
+    to: completed
+    condition: pollAttempts >= pollMaxAttempts
+"#;
+
+/// An agent that finishes its turn and writes the ticket's result, so the
+/// exhaustion edge into a `final: true` state has the artifact it owes.
+/// §FS-rhei-states.3.3
+const AGENT_WITH_RESULT: &str = "result('the ruling landed\\n')\nsys.exit(0)\n";
+
+/// Stand up the agent-backed fixture, with the settings that resolve `mock` to
+/// the script, and run it to completion.
+fn agent_poll_trail(prefix: &str, extra_args: &[&str]) -> PollTrail {
+    let dir = unique_temp_dir(prefix);
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", RULING_PLAN);
+    let machine_path = write_fixture_file(&dir, "states.yaml", RULING_AGENT_MACHINE);
+    let script = write_python_agent(&dir, "mock-agent.py", AGENT_WITH_RESULT);
+    let settings_dir = dir.join(".agent-grounds/rhei");
+    fs::create_dir_all(&settings_dir).expect("create settings dir");
+    let command = fixture_command(&script);
+    fs::write(
+        settings_dir.join("settings.json"),
+        format!(
+            r#"{{
+  "defaults": {{ "agent": "mock", "agent_timeout": "30s" }},
+  "agents": {{ "mock": {{ "command": {command}, "prompt_flag": "--prompt", "timeout": "30s" }} }}
+}}"#
+        ),
+    )
+    .expect("write settings");
+
+    let mut args = vec!["--no-tui", "--no-callbacks"];
+    args.extend_from_slice(extra_args);
+    let result = run_run(&plan_path, &machine_path, &args);
+    assert_success(&result);
+
+    let trail = read_poll_trail(&dir);
+    assert!(
+        trail.ledger.contains("awaiting-ruling@completed"),
+        "the fixture should have reached its terminal state; ledger was:\n{}",
+        trail.ledger
+    );
+    trail
+}
+
+/// The rule is about a poll state's attempt, not about what ran it. An agent
+/// polling for a ruling waits exactly as a program does, and its attempt is
+/// journalled the same way — including the exit-`0` case, where "completed"
+/// would otherwise claim the state was finished by an agent that had only
+/// asked to be woken again.
+// §FS-rhei-states.2.2 §FS-rhei-run-tui.1.7
+#[test]
+fn an_agent_backed_poll_self_loop_attempt_is_journalled_as_a_wait() {
+    let trail = agent_poll_trail("poll-wait-agent", &["--parallel", "1"]);
+
+    assert_eq!(
+        outcome_of(&trail.ends[0]),
+        "waiting",
+        "an agent that took the self-loop has not finished the state:\n{}",
+        trail.ends[0]
+    );
+    assert_eq!(
+        outcome_of(&trail.ends[1]),
+        "completed",
+        "the attempt that left the state on exit 0 really did complete:\n{}",
+        trail.ends[1]
+    );
+    assert_eq!(
+        trail.ledger, "plan.1 awaiting-ruling@completed\n",
+        "an agent's self-loop is handled internally too, so it appends no line"
+    );
+}
+
+/// And from the worker pool, where an agent's release crosses a channel to the
+/// thread that selects its transition.
+// §FS-rhei-run.5 §FS-rhei-states.2.2
+#[test]
+fn the_worker_pool_journals_an_agent_poll_wait_like_the_sequential_path() {
+    let trail = agent_poll_trail("poll-wait-agent-parallel", &["--parallel", "2"]);
+
+    assert_eq!(
+        outcome_of(&trail.ends[0]),
+        "waiting",
+        "the pooled agent path must agree with the sequential one:\n{}",
+        trail.ends[0]
+    );
+    assert_eq!(
+        outcome_of(&trail.ends[1]),
+        "completed",
+        "and must keep the leaving attempt's own outcome:\n{}",
+        trail.ends[1]
+    );
+}

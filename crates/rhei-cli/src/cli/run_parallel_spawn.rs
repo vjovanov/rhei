@@ -339,18 +339,24 @@ fn spawn_parallel_agent_work_item(
             let duration_ms = started_at.elapsed().as_millis() as u64;
             let (outcome, exit_code) = slot_outcome(&result);
             let finished_wall = std::time::SystemTime::now();
-            sink_for_thread.emit(rhei_tui::RunEvent::SlotReleased {
-                slot,
-                task: tid_for_event,
-                from: from_for_thread,
-                to: to_for_thread,
-                log_path: log_for_thread.clone(),
-                outcome,
-                finished_at: std::time::Instant::now(),
-                wall_clock: finished_wall,
-                exit_code,
-                duration_ms,
-            });
+            // Read here, where the process was reaped, and emitted by the main
+            // thread once it knows whether this attempt was a poll state's
+            // handled wait. §FS-rhei-states.2.2
+            let release = PendingSlotRelease::hold(
+                sink_for_thread.clone(),
+                SlotRelease {
+                    slot,
+                    task: tid_for_event,
+                    from: from_for_thread,
+                    to: to_for_thread,
+                    log_path: log_for_thread.clone(),
+                    outcome,
+                    finished_at: std::time::Instant::now(),
+                    wall_clock: finished_wall,
+                    exit_code,
+                    duration_ms,
+                },
+            );
             let usage_capture_path =
                 result.as_ref().ok().and_then(|outcome| outcome.usage_capture_path.as_ref());
             let accounting_result = record_agent_accounting_invocation(AgentAccountingInvocation {
@@ -379,6 +385,7 @@ fn spawn_parallel_agent_work_item(
             ParallelAgentThreadMessage::Completed(ParallelAgentCompletion {
                 task_id_str: tid,
                 state_name: sname,
+                release,
                 resolved: resolved_for_result,
                 log: log_for_result,
                 snapshot_preload: snapshot_preload_for_result,

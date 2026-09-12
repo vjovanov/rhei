@@ -50,6 +50,10 @@ struct ProgramWorkItem {
 struct ParallelAgentCompletion {
     task_id_str: String,
     state_name: String,
+    /// The slot release the worker read off the finished agent, not yet
+    /// emitted: a poll self-loop makes it a wait, and only the main thread
+    /// selects the transition that says so. §FS-rhei-states.2.2
+    release: PendingSlotRelease,
     resolved: ResolvedAgent,
     log: PathBuf,
     snapshot_preload: SnapshotPreload,
@@ -77,6 +81,10 @@ struct ParallelAgentCompletion {
 struct ParallelAgentExit {
     task_id_str: String,
     state_name: String,
+    /// Carried on from the completion, still unemitted: this is the path that
+    /// selects the transition telling a wait from a failure.
+    // §FS-rhei-states.2.2
+    release: PendingSlotRelease,
     resolved: ResolvedAgent,
     log: PathBuf,
     snapshot_preload: SnapshotPreload,
