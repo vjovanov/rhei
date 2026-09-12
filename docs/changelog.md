@@ -247,6 +247,16 @@
   while leaving nothing behind now quotes the command it ran beside the path it
   checked. (PR #221)
 
+- **`rhei transition --supervisor` is a documented option.** The flag rhei's
+  own supervisor prompt instructs an agent to type was hidden from
+  `rhei transition --help`, and offered by shell completion only from a prefix
+  that matched nothing else. It is now in both, described as what it does: it
+  suppresses the checkpoint the move would otherwise deliver to the named
+  supervisor, rather than granting any authority — a supervisor's move on a
+  held descendant lands with or without it. Behaviour is unchanged; a value
+  that does not name the transitioning task's nearest in-scope supervising
+  ancestor is still accepted and still has no effect. (PR #230)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When

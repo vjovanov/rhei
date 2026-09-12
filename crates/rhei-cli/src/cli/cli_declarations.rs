@@ -305,8 +305,15 @@ enum Commands {
         /// when `--to` is a final state and the ticket has no result yet
         #[arg(long)]
         result: Option<String>,
-        /// Internal authority for one supervisor-issued descendant operation
-        #[arg(long, value_name = "TASK_ID", hide = true)]
+        /// The supervisor issuing this move. Suppresses the checkpoint the
+        /// move would otherwise deliver to it, so a supervisor acting on its
+        /// own held descendant is not woken by its own doing. A value naming a
+        /// task other than the transitioning task's nearest in-scope
+        /// supervising ancestor is accepted and has no effect
+        // Kept to one paragraph: clap renders only the first as the option's
+        // short help, and the flag is documented, never hidden.
+        // §FS-rhei-transition-cmd.2
+        #[arg(long, value_name = "TASK_ID")]
         supervisor: Option<String>,
         /// Skip execution of on_leave/on_enter callbacks
         #[arg(long)]
