@@ -1,0 +1,195 @@
+// Where a state machine can be kept. The state-machine-writer spec names four
+// placements and the one override, and each case here lays that placement down
+// on a temporary tree and runs the real binary against it. Every machine uses
+// states the built-in machine lacks, so a plan that validates can only have
+// loaded the file the case placed. The spec once recommended `docs/states.yaml`,
+// which resolution has never searched (#110).
+
+// §FS-rhei-state-machine-writer.5
+
+use std::path::{Path, PathBuf};
+
+use super::new_tests::{assert_failure, flattened_output};
+use super::*;
+
+/// A machine named `name` whose two states are `working` and `done`. Callers
+/// pick names the built-in machine lacks.
+fn machine(name: &str, working: &str, done: &str) -> String {
+    format!(
+        "name: {name}\nversion: 1\nstates:\n  {working}:\n    initial: true\n    \
+         description: Not a built-in state\n  {done}:\n    final: true\n    \
+         description: Done\ntransitions:\n  - from: {working}\n    to: {done}\n"
+    )
+}
+
+/// Run `rhei <args>` from `cwd`, with no `--state-machine` unless `args` passes
+/// one: the placement is what the case is about.
+fn rhei_in(cwd: &Path, home: &Path, args: &[&str]) -> CliRun {
+    let mut cmd = rhei_command(home);
+    cmd.current_dir(cwd).args(args);
+    let output = cmd.output().expect("rhei command should run");
+    CliRun {
+        status: output.status,
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+fn assert_validates(result: &CliRun) {
+    assert_success(result);
+    assert!(
+        result.stdout.contains("Validation succeeded"),
+        "validation should succeed; got:\n{}\n{}",
+        result.stdout,
+        result.stderr
+    );
+}
+
+/// A single-file plan declaring `custom`, on a state only `custom` has.
+fn write_single_plan(dir: &Path) {
+    write_fixture_file(
+        dir,
+        "plan.rhei.md",
+        "# Rhei: Placement\n**States:** custom\n\n## Tasks\n\n\
+         ### Task 1: Placed\n**State:** sketching\n",
+    );
+}
+
+/// A Panta project running two machines: the project default `alpha` at the
+/// project root, which `audit` runs under by declaring nothing, and `billing`'s
+/// own `custom` at its execution root. Neither machine shares a state with the
+/// other or with the built-in one, so each rhei validates only on its own file.
+fn two_machine_project(dir: &Path) -> PathBuf {
+    let project = dir.join("project");
+    for rhei in ["audit", "billing"] {
+        std::fs::create_dir_all(project.join(rhei).join("tasks")).expect("create the rhei");
+    }
+    write_fixture_file(&project, "index.panta.md", "# Panta: Two Machines\n**States:** alpha\n");
+    write_fixture_file(&project, "states.yaml", &machine("alpha", "surveying", "signed-off"));
+
+    let audit = project.join("audit");
+    write_fixture_file(&audit, "index.rhei.md", "# Rhei: Audit\n");
+    write_fixture_file(&audit.join("tasks"), "01.md", "### Task 1: Survey\n**State:** surveying\n");
+
+    let billing = project.join("billing");
+    write_fixture_file(&billing, "index.rhei.md", "# Rhei: Billing\n**States:** custom\n");
+    write_fixture_file(&billing, "states.yaml", &machine("custom", "drafting", "filed"));
+    write_fixture_file(&billing.join("tasks"), "01.md", "### Task 1: Draft\n**State:** drafting\n");
+    project
+}
+
+/// A single-file plan finds the `states.yaml` in its own directory — the issue's
+/// working case. §FS-rhei-plan-language.1.3
+#[test]
+fn a_machine_beside_a_single_file_plan_is_found() {
+    let dir = unique_temp_dir("placement-single");
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(&tree).expect("create the tree");
+    write_single_plan(&tree);
+    write_fixture_file(&tree, "states.yaml", &machine("custom", "sketching", "shipped"));
+
+    assert_validates(&rhei_in(&tree, &dir.join(".home"), &["validate", "plan.rhei.md"]));
+}
+
+/// A Directory Workspace finds the `states.yaml` at its root.
+/// §FS-rhei-plan-language.1.3
+#[test]
+fn a_machine_at_a_directory_workspace_root_is_found() {
+    // The helper's own `states.yaml` sits beside the workspace, not in it, and
+    // is named for another machine: it cannot be the file that satisfies this.
+    let (dir, ws, _outside) = create_workspace(
+        "placement-workspace",
+        "# Rhei: Placement\n**States:** custom\n",
+        &[("01.md", "### Task 1: Placed\n**State:** sketching\n")],
+    );
+    write_fixture_file(&ws, "states.yaml", &machine("custom", "sketching", "shipped"));
+
+    let ws_arg = ws.display().to_string();
+    assert_validates(&rhei_in(&dir, &dir.join(".home"), &["validate", &ws_arg]));
+}
+
+/// A project's default at the project root and one rhei's own machine at that
+/// rhei's execution root are both found, and `rhei states` names both files.
+/// §FS-rhei-plan-language.1.3
+#[test]
+fn a_project_default_and_a_rheis_own_machine_are_both_found() {
+    let dir = unique_temp_dir("placement-project");
+    let home = dir.join(".home");
+    let project = two_machine_project(&dir);
+    let project_arg = project.display().to_string();
+
+    assert_validates(&rhei_in(&dir, &home, &["validate", &project_arg]));
+
+    let states = rhei_in(&dir, &home, &["states", &project_arg]);
+    assert_success(&states);
+    let default_source = format!("Source: '{}'", project.join("states.yaml").display());
+    let own_source = format!(
+        "Source: '{}' (rhei: billing)",
+        project.join("billing").join("states.yaml").display()
+    );
+    for source in [&default_source, &own_source] {
+        assert!(
+            states.stdout.lines().any(|line| line == source.as_str()),
+            "`rhei states` should list {source:?}; got:\n{}",
+            states.stdout
+        );
+    }
+}
+
+/// `docs/states.yaml` is not a place resolution looks: the plan fails with the
+/// not-found error, and the same file loads only through `--state-machine` —
+/// the issue's cases A and C. §FS-rhei-plan-language.1.3
+#[test]
+fn a_machine_under_docs_is_found_only_through_the_override() {
+    let dir = unique_temp_dir("placement-docs");
+    let home = dir.join(".home");
+    let tree = dir.join("tree");
+    std::fs::create_dir_all(tree.join("docs")).expect("create the tree");
+    write_single_plan(&tree);
+    write_fixture_file(
+        &tree.join("docs"),
+        "states.yaml",
+        &machine("custom", "sketching", "shipped"),
+    );
+
+    let discovered = rhei_in(&tree, &home, &["validate", "plan.rhei.md"]);
+    assert_failure(&discovered, "custom");
+    let said = flattened_output(&discovered);
+    assert!(
+        said.contains("plan declares state machine 'custom', but no auto-discovered states file"),
+        "a machine under docs/ should not be found; got:\n{said}"
+    );
+
+    let overridden =
+        rhei_in(&tree, &home, &["--state-machine", "docs/states.yaml", "validate", "plan.rhei.md"]);
+    assert_validates(&overridden);
+}
+
+/// `--state-machine` replaces resolution for the whole project, so a machine
+/// kept outside its rhei's root cannot be supplied as one machine among
+/// several: the override meets the default's `alpha` and the project fails.
+/// §FS-rhei-plan-language.1.3
+#[test]
+fn the_override_cannot_supply_one_machine_among_several() {
+    let dir = unique_temp_dir("placement-override-scope");
+    let project = two_machine_project(&dir);
+    let shared = dir.join("shared");
+    std::fs::create_dir_all(&shared).expect("create the shared directory");
+    let kept_elsewhere = shared.join("custom.yaml");
+    std::fs::rename(project.join("billing").join("states.yaml"), &kept_elsewhere)
+        .expect("move billing's machine out of its root");
+
+    let override_arg = kept_elsewhere.display().to_string();
+    let project_arg = project.display().to_string();
+    let result = rhei_in(
+        &dir,
+        &dir.join(".home"),
+        &["--state-machine", &override_arg, "validate", &project_arg],
+    );
+    assert_failure(&result, "--state-machine");
+    let said = flattened_output(&result);
+    assert!(
+        said.contains("'alpha'") && said.contains("'custom'"),
+        "the override should meet the project default's declaration; got:\n{said}"
+    );
+}
