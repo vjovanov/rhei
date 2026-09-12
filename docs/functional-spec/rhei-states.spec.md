@@ -632,8 +632,13 @@ terminal entry past it, and a refused move leaves the plan untouched.
    by the worker in the state being left, or appended by an earlier
    `rhei transition --result` on the same ticket.
 2. A result message carried by the caller through the transition
-   (`rhei complete --result`, `rhei transition --result`, or an engine-owned
-   failure route under `rhei run`). The message is appended in the existing
+   (`rhei complete --result`, `rhei transition --result`, or a failure route
+   under `rhei run` the engine genuinely owns — a timeout, unavailable tooling,
+   an exit code that matched no route or only a `"nonzero"` catch-all, an edge
+   walked with no subprocess). An exit that fired an *exact* `exit_code:`
+   transition is the program's declared route rather than the engine's failure
+   ([§FS-rhei-programs.3.2](rhei-programs.spec.md#32-evaluation-order)), so
+   nothing is carried on it and the program owes the result itself. The message is appended in the existing
    `## Result` entry format ([§FS-rhei-complete.3.2](rhei-complete.spec.md#32-result-file-format)) after the transition
    succeeds.
 
@@ -712,9 +717,11 @@ finishes the ticket. A worker under `orchestrator` authority writes the file
 before it exits — the path is in its prompt
 ([§FS-rhei-agents.3](rhei-agents.spec.md#3-prompt-composition)). The engine supplies the message only for
 outcomes the engine itself produced: a timeout it fired, tooling it could not
-start, an exit code it read, an edge it walked with no subprocess in the state
+start, an exit code it read **that no declared route matched**, an edge it
+walked with no subprocess in the state
 ([§FS-rhei-run.3](rhei-run.spec.md#3-execution-loop)). It never speaks for a worker that ran and never speaks for a
-human — where a worker ran, a missing result fails the completion condition;
+human — where a worker ran, a missing result fails the completion condition,
+and a program that exited on an exact `exit_code:` edge is a worker that ran;
 where a human decided, the human is **asked**: the human-gate surfaces carry an
 optional result field ([§FS-rhei-viz.5.1](rhei-viz.spec.md#51-human-gate-transitions), [§FS-rhei-run-tui.1.5.5](rhei-run-tui.spec.md#155-live-actions-intervene-and-human-gate)) so the operator
 who makes the call types the reason on the move that finishes the ticket. They

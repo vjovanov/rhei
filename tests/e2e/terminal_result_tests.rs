@@ -304,13 +304,11 @@ fn run_treats_a_missing_result_as_a_missing_required_output() {
     );
 }
 
-/// The engine ended this work, so the engine says why: the exit code lands in
-/// the result file rather than an empty one. §FS-rhei-run.3
-#[test]
-fn a_run_failure_route_into_a_terminal_state_records_why() {
-    let dir = unique_temp_dir("terminal-result-run-failure");
-    let failing = write_exiting_agent(&dir, "failing-program.py", 3);
-    let machine = format!(
+/// The machine of the old `a_run_failure_route_into_a_terminal_state_records_why`,
+/// which asserted the engine narrated this edge: `build` exits 3 straight into
+/// a `final: true` state on an exact `exit_code: 3` match.
+fn exact_route_into_terminal_machine(command: &str) -> String {
+    format!(
         r#"name: failing-program
 version: 1
 states:
@@ -327,18 +325,82 @@ transitions:
   - from: build
     to: failed
     exit_code: 3
-"#,
-        command = fixture_command(&failing)
-    );
-    let plan = r#"# Rhei: Failing Program
+"#
+    )
+}
+
+const BUILD_PLAN: &str = r#"# Rhei: Failing Program
 
 ## Tasks
 
 ### Task 1: Build
 **State:** build
 "#;
-    let plan_path = write_fixture_file(&dir, "plan.rhei.md", plan);
-    let machine_path = write_fixture_file(&dir, "states.yaml", &machine);
+
+/// Which side owes the result on a declared route into a terminal state — the
+/// question the deleted assertion used to answer the other way round.
+///
+/// The exit fires an exact `exit_code:` edge, so it is the program choosing
+/// where the ticket goes, not the engine ending the work. The engine has
+/// nothing to say about an outcome it did not produce, so it writes nothing and
+/// the program owes the ticket's result: writing none stalls the move exactly
+/// as a silent exit-`0` worker's does.
+// §FS-rhei-programs.3.2 §FS-rhei-run.3 §FS-rhei-states.3.3
+#[test]
+fn a_declared_route_into_a_terminal_state_leaves_the_result_to_the_program() {
+    let dir = unique_temp_dir("terminal-result-declared-route");
+    let silent = write_exiting_agent(&dir, "failing-program.py", 3);
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", BUILD_PLAN);
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        &exact_route_into_terminal_machine(&fixture_command(&silent)),
+    );
+
+    let result = run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]);
+    assert!(
+        !result.status.success(),
+        "a run that cannot finish the only task exits non-zero\nstdout:\n{}\nstderr:\n{}",
+        result.stdout,
+        result.stderr
+    );
+    let combined = format!("{}{}", result.stdout, result.stderr);
+    assert!(
+        combined.contains("required outputs are missing"),
+        "the missing result takes the missing-output route; got:\n{combined}"
+    );
+    let expected = std::path::absolute(dir.join("runtime/results/plan.1.md"))
+        .unwrap_or_else(|_| dir.join("runtime/results/plan.1.md"));
+    assert!(
+        combined.contains(&format!("result ({})", expected.display())),
+        "the halt names the result path it checked; got:\n{combined}"
+    );
+    assert_task_state(&plan_path, &machine_path, "1", "build");
+
+    let recorded = fs::read_to_string(dir.join("runtime/results/plan.1.md")).unwrap_or_default();
+    assert!(
+        !recorded.contains("exited 3"),
+        "a declared route is not a subprocess failure; got:\n{recorded}"
+    );
+}
+
+/// The same edge, with the program answering for itself: the ticket finishes on
+/// the program's words and nothing of the engine's is appended beside them.
+// §FS-rhei-programs.2 §FS-rhei-programs.3.2 §FS-rhei-states.3.3
+#[test]
+fn a_declared_route_into_a_terminal_state_carries_the_programs_own_words() {
+    let dir = unique_temp_dir("terminal-result-declared-route-written");
+    let speaking = write_python_agent(
+        &dir,
+        "failing-program.py",
+        "result('## Result\\n\\nThe build is unfixable; handing it back.\\n')\nsys.exit(3)\n",
+    );
+    let plan_path = write_fixture_file(&dir, "plan.rhei.md", BUILD_PLAN);
+    let machine_path = write_fixture_file(
+        &dir,
+        "states.yaml",
+        &exact_route_into_terminal_machine(&fixture_command(&speaking)),
+    );
 
     assert_success(&run_cli("run", &plan_path, &machine_path, &["--no-tui", "--no-callbacks"]));
     assert_task_state(&plan_path, &machine_path, "1", "failed");
@@ -346,8 +408,12 @@ transitions:
     let recorded =
         fs::read_to_string(dir.join("runtime/results/plan.1.md")).expect("read result file");
     assert!(
-        recorded.contains("exited 3") && recorded.contains("build"),
-        "the failure route records the exit code and the state; got:\n{recorded}"
+        recorded.contains("handing it back"),
+        "the program's account is the ticket's result; got:\n{recorded}"
+    );
+    assert!(
+        !recorded.contains("exited 3"),
+        "nothing of the engine's is appended beside it; got:\n{recorded}"
     );
 }
 
