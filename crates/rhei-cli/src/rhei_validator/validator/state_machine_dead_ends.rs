@@ -81,11 +81,14 @@ fn state_can_reach_final<'a>(
 /// Name states in an error, bounded by the listing rule: past eight, name the
 /// first few and say how many remain. §FS-rhei-errors.1.3
 fn name_states(states: &[&str]) -> String {
+    // Past this many the listing stops being a listing, so it names the first
+    // few and defers to the command that prints them all.
+    const LIMIT: usize = 8;
     const SHOWN: usize = 5;
     let quoted = |names: &[&str]| {
         names.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>().join(", ")
     };
-    if states.len() <= 8 {
+    if states.len() <= LIMIT {
         quoted(states)
     } else {
         format!("{}, and {} more", quoted(&states[..SHOWN]), states.len() - SHOWN)
