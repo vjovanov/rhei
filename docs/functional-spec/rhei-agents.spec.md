@@ -829,7 +829,9 @@ must not be conflated.
 All three are evaluated after the process exits — and condition (3) selects its
 edge against the plan **as re-read after that exit**, not the copy the pass held
 when it spawned, so a child the invocation appended or cancelled counts toward
-the operands that selection reads ([§FS-rhei-supervision.4.1](rhei-supervision.spec.md#41-the-opendescendants-operand)). The skip test
+the operands that selection reads ([§FS-rhei-supervision.4.1](rhei-supervision.spec.md#41-the-opendescendants-operand)), while the edge
+itself still leaves the state the invocation ran in, not the state that re-read
+plan now shows the ticket in. The skip test
 below asks the same condition before anything has run, where the plan the pass
 holds is already the current one. If the state declares no
 `outputs:`, condition (2) is vacuously true. If the selected transition is
