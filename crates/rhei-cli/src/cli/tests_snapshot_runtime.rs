@@ -122,6 +122,8 @@ states:
 transitions:
   - from: pending
     to: done
+  - from: source
+    to: done
 "#,
         )
         .expect("write states");
@@ -450,6 +452,8 @@ states:
     final: true
 transitions:
   - from: pending
+    to: done
+  - from: source
     to: done
 "#,
         )
@@ -855,6 +859,8 @@ states:
 transitions:
   - from: pending
     to: done
+  - from: source
+    to: done
 "#,
         )
         .expect("write states");
@@ -1005,6 +1011,8 @@ states:
     final: true
 transitions:
   - from: pending
+    to: done
+  - from: source
     to: done
 "#,
         )

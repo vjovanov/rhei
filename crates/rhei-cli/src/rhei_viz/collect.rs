@@ -370,6 +370,9 @@ states:
     instructions: "Use the local machine."
   completed:
     final: true
+transitions:
+  - from: local-work
+    to: completed
 "#,
         )
         .unwrap();

@@ -161,6 +161,7 @@ transitions:
   - {{ from: build, to: completed, condition: visitCount < visits, on_leave: 'cli:{validate_command}' }}
   - {{ from: build, to: build, condition: visitCount < visits }}
   - {{ from: build, to: human-review, condition: visitCount >= visits }}
+  - {{ from: human-review, to: completed }}
 "#
     )
 }

@@ -339,6 +339,8 @@ transitions:
   - { from: fix, to: work }
   - { from: supervising, to: supervising }
   - { from: "*", to: completed }
+  - { from: supervising, to: completed }
+  - { from: fix, to: completed }
 "#,
         )
         .expect("machine should parse")

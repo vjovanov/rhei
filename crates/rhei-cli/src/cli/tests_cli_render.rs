@@ -225,7 +225,9 @@ states:
   done:
     description: done
     final: true
-transitions: []
+transitions:
+  - from: draft
+    to: done
 "#;
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("load");
         let rendered = render_state_machine_json(&machine).expect("render JSON");
@@ -717,6 +719,9 @@ states:
   done:
     description: done
     final: true
+transitions:
+  - from: review
+    to: done
 "#,
         )
         .expect("machine should parse");

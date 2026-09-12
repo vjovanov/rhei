@@ -799,6 +799,9 @@ states:
         path: runtime/reviews/{task_id}-{state}-{visit_count}-{target.slug}.md
   completed:
     final: true
+transitions:
+  - from: review
+    to: completed
 "#,
         )
         .expect("states load");
@@ -834,6 +837,9 @@ states:
         path: runtime/{target.slug}/{task_id}.md
   completed:
     final: true
+transitions:
+  - from: product-run
+    to: completed
 "#,
         )
         .expect("states load");

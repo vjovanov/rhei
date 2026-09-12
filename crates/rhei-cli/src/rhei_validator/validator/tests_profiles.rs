@@ -262,6 +262,8 @@ states:
 transitions:
   - from: pending
     to: completed
+  - from: review
+    to: completed
 profiles:
   default:
     initial: pending

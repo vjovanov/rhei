@@ -12,6 +12,9 @@ states:
     agent: codex
   completed:
     final: true
+transitions:
+  - from: pending
+    to: completed
 "#,
         )
         .expect("states load")
@@ -478,6 +481,9 @@ states:
     agent: codex
   completed:
     final: true
+transitions:
+  - from: review
+    to: completed
 "#,
         )
         .expect("states load");
@@ -513,6 +519,9 @@ states:
     target_locked: true
   completed:
     final: true
+transitions:
+  - from: locked
+    to: completed
 "#,
         )
         .expect("states load");
@@ -583,6 +592,9 @@ version: 1
 states:
   "in progress": { description: "with space" }
   done: { description: "done", final: true }
+transitions:
+  - from: "in progress"
+    to: done
 "#;
         let machine = StateMachine::from_yaml_str(yaml).expect("states load");
         let input = r#"# Rhei: Example
@@ -810,6 +822,9 @@ version: 1.0
 states:
   pending: { description: "not started" }
   completed: { description: "done", final: true }
+transitions:
+  - from: pending
+    to: completed
 "#,
         )
         .expect("states load");
@@ -849,6 +864,9 @@ version: 1.0
 states:
   pending: { description: "not started" }
   completed: { description: "done", final: true }
+transitions:
+  - from: pending
+    to: completed
 "#,
         )
         .expect("states load");

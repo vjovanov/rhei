@@ -165,6 +165,8 @@ states:
 transitions:
   - from: pending
     to: done
+  - from: source
+    to: done
 "#,
     )
     .expect("write states");

@@ -545,6 +545,8 @@ states:
 transitions:
   - from: pending
     to: completed
+  - from: waiting
+    to: completed
 "#;
     let plan = r#"# Rhei: Nested Agent Output
 
@@ -795,6 +797,12 @@ states:
         on: always
   completed:
     final: true
+transitions:
+  # `review` has a way out, so the machine loads; the condition is false on the
+  # first visit, so this run selects nothing — which is what the test is about.
+  - from: review
+    to: completed
+    condition: visitCount > 1
 "#;
     let plan = r#"# Rhei: Agent No Transition Snapshot
 
@@ -843,6 +851,9 @@ states:
         on: failure
   failed:
     final: true
+transitions:
+  - from: work
+    to: failed
 "#;
     let plan = r#"# Rhei: Agent Error Snapshot
 

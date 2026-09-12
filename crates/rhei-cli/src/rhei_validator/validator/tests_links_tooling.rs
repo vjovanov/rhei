@@ -306,6 +306,9 @@ states:
   completed:
     description: Done
     final: true
+transitions:
+  - from: pending
+    to: completed
 "#;
         let sm = StateMachine::from_yaml_str(yaml).expect("should accept both forms");
         let pending = sm.states.get("pending").expect("pending state");
@@ -336,6 +339,9 @@ states:
   completed:
     description: Done
     final: true
+transitions:
+  - from: pending
+    to: completed
 "#;
         let sm = StateMachine::from_yaml_str(yaml).expect("empty list is valid");
         let pending = sm.states.get("pending").expect("pending");
@@ -455,6 +461,9 @@ states:
   completed:
     description: Done
     final: true
+transitions:
+  - from: pending
+    to: completed
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid references");
     }
@@ -502,6 +511,8 @@ transitions:
   - from: pending
     to: tooling-missing
     mcp_unavailable: [postgres]
+  - from: tooling-missing
+    to: completed
 "#;
         StateMachine::from_yaml_str(yaml).expect("valid trigger shapes");
     }
