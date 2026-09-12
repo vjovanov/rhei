@@ -312,6 +312,17 @@ Supported constructs in v1:
   `!=`, `>=`, `>`) inside any expression
 - `~` for string concatenation
 
+That list is **closed**. Text that is not one of those constructs is not
+instantiation syntax, and is emitted verbatim however a general-purpose
+template engine would read it. In particular, **instantiation templates have no
+comment syntax**: `{# ... #}` is ordinary text. A bundled shell script's
+`${#ARR[@]}`, a Makefile, or any other file holding `{#` passes through
+unchanged, never aborts instantiation, and never loses the text that follows
+it. Because earlier versions read `{#` as a comment opener and cut everything up
+to the next `#}`, rendering a file that contains `{#` also warns (§5.3), so a
+template authored against that behavior is told its output has changed rather
+than changing silently.
+
 `range()` with arithmetic is what unrolls a *counted* structure at
 instantiation time — one task per round of a loop the plan has to name
 individually, because `**Prior:**`, `**Provides:**`, and `**Consumes:**` are
@@ -357,6 +368,46 @@ To emit a literal `{{` or `{%`, prefer MiniJinja raw blocks:
 ```
 
 For backward compatibility, `\{{` also emits a literal `{{` and the backslash is consumed during instantiation.
+
+`{#` needs no escape, because it is not syntax (§5): it is emitted as written
+whether or not a `#}` follows it anywhere in the file. Wrapping it in a raw
+block is harmless and remains supported, so a template that already fences a
+shell body in `{% raw %}` ... `{% endraw %}` keeps rendering exactly as it does
+today.
+
+### 5.3. Render Diagnostics
+
+Every diagnostic instantiation prints about a template's text names what is in
+that text. Help is derived from the failure that actually occurred, never
+assigned by the part of the renderer the failure passed through — the general
+rule is [§FS-rhei-errors.6](rhei-errors.spec.md#6-coverage), and this section is
+what it requires of instantiation:
+
+- A **parse failure** names the file, the opener that was never closed — `{{` or
+  `{%` — and the line that opener sits on, written together as `<path>:<line>`.
+  The line named is the opener's own, not the later position at which the parser
+  ran out of input. The remedy names the closing delimiter that opener wants and
+  offers `{% raw %}` ... `{% endraw %}` for braces that are meant to appear in
+  the output.
+- A **render failure** names the file, the expression that failed, and its line
+  in the same `<path>:<line>` form. When the expression names an input the
+  manifest does not declare, the remedy names that input, gives `{% raw %}` ...
+  `{% endraw %}` as the way to emit the expression literally instead, and says
+  how to list the inputs the template does declare.
+- Neither names a construct the file does not contain. A failure caused by an
+  unclosed `{%` is never reported as an invalid `{{ }}` expression, and no
+  instantiation diagnostic mentions comments, which are not syntax here (§5).
+- A `{% raw %}` ... `{% endraw %}` region is literal text and is never blamed:
+  an unclosed opener inside one is not a failure and is not reported as one.
+- Where no unclosed opener can be identified, the message falls back to the
+  position the underlying parser reported, and quotes that parser's own words
+  rather than contradicting them.
+
+Rendering a file whose text contains `{#` also emits one **warning** per file on
+stderr, naming the file and the line of the first occurrence and saying that the
+text is now emitted verbatim (§5). The warning is not a failure: instantiation
+proceeds and the exit code is unchanged, so `--dry-run` is the way to ask which
+files a template has that earlier versions silently cut.
 
 ## 6. CLI Commands
 
@@ -878,6 +929,7 @@ All `{{...}}` are resolved during instantiation. All `{...}` remain for runtime.
 | **Directory workspaces** | Templates can produce directory workspaces. The `tasks/` directory and `index.rhei.md` are resolved like any other template file. |
 | **`rhei validate`** | Runs automatically post-instantiation. Template authors can validate their templates with `rhei instantiate --dry-run`. |
 | **Program states** | Program states (`program` field) work in templates. Instantiation variables resolve in `program` strings, `program.command` arrays, `program.env` values, and `program.working_directory`. Runtime variables in those fields pass through to `rhei run`. |
+| **Bundled shell scripts and workflow fragments** | A script bundled in a template is rendered like any other text file and arrives with its permissions, executable bit included. Shell parameter expansion is not instantiation syntax and passes through verbatim, `${#ARR[@]}` included (§5). A GitHub Actions `${{ ... }}` *is* a `{{ ... }}` interpolation and is still read as one, so a workflow fragment that must keep its own expressions wraps them in `{% raw %}` ... `{% endraw %}`; where it does not, the failure names the line and the expression rather than the manifest (§5.3). |
 | **Skills** | The `rhei-plan-worker` skill works on instantiated plans identically to hand-authored plans. No skill changes required. |
 | **`install-skills`** | Unchanged. Templates are orthogonal to skill installation. |
 
