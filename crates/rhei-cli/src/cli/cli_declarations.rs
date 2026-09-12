@@ -527,7 +527,10 @@ enum Commands {
         /// Load input values from a YAML or JSON file (repeatable)
         #[arg(long, value_name = "FILE", add = ArgValueCompleter::new(complete_values_path))]
         values: Vec<PathBuf>,
-        /// Output directory
+        /// Output directory (default: <project>/<template-name>/ inside a Panta
+        /// project, else ./<template-name>/, where <template-name> is the
+        /// directory basename of the resolved template)
+        // §FS-rhei-templates.6.1 writes this help line out; the default is §FS-rhei-templates.6.2.
         #[arg(long, value_name = "PATH", add = ArgValueCompleter::new(complete_any_path))]
         output: Option<PathBuf>,
         /// Instantiate and immediately begin execution

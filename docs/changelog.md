@@ -227,6 +227,15 @@
   agent that declares no modes is still offered both ways out, dropping the
   brackets or declaring the mode. (PR #231)
 
+- **Both documents that describe `rhei instantiate --output` now name its
+  default.** The template-writer skill's `--output` row said only that the path
+  must not already exist, and `rhei instantiate --help` said only `Output
+  directory`, so neither reader could tell where a workspace lands when the flag
+  is omitted, nor which path the refusal was about. Both now carry
+  `<project>/<template-name>/` inside a Panta project, `./<template-name>/`
+  outside one, as the specification has always said. The behaviour is unchanged.
+  (PR #237)
+
 - The repository moved to the `agent-grounds` GitHub organization, along with
   `ephor`, `fissile` and `grund`, and every live reference now names it: the
   crate's `repository`, the four npm and Python package manifests, CI's
