@@ -28,7 +28,7 @@ Use this table when you know the job you want to model:
   - numeric and named task identifiers
   - `**Prior:**` dependencies across numeric and named tasks
   - fenced code block content inside a subtask
-  - default states from `docs/states.yaml`
+  - the built-in `rhei` states (the plan declares no `**States:**`)
 
 - `human-review-loop.rhei.md`
   Valid example using:

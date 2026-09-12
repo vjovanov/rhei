@@ -321,6 +321,14 @@
   sent to `poll.max_attempts:` rather than to a key that state cannot declare.
   Which transitions are permitted is unchanged. (PR #235)
 
+- **The documented state-machine placements are ones Rhei finds.** The
+  state-machine-writer spec and the bundled `rhei-state-machine-writer` and
+  `rhei-plan-writer` skills recommended locations under `docs/` and
+  `.agent-grounds/rhei/` that discovery has never searched. They now name the
+  plan's directory, the workspace or project root, and a rhei's own root, and
+  they say when `--state-machine` is needed. Discovery is unchanged. Re-run
+  `rhei install-skills` to refresh copied skills. (PR #239)
+
 ## 2. [0.4.1] - 2026-09-07
 
 - **Parallel refills preserve each task's requested execution identity.** When
