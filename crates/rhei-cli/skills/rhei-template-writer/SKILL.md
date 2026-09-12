@@ -241,7 +241,7 @@ Templates are resolved by `rhei instantiate <name>` in this order (first match w
 | `--values <file>` | The only sane way to pass `array` / `object` inputs (parsed as YAML/JSON). Always smoke-test structured inputs through this. |
 | `--set-file KEY=<path>` | Inject long text (briefs, descriptions) without shell-quoting hell. |
 | `--dry-run` | Render + validate into a scratch dir, write nothing. Catches rendering and validation errors. |
-| `--output <path>` | Defaults to `<project>/<template-name>/` inside a Panta project, else `./<template-name>/` ([§FS-rhei-templates.6.2](../../../../docs/functional-spec/rhei-templates.spec.md#62-instantiating-inside-a-panta-project)) — anywhere else and discovery never looks there, so instantiation reports success while `rhei list` still says the project has no tickets. Must **not** already exist (except under `--dry-run`); instantiation refuses to merge/overwrite. |
+| `--output <path>` | Defaults to `<project>/<template-name>/` inside a Panta project, else `./<template-name>/` ([§FS-rhei-templates.6.2](../../../../docs/functional-spec/rhei-templates.spec.md#62-instantiating-inside-a-panta-project)). Must **not** already exist (except under `--dry-run`); instantiation refuses to merge/overwrite. |
 | `--keep-on-error` | Keep the output dir when post-instantiation validation fails, so you can inspect the broken render. First move when an example won't validate. |
 | `--list-inputs` | Print the resolved input schema and exit — quick way to confirm the manifest parses. |
 | `--execute` | Instantiate then immediately `rhei run` (mutually exclusive with `--dry-run`). |
