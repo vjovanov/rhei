@@ -167,6 +167,21 @@ fn selected_forward_transition_from(
 type BeforeTransitionCallback<'a> =
     &'a mut dyn FnMut(&rhei_core::ast::Task, &str) -> MietteResult<()>;
 
+/// Where an auto-advance left a ticket, and whether the engine handled the
+/// selected edge itself rather than applying it.
+///
+/// The two are one answer because only the selection knows both: a poll state's
+/// self-loop schedules the next attempt instead of moving the ticket, which is
+/// what makes the attempt that selected it a wait. A caller reads the verdict
+/// here rather than deciding a second time from the state names.
+// §FS-rhei-states.2.2
+struct AutoAdvance {
+    to: String,
+    /// The selected edge was this state's poll self-loop, handled internally.
+    // §FS-rhei-states.2.2
+    poll_wait: bool,
+}
+
 fn try_auto_advance_task(
     input: &Path,
     machines: &ExecutionMachines,
@@ -174,7 +189,7 @@ fn try_auto_advance_task(
     current_state: &str,
     no_callbacks: bool,
     mut before_transition: Option<BeforeTransitionCallback<'_>>,
-) -> MietteResult<Option<String>> {
+) -> MietteResult<Option<AutoAdvance>> {
     // The advancing ticket's own machine and callback base govern it.
     // §DA-per-rhei-state-machines
     let machine = machines.for_task_str(task_id_str);
@@ -222,7 +237,7 @@ fn try_auto_advance_task(
         current_state,
         &to_state,
     )? {
-        return Ok(Some(to_state));
+        return Ok(Some(AutoAdvance { to: to_state, poll_wait: true }));
     }
 
     // Step 6: emit auto- and named-snapshots for this state exit, before the
@@ -284,5 +299,5 @@ fn try_auto_advance_task(
         no_callbacks,
     )?;
 
-    Ok(Some(effective_to))
+    Ok(Some(AutoAdvance { to: effective_to, poll_wait: false }))
 }

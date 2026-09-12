@@ -25,10 +25,9 @@ fn handle_parallel_program_completion(
         task_id_str,
         state_name,
         retry_outlook,
-        // Read off the finished process by the worker and left to this thread,
-        // which is the one that learns whether the attempt was a handled wait.
-        // It goes out when this function returns, by whichever of its paths.
-        // §FS-rhei-states.2.2
+        // Read off the finished process by the worker, left to the thread that
+        // learns whether the attempt was a handled wait, and emitted when this
+        // function returns by whichever of its paths. §FS-rhei-states.2.2
         mut release,
         result,
         slot: _,

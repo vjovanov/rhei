@@ -213,6 +213,10 @@ fn run_agent_worker_pool(
         let ParallelAgentCompletion {
             task_id_str,
             state_name,
+            // Read off the finished agent by the worker, left to the thread
+            // that learns whether the attempt was a handled wait, and emitted
+            // by whoever owns it last. §FS-rhei-states.2.2
+            release,
             resolved,
             log,
             snapshot_preload,
@@ -233,6 +237,10 @@ fn run_agent_worker_pool(
             // §FS-rhei-run.3.2: interrupted, so no transition fires and
             // the ticket keeps the state it was worked in.
             Ok(AgentSpawnOutcome { interrupted: true, .. }) => {
+                // Nothing below can change what this release says, and it
+                // must go out before the refill takes the slot back.
+                // §FS-rhei-run-tui.1.7
+                drop(release);
                 *progress.agents_spawned += 1;
                 run_warn!(
                     "{}",
@@ -244,6 +252,7 @@ fn run_agent_worker_pool(
                     ParallelAgentExit {
                         task_id_str,
                         state_name,
+                        release,
                         resolved,
                         log,
                         snapshot_preload,
@@ -265,6 +274,10 @@ fn run_agent_worker_pool(
                 )?;
             }
             Err(err) => {
+                // The spawn itself failed, so there is no exit to route and
+                // no verdict left to wait for. Out before the refill, as
+                // above. §FS-rhei-run-tui.1.7
+                drop(release);
                 if accounting_recorded {
                     let reloaded = load_plan(input)?;
                     if let Err(rollup_err) =

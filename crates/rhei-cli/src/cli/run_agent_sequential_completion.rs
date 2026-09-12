@@ -15,6 +15,10 @@ struct SequentialAgentCompletion<'a> {
     task_id_str: String,
     state_name: String,
     task: &'a rhei_core::ast::Task,
+    /// The slot release read off the finished agent, not emitted yet: a poll
+    /// state's self-loop makes the attempt a wait, and the transition that says
+    /// so is selected below. §FS-rhei-states.2.2
+    release: PendingSlotRelease,
     task_workspace_root: PathBuf,
     resolved: &'a ResolvedAgent,
     log: PathBuf,
@@ -56,6 +60,7 @@ fn handle_sequential_agent_completion(
         task_id_str,
         state_name,
         task,
+        mut release,
         task_workspace_root,
         resolved,
         log,
@@ -352,12 +357,18 @@ fn handle_sequential_agent_completion(
                         ),
                     };
                     match advance {
-                        Ok(Some(to_state)) => {
+                        Ok(Some(advance)) => {
+                            // The engine scheduled another attempt rather than
+                            // moving the ticket, so the attempt that selected
+                            // the edge is a wait. §FS-rhei-states.2.2
+                            if advance.poll_wait {
+                                release.waiting();
+                            }
                             run_info!(
                                 "  Task {} auto-advanced: '{}' -> '{}'",
                                 task_id_str,
                                 state_before,
-                                to_state
+                                advance.to
                             );
                             *progress.advanced_any = true;
                         }

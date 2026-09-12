@@ -168,6 +168,10 @@ impl DashboardState {
                     TaskOutcome::Cancelled => "cancelled".to_string(),
                     TaskOutcome::TimedOut => "timed out".to_string(),
                     TaskOutcome::Interrupted => "interrupted".to_string(),
+                    // Shown under the name the stream gave it rather than
+                    // rewritten to a word this build knows.
+                    // §FS-rhei-run-json.2.2
+                    TaskOutcome::Unrecognized(name) => name.clone(),
                 });
                 if from != to {
                     slot_state.transition = Some(format!("{from}->{to}"));

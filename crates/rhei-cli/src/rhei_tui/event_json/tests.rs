@@ -177,6 +177,43 @@ fn a_waiting_outcome_round_trips_and_carries_no_reason() {
     }
 }
 
+/// The rule that lets the vocabulary grow without moving `schema`: a reader
+/// that meets a word it does not know passes the record on wearing it, rather
+/// than rewriting the field to one it does. `rhei attach --json` decodes and
+/// re-encodes every record, so a rewrite here would reach the wire — an older
+/// rhei attached to a newer run would report its waits as completions, which is
+/// the misreport `waiting` was added to remove.
+// §FS-rhei-run-json.2.2
+#[test]
+fn an_outcome_this_build_does_not_know_survives_the_round_trip_unchanged() {
+    let record = json!({
+        "seq": 1,
+        "ts": "2025-08-22T12:03:22Z",
+        "event": "slot_released",
+        "slot": 0,
+        "task": "auth.1",
+        "from": "parking",
+        "to": "parking",
+        "log_path": "runtime/logs/auth.1-parking.log",
+        "outcome": "parked",
+        "exit_code": 75,
+        "duration_ms": 1,
+    });
+    let decoded = decode(&record.to_string()).expect("decode");
+    match &decoded.event {
+        RunEvent::SlotReleased { outcome, .. } => {
+            assert_eq!(*outcome, TaskOutcome::Unrecognized("parked".to_string()));
+        }
+        other => panic!("expected a released slot, got {other:?}"),
+    }
+
+    let re_encoded = encode(decoded.seq, &decoded.event, at(), None);
+    assert_eq!(re_encoded["outcome"], "parked", "the word the run wrote is the word passed on");
+    assert_eq!(re_encoded["exit_code"], 75, "every other field of the record is untouched");
+    assert_eq!(re_encoded["task"], "auth.1");
+    assert_eq!(re_encoded["log_path"], "runtime/logs/auth.1-parking.log");
+}
+
 #[test]
 fn agent_output_is_the_only_non_structural_event() {
     for event in every_variant() {

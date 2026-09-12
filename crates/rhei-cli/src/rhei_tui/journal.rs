@@ -108,6 +108,9 @@ impl EventSink for JournalSink {
                     TaskOutcome::Cancelled => "cancelled",
                     TaskOutcome::TimedOut => "timeout",
                     TaskOutcome::Interrupted => "interrupted",
+                    // Only a reader of someone else's stream holds one of
+                    // these; it is written as it was read. §FS-rhei-run-json.2.2
+                    TaskOutcome::Unrecognized(name) => name.as_str(),
                 };
                 let mut meta_parts: Vec<String> = Vec::new();
                 if let Some(code) = exit_code {

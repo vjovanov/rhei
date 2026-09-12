@@ -281,18 +281,24 @@ fn run_sequential_agent_invocation(
     let duration_ms = started_at.elapsed().as_millis() as u64;
     let finished_wall = SystemTime::now();
     let (outcome, exit_code) = slot_outcome(&spawn_result);
-    sink.emit(RunEvent::SlotReleased {
-        slot: 0,
-        task: task_id_str.clone(),
-        from: task.state.as_str().to_string(),
-        to: current_state.clone(),
-        log_path: log.clone(),
-        outcome,
-        finished_at: TuiInstant::now(),
-        wall_clock: finished_wall,
-        exit_code,
-        duration_ms,
-    });
+    // Held rather than emitted: whether this attempt was a handled wait is
+    // known only once the completion below selects its transition.
+    // §FS-rhei-states.2.2
+    let release = PendingSlotRelease::hold(
+        sink.clone(),
+        SlotRelease {
+            slot: 0,
+            task: task_id_str.clone(),
+            from: task.state.as_str().to_string(),
+            to: current_state.clone(),
+            log_path: log.clone(),
+            outcome,
+            finished_at: TuiInstant::now(),
+            wall_clock: finished_wall,
+            exit_code,
+            duration_ms,
+        },
+    );
     // §FS-rhei-cost-accounting.4: Extraction happens after agent exit.
     match record_agent_accounting_invocation(AgentAccountingInvocation {
         workspace_root: &task_workspace_root,
@@ -338,6 +344,7 @@ fn run_sequential_agent_invocation(
             task_id_str: task_id_str.clone(),
             state_name: current_state.clone(),
             task,
+            release,
             task_workspace_root,
             resolved,
             log,
