@@ -110,6 +110,12 @@ fn dead_end_reason(machine: &StateMachine, state: &str, allowed: Option<&HashSet
         // Every edge out of it exists and leads nowhere final: a chain or a
         // loop that is closed, rather than a state with no edge at all.
         let onward = states_reachable_from(machine, state, allowed);
+        if onward.is_empty() {
+            // Every counted edge re-reaches the state the walk started at, and
+            // `states_reachable_from` leaves that one out: there is nothing to
+            // list, and the loop itself is the whole reason.
+            return "every path out of it leads back to itself".to_string();
+        }
         return format!(
             "every path out of it leads only to {}, and none of those is final",
             name_states(&onward)
@@ -186,6 +192,27 @@ fn dead_end_message(machine: &StateMachine, stranded: &[&str]) -> String {
     message
 }
 
+/// The state on a path out of `state` whose own way out this profile narrows
+/// away: where the walk dies, and so where a repair belongs. It is not always
+/// `state` itself — a profile that excludes a final state two hops on leaves
+/// the entry state's edges perfectly good. `None` when no state on the path
+/// has an edge the profile excludes, which means the machine gives them none
+/// and widening `allowed` would repair nothing. §FS-rhei-states.8.2
+fn narrowed_away_at<'a>(
+    machine: &'a StateMachine,
+    state: &'a str,
+    allowed: &HashSet<&str>,
+) -> Option<&'a str> {
+    std::iter::once(state)
+        .chain(states_reachable_from(machine, state, Some(allowed)))
+        .find(|on_path| {
+            machine.transitions.iter().any(|rule| {
+                transition_leaves_state(machine, on_path, rule)
+                    && !allowed.contains(rule.to.0.as_str())
+            })
+        })
+}
+
 /// The same refusal at profile scope: the profile and the state it cannot
 /// leave, then why and the line to add. §FS-rhei-states.8.2
 fn profile_dead_end_message(
@@ -196,15 +223,22 @@ fn profile_dead_end_message(
 ) -> String {
     // Widening `allowed` only repairs a state the profile narrowed away from
     // its way out; where the machine itself gives it none, saying so would
-    // send the reader to the wrong file.
-    let narrowed = machine
-        .transitions
-        .iter()
-        .any(|rule| transition_leaves_state(machine, state, rule) && !allowed.contains(rule.to.0.as_str()));
-    let (widen, repair) = if narrowed {
-        ("Widen this profile's `allowed` to a state that reaches a final one, or ", dead_end_repair(state))
-    } else {
-        ("", capitalized(&dead_end_repair(state)))
+    // send the reader to the wrong file. Where the profile did narrow one
+    // away, the file to edit is still the profile's, but the state to name is
+    // the one the walk died at rather than the one it started from.
+    let (widen, repair) = match narrowed_away_at(machine, state, allowed) {
+        Some(at) if at == state => (
+            "Widen this profile's `allowed` to a state that reaches a final one, or ".to_string(),
+            dead_end_repair(state),
+        ),
+        Some(at) => (
+            format!(
+                "The path dies at '{at}', whose own edges leave `allowed`: widen this profile's \
+                 `allowed` to keep one of them, or "
+            ),
+            dead_end_repair(at),
+        ),
+        None => (String::new(), capitalized(&dead_end_repair(state))),
     };
     format!(
         "profile '{profile_name}' allows non-final state '{state}', but no path using only \

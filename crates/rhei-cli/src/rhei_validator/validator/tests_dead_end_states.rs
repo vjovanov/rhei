@@ -244,4 +244,86 @@
             assert!(err.contains("narrow"), "the error must name the profile: {err}");
             assert!(err.contains("pending"), "the error must name the state: {err}");
         }
+
+        // The profile cut the path two hops on, so `pending`'s own edge is fine
+        // and the repair belongs in the profile. Naming `pending` would send
+        // the reader to the machine file to add an edge it already has.
+        #[test]
+        fn names_the_state_a_profile_cut_off_rather_than_the_one_the_walk_began_at() {
+            let yaml = r#"
+    name: narrowed-downstream
+    version: 3.0
+    states:
+      pending: { description: Work }
+      review: { description: Inspect }
+      completed: { description: Done, final: true }
+      cancelled: { description: Abandoned, final: true }
+    transitions:
+      - from: pending
+        to: review
+      - from: review
+        to: completed
+    profiles:
+      narrow:
+        initial: pending
+        allowed: [pending, review, cancelled]
+    node_policy:
+      root: narrow
+      default: narrow
+    "#;
+
+            let err = dead_end_refusal(yaml, "profile 'narrow' narrows away 'completed'");
+
+            assert!(
+                err.contains("dies at 'review'"),
+                "the error must name where the walk died, not where it began: {err}"
+            );
+            assert!(
+                err.contains("from: review"),
+                "the edge to add belongs to the state the profile cut off: {err}"
+            );
+            assert!(
+                err.contains("`allowed`"),
+                "the repair is in the profile, so the error must offer to widen it: {err}"
+            );
+            assert!(
+                !err.contains("from: pending"),
+                "'pending' already has an edge; offering to add one sends the reader to the \
+                 wrong file: {err}"
+            );
+        }
+
+        // A self-loop re-reaches only the state the walk started at, which the
+        // reachability walk omits. The listing had nothing to join, so the
+        // error read "leads only to , and none of those is final".
+        #[test]
+        fn says_a_self_looping_state_leads_back_to_itself_rather_than_listing_nothing() {
+            let yaml = r#"
+    name: selfloop
+    version: 1.0
+    states:
+      pending: { description: Ready }
+      hold: { description: Loops on itself and nowhere else }
+      completed: { description: Done, final: true }
+    transitions:
+      - from: pending
+        to: hold
+      - from: hold
+        to: hold
+      - from: pending
+        to: completed
+    "#;
+
+            let err = dead_end_refusal(yaml, "'hold' only ever reaches itself");
+
+            assert!(
+                err.contains("leads back to itself"),
+                "the error must say the loop is the reason: {err}"
+            );
+            assert!(
+                !err.contains("leads only to ,"),
+                "the error must never print an empty listing: {err}"
+            );
+            assert!(err.contains("from: hold"), "the error must print the edge to add: {err}");
+        }
     }
