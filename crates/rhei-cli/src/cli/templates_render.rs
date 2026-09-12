@@ -1,8 +1,9 @@
     // The restricted instantiation environment and the round trip that keeps
     // text which is not syntax out of the parser's way — a responsibility apart
-    // from reading what the user passed, and a seam §AR-source-file-size.3
-    // names. The walk both halves share is in `templates_render_scan`, and what
-    // a template that will not render is told is in
+    // from reading what the user passed, a seam §AR-source-file-size.3 names.
+
+    // The walk both halves share is in `templates_render_scan`, and what a
+    // template that will not render is told is in
     // `templates_render_diagnostics`.
 
     /// Stands in for a text-level `{#` for as long as MiniJinja is looking at
