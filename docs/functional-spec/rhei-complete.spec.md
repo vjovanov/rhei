@@ -104,7 +104,7 @@ is a no-op, so a plain non-terminal `rhei transition` creates no result file.
 
 ### 3.1. State Transition Ledger
 
-Every task state transition is appended to one central file:
+Every task state **move** is appended to one central file:
 
 ```text
 runtime/state-transitions.log
@@ -119,6 +119,18 @@ Each line is deterministic and timestamp-free:
 This file is the source of truth for task state history across `rhei
 transition`, `rhei complete`, `rhei run`, callbacks, system transitions, and
 human-gate dashboard transitions.
+
+A **move** is a change of state, which is what every reader of this file already
+takes a line to mean: `rhei reset` recovers a ticket's authored state by
+rewinding along them ([§FS-rhei-reset.2.2](rhei-reset.spec.md#22-authored-state)) and `rhei viz` draws the path they
+record ([§FS-rhei-viz.4](rhei-viz.spec.md#4-surroundings-inspector)). One selected transition is therefore not a line here —
+a poll state's self-loop ([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)). `rhei run` handles it by
+scheduling the next attempt instead of applying it, the task stays in the state
+it was in, and nothing is appended. A machine that declares the self-loop is not
+declaring an edge this file will show being walked; it is granting the state
+permission to repeat. The attempts themselves are in the run event journal, one
+`start@`/`end@` pair each ([§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format)), which is where a reader
+counting waits looks.
 
 ### 3.2. Result File Format
 

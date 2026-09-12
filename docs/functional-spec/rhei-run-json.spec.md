@@ -79,8 +79,11 @@ or repurposing a field named here is a breaking change and moves `schema`
 | `agent_output` | A live agent output line (§2.3) | `slot`, `task`, `stream`, `line` |
 | `run_finished` | Once, when the run loop ends (§2.4) | `summary` |
 
-`outcome` is one of `completed`, `failed`, `cancelled`, `timeout`,
-`interrupted`, matching the journal vocabulary of [§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format). Paths
+`outcome` is one of `completed`, `failed`, `waiting`, `cancelled`, `timeout`,
+`interrupted`, matching the journal vocabulary of [§FS-rhei-run-tui.1.7](rhei-run-tui.spec.md#17-journal-format).
+`waiting` is emitted when the released invocation selected a poll state's
+self-loop, whatever its exit code — a handled wait, not a failure and not a
+finished state ([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)). Paths
 are workspace-relative when inside the workspace and absolute otherwise, as in
 the journal.
 
@@ -105,6 +108,17 @@ field named in §2.1 is removed or changes meaning. Adding a record kind or a
 field does not move it, so a consumer pinned to `schema: 1` keeps working
 across additive releases. A consumer that does not recognize the value should
 say so and stop rather than guess.
+
+Adding a **value** to an enumerated field of §2.1 does not move `schema` either
+— and here the reading rule is deliberately the opposite of the one above. A
+consumer that meets an `outcome` it does not know **carries it through**: prints
+it, stores it, passes it on, and keeps reading. The two unknowns are not the same
+kind of unknown. An unrecognized `schema` says the stream as a whole may not mean
+what the reader thinks it means, so stopping is the only safe answer; an
+unrecognized `outcome` is one field of one record whose every other field still
+means exactly what it says, and a reader that halts on it turns an additive
+release into an outage. `waiting` ([§FS-rhei-states.2.2](rhei-states.spec.md#22-semantics)) arrived this way,
+under `schema: 1`.
 
 ### 2.3. Agent Output
 
