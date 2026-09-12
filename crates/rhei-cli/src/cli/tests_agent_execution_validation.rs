@@ -488,7 +488,7 @@ for line in sys.stdin:
     fn validates_snapshot_operations_require_target_and_session_profile() {
         let settings = default_settings();
         let no_target = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&no_target, &settings);
         assert!(
@@ -497,7 +497,7 @@ for line in sys.stdin:
         );
 
         let no_layout = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: claude-code:anthropic:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: claude-code:anthropic:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&no_layout, &settings);
         assert!(
@@ -547,7 +547,7 @@ for line in sys.stdin:
             },
         );
         let machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: source\n    to: done\n  - from: pending\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&machine, &settings);
         assert!(
@@ -560,7 +560,7 @@ for line in sys.stdin:
     fn validates_snapshot_session_profiles_match_runtime_support() {
         let mut settings = default_settings();
         let emit_machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: pending\n    to: done\n",
         );
 
         settings.agents.insert(
@@ -609,7 +609,7 @@ for line in sys.stdin:
             },
         );
         let inherit_machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  source:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      emit:\n        name: build\n  pending:\n    description: x\n    target: fake:openai:model\n    snapshot:\n      inherit:\n        name: build\n        required: true\n        select:\n          state: source\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: source\n    to: done\n  - from: pending\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&inherit_machine, &settings);
         assert!(
@@ -639,7 +639,7 @@ for line in sys.stdin:
             },
         );
         let machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: emit\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&machine, &settings);
         assert!(
@@ -664,7 +664,7 @@ for line in sys.stdin:
             },
         );
         let machine = machine_with_states(
-            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\n",
+            "name: t\nversion: 1\nstates:\n  emit:\n    description: x\n    target: fixed:openai:model\n    snapshot:\n      emit:\n        name: build\n  done:\n    description: terminal\n    final: true\ntransitions:\n  - from: emit\n    to: done\n",
         );
         let errs = validate_machine_settings_references(&machine, &settings);
         assert!(

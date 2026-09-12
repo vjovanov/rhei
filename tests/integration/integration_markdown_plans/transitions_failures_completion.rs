@@ -444,6 +444,8 @@ transitions:
     on_leave: {callback}
   - from: pending
     to: in-progress
+  - from: in-progress
+    to: completed
 "#,
         callback = python_callback_yaml(
             "import json,sys;sys.stdout.write(json.dumps({'success': True, 'nextState': 'in-progress'}))"

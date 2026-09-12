@@ -383,7 +383,7 @@ transitions:
             "# Rhei: Gate\n\n## Tasks\n\n### Task 1: Review\n**State:** human-review\n\nReview.\n",
         )
         .expect("write plan");
-        let yaml = "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  rework:\n    description: back to work\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: rework\n  - from: human-review\n    to: completed\n";
+        let yaml = "name: test\nversion: 1\nstates:\n  human-review:\n    description: review\n    gating: true\n  rework:\n    description: back to work\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: human-review\n    to: rework\n  - from: human-review\n    to: completed\n  - from: rework\n    to: completed\n";
         fs::write(&states, yaml).expect("write states");
         let machine = rhei_validator::StateMachine::from_yaml_str(yaml).expect("machine");
         let callback_paths = resolve_callback_paths(Some(&states), &plan).expect("callbacks");
@@ -851,7 +851,7 @@ transitions:
 
     fn machine_with_tooling(state_yaml: &str) -> rhei_validator::StateMachine {
         let yaml = format!(
-            "name: tooling-test\nversion: 1\nstates:\n{state_yaml}\n  completed:\n    description: done\n    final: true\n"
+            "name: tooling-test\nversion: 1\nstates:\n{state_yaml}\n  completed:\n    description: done\n    final: true\ntransitions:\n  - from: pending\n    to: completed\n"
         );
         rhei_validator::StateMachine::from_yaml_str(&yaml).expect("valid state machine")
     }

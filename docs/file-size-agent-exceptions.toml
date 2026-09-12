@@ -192,7 +192,7 @@ path = "crates/rhei-cli/src/cli/tests_agent_execution_validation.rs"
 match = "exact"
 rules = ["source"]
 kind = "deferred"
-max_accepted = { value = 700, unit = "lines" }
+max_accepted = { value = 750, unit = "lines" }
 until = "Split by validation surface (env, args, transport) when new surfaces are added."
 reason = """
 Agent execution validation tests share spawn-environment fixtures.
@@ -509,4 +509,14 @@ max_accepted = { value = 600, unit = "lines" }
 until = "The machine-loading cases are split by the block they validate — models and targets, artifacts, template conditions — each beside the validator part that owns that block."
 reason = """
 The validator's rules are already split into parts by block; its tests are not, so this file grows with every one of them. The split follows the parts that exist, but sample_machine and its neighbours here are shared across blocks and have no home yet; giving them one is the step before any case can move.
+"""
+[[exceptions]]
+path = "crates/rhei-cli/src/cli/tests_complete_reset_tooling.rs"
+match = "exact"
+rules = ["source"]
+kind = "deferred"
+max_accepted = { value = 900, unit = "lines" }
+until = "The MCP and skills resolution cases below the divider at line 849 are an include-part of their own beside this one, with the machine and settings builders they need."
+reason = """
+Over budget before this change, which added no line to it. The file already carries its own seam - a divider separating the complete/reset plan-rewriting cases from the tooling resolution cases - but the second half cannot move until machine_with_tooling and settings_with move with it, and settings_with builds a RheiSettings the complete/reset half also reads. Naming that shared builder and giving it a home is the step before either half can leave.
 """
