@@ -32,7 +32,9 @@ mod templates {
     include!("cli/templates_project.rs");
     include!("cli/templates_discovery.rs");
     include!("cli/templates_inputs.rs");
+    include!("cli/templates_render_scan.rs");
     include!("cli/templates_render.rs");
+    include!("cli/templates_render_diagnostics.rs");
     include!("cli/templates_materialize.rs");
     include!("cli/templates_summary.rs");
 
