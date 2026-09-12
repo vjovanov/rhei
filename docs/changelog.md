@@ -26,6 +26,19 @@
   nothing; an id no rhei holds anywhere is still reported as unknown. Where
   records are written is unchanged. (PR #219)
 
+- **`runtime/run.log` no longer counts one agent invocation several times.**
+  Every usage report printed its own `accounting:` line, so an invocation whose
+  agent reported several turns wrote one running total per turn and then the
+  final figure. Summing the lines multiplied the run's cost: a 13-invocation run
+  read as $16.42 against the report's correct $8.51. An invocation that has a
+  cost now contributes exactly one line, carrying what its durable accounting
+  record says it cost, so the lines total to the same figure as
+  `runtime/run-report.md` and `rhei cost`. The line's text is unchanged. Given
+  up deliberately, and only on this surface: a reader tailing a detached run no
+  longer watches the figure rise while an agent is still working. The TUI cost
+  view, the browser dashboard and `rhei run --json` receive every report as
+  before. (PR #227)
+
 ### Changed
 
 - **A state machine with a state nothing can leave is now refused when it

@@ -622,11 +622,17 @@ pub struct UsageSummary {
     pub pricing_status: PricingStatus,
 }
 
+pub enum UsageReport {
+    Streamed,
+    Final,
+}
+
 pub enum RunEvent {
     UsageReported {
         slot: Option<Slot>,
         task: String,
         invocation_id: String,
+        report: UsageReport,
         usage: UsageSummary,
     }
 }
@@ -641,6 +647,46 @@ totals without assuming the slot is still active. [§FS-rhei-run-tui](rhei-run-t
 same dimension, cost, currency, coverage, and pricing-status shape as
 `UsageSummary`. It is `None` when the run did not enter agent mode or no
 accounting records were produced.
+
+### 7.1. Line-Oriented Frontends
+
+One invocation emits several `UsageReported` events, and `report` is what tells
+them apart.
+
+A **streamed** report is emitted while the agent is still running, once for each
+turn a streaming extractor recognizes. Each one is re-summed from the whole
+capture stream, so it is a running total for that invocation rather than one
+turn's slice: it rises toward the final figure and reads lower than the
+invocation cost until the last turn is in.
+
+A **final** report is emitted once, after the invocation's
+`runtime/accounting/invocations/` record is durably written, and carries what
+that record says the invocation cost. Exactly one final report exists for each
+invocation that reaches a durable record, and an invocation that ends before its
+record is written emits none.
+
+A frontend that keys a view by invocation id upserts both kinds, as §7 requires,
+and so shows spend rising while work is running.
+
+A frontend that **appends lines** instead cannot upsert, because a line once
+written cannot be revised. Such a frontend:
+
+- writes **at most one** accounting line per invocation;
+- writes it on the **final** report only, ignoring every streamed report;
+- carries that final report's value on the line, never a running total;
+- writes **no** line for an invocation with no priced cost, and none for an
+  invocation that never reaches a durable record.
+
+`StdoutSink` is the one such frontend, and it is what `--no-tui`, a non-TTY
+stdout, and the `runtime/run.log` of a headless run all write through
+[§FS-rhei-run-tui.1.3](rhei-run-tui.spec.md#13-sink-implementations). Totalling the accounting lines of a run therefore gives
+the same figure as `runtime/run-report.md` and `rhei cost`, and each figure is
+an invocation's own cost rather than a moment's reading of it.
+
+This is a deliberate trade against goal 5 above, and only on this surface: a
+reader tailing a line-oriented run no longer watches a figure rise. The TUI cost
+view, the browser dashboard, and `rhei run --json` receive every report and keep
+showing spend while work is running.
 
 ## 8. CLI Inspection
 

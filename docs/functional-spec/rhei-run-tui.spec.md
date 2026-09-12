@@ -101,6 +101,11 @@ pub enum PricingStatus {
     NotApplicable,
 }
 
+pub enum UsageReport {
+    Streamed,
+    Final,
+}
+
 pub struct UsageSummary {
     pub invocation_id: String,
     pub state: String,
@@ -183,6 +188,7 @@ pub enum RunEvent {
         slot: Option<Slot>,
         task: String,
         invocation_id: String,
+        report: UsageReport,
         usage: UsageSummary,
     },
 }
@@ -204,10 +210,12 @@ source-order task ids.
 
 `AgentOutput` is emitted for live agent subprocess traffic after the slot is assigned and before it is released. The event is line-oriented and identifies stdout vs stderr with `AgentStream`. Lines are ordered per stream; interleaving between stdout and stderr is best-effort because the two streams are read concurrently. The per-task log file remains the complete durable transcript; built-in structured result envelopes are decoded to their human-readable result text on both surfaces. [§FS-rhei-cost-accounting.4](rhei-cost-accounting.spec.md#4-extraction-flow)
 
-`UsageReported` is emitted after a `runtime/accounting/invocations/` record is
-durably written. It may arrive after `SlotReleased`; renderers update the
-matching task, slot history, and run totals without assuming the slot is still
-active. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
+`UsageReported` is emitted once for each turn a streaming extractor measures,
+and once more after the `runtime/accounting/invocations/` record is durably
+written; `report` says which of the two a given event is, and only the `Final`
+one carries the invocation's settled cost [§FS-rhei-cost-accounting.7.1](rhei-cost-accounting.spec.md#71-line-oriented-frontends). It may
+arrive after `SlotReleased`; renderers update the matching task, slot history,
+and run totals without assuming the slot is still active. [§FS-rhei-cost-accounting](rhei-cost-accounting.spec.md#fs-rhei-cost-accounting-rhei-cost-accounting)
 
 `TasksDeferred` is emitted when tasks were ready in the current pass but not scheduled because another task in the same non-`concurrent` state consumed the available same-state slot. Deferred tasks remain eligible for later passes.
 
@@ -234,7 +242,7 @@ The TUI keeps a bounded recent traffic buffer per active slot and may drop displ
 ### 1.3. Sink Implementations
 
 - **`JournalSink`** — opens `runtime/transitions.log` in append mode at construction and writes one line per `SlotAssigned` and one line per `SlotReleased`. Line format is fixed-column and tail-friendly (see below). The journal is always written, in every mode. State transitions themselves are recorded by command paths in `runtime/state-transitions.log`. [§FS-rhei-viz.4](rhei-viz.spec.md#4-surroundings-inspector)
-- **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY.
+- **`StdoutSink`** — reproduces the current `println!` output exactly. It is the default frontend when stdout is not a TTY, and so is what a headless run's `runtime/run.log` is written through. It appends lines rather than keying a view, so on usage it prints one accounting line per invocation, on the `Final` report only ([§FS-rhei-cost-accounting.7.1](rhei-cost-accounting.spec.md#71-line-oriented-frontends)).
 - **`JsonSink`** — writes one JSON object per event to stdout and nothing else, selected by `--json`. Its record contract is specified in [Run JSON Stream](rhei-run-json.spec.md); this document owns only its place among the frontends.
 - **`EventLogSink`** — appends the same records to `runtime/events.jsonl`, in every mode and whichever frontend is selected, so a separate process can follow a run it did not start ([§FS-rhei-run-json.3](rhei-run-json.spec.md#3-durable-event-log) [§FS-rhei-run-headless.5](rhei-run-headless.spec.md#5-rhei-attach)). Like the journal, its write failures are warnings, never aborts.
 - **`TuiSink`** — owns a bounded `crossbeam_channel` and a render thread. It implements `EventSink` by pushing events onto the channel; the render thread consumes events and updates the UI. The render thread maintains the shared run model — plan rows and the resolved machine supplied by the host, overlaid with runtime state from the event stream — and draws the Flow surface defined in §1.5.
